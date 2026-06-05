@@ -25,6 +25,7 @@ class ExchangeConfig:
     timeout_ms: int = 10000
     fallback_ids: tuple[str, ...] = ()
     symbol_exchanges: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    external_symbols: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,10 @@ def load_config(path: Path) -> AppConfig:
             symbol_exchanges={
                 str(symbol): tuple(str(item) for item in exchanges or [])
                 for symbol, exchanges in (exchange_raw.get("symbol_exchanges", {}) or {}).items()
+            },
+            external_symbols={
+                str(symbol): str(provider)
+                for symbol, provider in (exchange_raw.get("external_symbols", {}) or {}).items()
             },
         ),
         scanner=scanner,

@@ -1,9 +1,17 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 from tradebot.journal import JOURNAL_PENDING, JOURNAL_SKIPPED
 from tradebot.models import Alert, Candle
 from tradebot.web import create_app
-from tradebot.web.runtime import ActivityStore, AlertStore, BotController, DashboardLogHandler
+from tradebot.web.runtime import (
+    ActivityStore,
+    AlertStore,
+    BotController,
+    DashboardLogHandler,
+    _desk_session_projection,
+    _projection_aligns_with_bias,
+)
 
 
 def test_alert_store_serializes_alerts(tmp_path: Path):
@@ -81,6 +89,45 @@ def test_activity_store_keeps_current_search_context():
     assert snapshot["current"]["symbol"] == "BTC/USDT"
     assert snapshot["current"]["looking_for"] == ["HTF liquidity objective.", "Trigger sweep and reclaim."]
     assert snapshot["events"][0]["message"].startswith("Looking for")
+
+
+def test_session_projection_marks_session_raid_and_focus():
+    def candle(hour: int, minute: int, open_: float, high: float, low: float, close: float) -> Candle:
+        opened = datetime(2026, 6, 4, hour, minute, tzinfo=timezone.utc)
+        return Candle(int(opened.timestamp() * 1000), open_, high, low, close, 100)
+
+    candles = []
+    for hour in range(0, 5):
+        candles.append(candle(hour, 0, 105, 110, 100, 106))
+        candles.append(candle(hour, 15, 106, 109, 101, 105))
+    candles.append(candle(6, 0, 101, 104, 98, 102))
+    for hour in range(7, 10):
+        candles.append(candle(hour, 0, 106, 114, 102, 108))
+        candles.append(candle(hour, 15, 108, 112, 103, 107))
+    candles.append(candle(12, 30, 103, 106, 101, 105))
+    candles.append(candle(12, 45, 105, 107, 104, 106))
+
+    projection = _desk_session_projection("NAS100", candles)
+
+    assert projection is not None
+    assert projection["symbol"] == "NAS100"
+    assert projection["focus"] == "NY AM focus"
+    assert projection["timeframe"] == "15m"
+    assert projection["status"] == "bullish"
+    assert projection["current_session"] == "NY AM"
+    assert projection["taken_liquidity"] == "London low swept and reclaimed"
+    assert projection["likely_draw"]["direction"] == "bullish"
+    assert _projection_aligns_with_bias(projection, "bullish") is True
+    assert _projection_aligns_with_bias(projection, "bearish") is False
+
+
+def test_cloud_config_contains_nas100_external_symbol():
+    from tradebot.config import load_config
+
+    config = load_config(Path("config.cloud.yaml"))
+
+    assert "NAS100" in config.scanner.symbols
+    assert config.exchange.external_symbols["NAS100"] == "yahoo:NQ=F"
 
 
 def test_journal_auto_skips_pending_entries_without_active_alert(tmp_path: Path):

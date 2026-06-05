@@ -37,6 +37,8 @@ exchange:
     PAXG/USD:
       - kraken
       - bitstamp
+  external_symbols:
+    NAS100: yahoo:NQ=F
 
 scanner:
   timeframe: 15m
@@ -46,6 +48,7 @@ scanner:
   symbols:
     - BTC/USDT
     - ETH/USDT
+    - NAS100
     - EUR/USD
     - GBP/USD
     - PAXG/USD

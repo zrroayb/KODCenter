@@ -775,9 +775,21 @@ class BotController:
         evaluator = KodTurtleSoupEvaluator()
         posts: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
+        session_projections: list[dict[str, Any]] = []
+        session_projection_by_symbol: dict[str, dict[str, Any]] = {}
 
         for symbol in config.scanner.symbols:
             cache: dict[str, list[Any]] = {}
+            if _session_projection_enabled(symbol):
+                try:
+                    projection_candles = _cached_desk_candles(cache, exchange, symbol, "15m", 220, config.scanner.use_closed_candle)
+                    projection = _desk_session_projection(symbol, projection_candles)
+                    if projection:
+                        session_projections.append(projection)
+                        session_projection_by_symbol[symbol] = projection
+                except Exception as exc:
+                    logger.exception("desk session projection failed for %s", symbol)
+                    errors.append({"symbol": symbol, "profile": "session_projection", "message": str(exc)})
             for setup in config.setups:
                 if not setup.enabled or setup.type != "kod_turtle_soup":
                     continue
@@ -791,7 +803,19 @@ class BotController:
                         context = _cached_desk_candles(cache, exchange, symbol, context_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
                         trigger = _cached_desk_candles(cache, exchange, symbol, trigger_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
                         diagnostic = evaluator.diagnose(setup, profile, context, trigger)
-                        posts.append(_desk_post(symbol, setup.name, profile_name, context_tf, trigger_tf, context, trigger, diagnostic))
+                        posts.append(
+                            _desk_post(
+                                symbol,
+                                setup.name,
+                                profile_name,
+                                context_tf,
+                                trigger_tf,
+                                context,
+                                trigger,
+                                diagnostic,
+                                session_projection=session_projection_by_symbol.get(symbol),
+                            )
+                        )
                     except Exception as exc:
                         logger.exception("desk analysis failed for %s %s/%s", symbol, context_tf, trigger_tf)
                         errors.append({"symbol": symbol, "profile": profile_name, "message": str(exc)})
@@ -800,6 +824,7 @@ class BotController:
             "ok": True,
             "generated_at": _now(),
             "posts": posts,
+            "session_projection": session_projections,
             "errors": errors,
             "message": f"{len(posts)} desk thread(s) generated.",
             "cached": False,
@@ -901,6 +926,194 @@ def _cached_desk_candles(
     return candles
 
 
+SESSION_PROJECTION_SYMBOLS = {"NAS100", "EUR/USD", "GBP/USD"}
+SESSION_WINDOWS = [
+    {"key": "asia", "name": "Asia", "start": 0, "end": 5 * 60},
+    {"key": "london", "name": "London", "start": 7 * 60, "end": 10 * 60},
+    {"key": "ny_am", "name": "NY AM", "start": 12 * 60 + 30, "end": 16 * 60},
+    {"key": "ny_pm", "name": "NY PM", "start": 18 * 60, "end": 20 * 60},
+]
+
+
+def _session_projection_enabled(symbol: str) -> bool:
+    return symbol in SESSION_PROJECTION_SYMBOLS
+
+
+def _desk_session_projection(symbol: str, candles: list[Any]) -> dict[str, Any] | None:
+    if len(candles) < 12:
+        return None
+    latest = candles[-1]
+    latest_dt = datetime.fromtimestamp(latest.timestamp_ms / 1000, tz=timezone.utc)
+    ranges = _session_ranges(candles, latest_dt)
+    event = _latest_session_event(candles, ranges, latest.close)
+    direction = event.get("direction") if event else "neutral"
+    likely_draw = _session_likely_draw(direction, latest.close, ranges)
+    current_session, next_session = _current_next_session(latest_dt)
+    focus = "NY AM focus" if symbol == "NAS100" else "London / NY focus"
+    trigger = _projection_trigger_text(direction)
+    invalidation = _projection_invalidation_text(direction, event)
+    taken = event.get("label") if event else "No clean raid/reclaim yet"
+    return {
+        "symbol": symbol,
+        "focus": focus,
+        "timeframe": "15m",
+        "status": direction,
+        "current_session": current_session,
+        "next_session": next_session,
+        "latest_price": latest.close,
+        "ranges": ranges,
+        "taken_liquidity": taken,
+        "likely_draw": likely_draw,
+        "trigger": trigger,
+        "invalidation": invalidation,
+        "note": "Projection only. It must line up with KOD context before it matters.",
+    }
+
+
+def _session_ranges(candles: list[Any], latest_dt: datetime) -> list[dict[str, Any]]:
+    dates = sorted({datetime.fromtimestamp(candle.timestamp_ms / 1000, tz=timezone.utc).date() for candle in candles})
+    recent_dates = dates[-2:]
+    ranges: list[dict[str, Any]] = []
+    for window in SESSION_WINDOWS[:3]:
+        selected = None
+        for day in reversed(recent_dates):
+            items = [
+                candle
+                for candle in candles
+                if datetime.fromtimestamp(candle.timestamp_ms / 1000, tz=timezone.utc).date() == day
+                and window["start"] <= _minute_of_day(candle.timestamp_ms) < window["end"]
+            ]
+            if items:
+                selected = (day, items)
+                break
+        if not selected:
+            continue
+        day, items = selected
+        high = max(item.high for item in items)
+        low = min(item.low for item in items)
+        active = day == latest_dt.date() and window["start"] <= latest_dt.hour * 60 + latest_dt.minute < window["end"]
+        ranges.append(
+            {
+                "key": window["key"],
+                "name": window["name"],
+                "date": day.isoformat(),
+                "high": high,
+                "low": low,
+                "active": active,
+                "complete": not active,
+                "start_ms": _session_bound_ms(day, int(window["start"])),
+                "end_ms": _session_bound_ms(day, int(window["end"])),
+            }
+        )
+    return ranges
+
+
+def _latest_session_event(candles: list[Any], ranges: list[dict[str, Any]], latest_close: float) -> dict[str, Any] | None:
+    events: list[dict[str, Any]] = []
+    for item in ranges:
+        if not item.get("complete"):
+            continue
+        tail = [candle for candle in candles if candle.timestamp_ms >= int(item["end_ms"])]
+        if not tail:
+            continue
+        buy_sweep = max((candle.high for candle in tail), default=item["high"]) > float(item["high"])
+        sell_sweep = min((candle.low for candle in tail), default=item["low"]) < float(item["low"])
+        if buy_sweep and latest_close < float(item["high"]):
+            swept = max(tail, key=lambda candle: candle.high)
+            events.append(
+                {
+                    "direction": "bearish",
+                    "level": item["high"],
+                    "timestamp_ms": swept.timestamp_ms,
+                    "label": f"{item['name']} high swept and reclaimed",
+                    "invalid_level": item["high"],
+                }
+            )
+        if sell_sweep and latest_close > float(item["low"]):
+            swept = min(tail, key=lambda candle: candle.low)
+            events.append(
+                {
+                    "direction": "bullish",
+                    "level": item["low"],
+                    "timestamp_ms": swept.timestamp_ms,
+                    "label": f"{item['name']} low swept and reclaimed",
+                    "invalid_level": item["low"],
+                }
+            )
+    if not events:
+        return None
+    return sorted(events, key=lambda item: int(item["timestamp_ms"]), reverse=True)[0]
+
+
+def _session_likely_draw(direction: str, latest_close: float, ranges: list[dict[str, Any]]) -> dict[str, Any]:
+    if direction == "bullish":
+        candidates = [item for item in ranges if float(item["high"]) > latest_close]
+        key = "high"
+        fallback = max(ranges, key=lambda item: float(item["high"]), default=None)
+    elif direction == "bearish":
+        candidates = [item for item in ranges if float(item["low"]) < latest_close]
+        key = "low"
+        fallback = min(ranges, key=lambda item: float(item["low"]), default=None)
+    else:
+        return {"direction": "neutral", "label": "Wait for a session raid/reclaim", "level": None}
+    selected = min(candidates, key=lambda item: abs(float(item[key]) - latest_close), default=fallback)
+    if not selected:
+        return {"direction": direction, "label": "No clean draw", "level": None}
+    side = "high" if key == "high" else "low"
+    return {
+        "direction": direction,
+        "label": f"{selected['name']} {side}",
+        "level": selected[key],
+    }
+
+
+def _current_next_session(moment: datetime) -> tuple[str, str]:
+    minute = moment.hour * 60 + moment.minute
+    for index, window in enumerate(SESSION_WINDOWS):
+        if window["start"] <= minute < window["end"]:
+            next_window = SESSION_WINDOWS[(index + 1) % len(SESSION_WINDOWS)]
+            return str(window["name"]), str(next_window["name"])
+    for window in SESSION_WINDOWS:
+        if minute < window["start"]:
+            return "Between sessions", str(window["name"])
+    return "Between sessions", "Asia"
+
+
+def _projection_trigger_text(direction: str) -> str:
+    if direction == "bullish":
+        return "Wait for 15m bullish MSB or FVG/iFVG displacement."
+    if direction == "bearish":
+        return "Wait for 15m bearish MSB or FVG/iFVG displacement."
+    return "No entry. Wait for session high/low raid and reclaim first."
+
+
+def _projection_invalidation_text(direction: str, event: dict[str, Any] | None) -> str:
+    if not event:
+        return "No invalidation until a raid/reclaim forms."
+    level = _price_text(event.get("invalid_level"))
+    if direction == "bullish":
+        return f"Lose reclaimed low {level}."
+    if direction == "bearish":
+        return f"Reclaim above swept high {level}."
+    return "Wait."
+
+
+def _projection_aligns_with_bias(projection: dict[str, Any] | None, side: str) -> bool:
+    if not projection or side not in {"bullish", "bearish"}:
+        return False
+    return projection.get("status") == side
+
+
+def _minute_of_day(timestamp_ms: int) -> int:
+    moment = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return moment.hour * 60 + moment.minute
+
+
+def _session_bound_ms(day: Any, minute: int) -> int:
+    moment = datetime(day.year, day.month, day.day, minute // 60, minute % 60, tzinfo=timezone.utc)
+    return int(moment.timestamp() * 1000)
+
+
 def _desk_post(
     symbol: str,
     setup_name: str,
@@ -910,6 +1123,7 @@ def _desk_post(
     context: list[Any],
     trigger: list[Any],
     diagnostic: dict[str, Any],
+    session_projection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     direction = _desk_direction(diagnostic.get("directions") or [])
     latest = trigger[-1] if trigger else None
@@ -930,6 +1144,8 @@ def _desk_post(
     wait_text = _desk_wait_text(direction, diagnostic, trigger_tf)
     decision = _desk_decision(status, side, objective, raid, blockers, wait_text)
     priority_score = _desk_priority_score(status, grade, objective, raid, blockers, decision["checklist"])
+    if _projection_aligns_with_bias(session_projection, side):
+        priority_score = min(100, priority_score + 10)
     context_summary = _desk_context_summary(context_tf, trigger_tf, side, objective, raid, blockers)
     chart_url = _desk_chart_url(
         symbol,
@@ -975,6 +1191,7 @@ def _desk_post(
         "high_potential": _desk_high_potential(status, grade),
         "priority_score": priority_score,
         "priority_label": _desk_priority_label(priority_score, status),
+        "session_projection_alignment": _projection_aligns_with_bias(session_projection, side),
         "quality_action": quality.get("action") or "",
         "decision": decision,
         "context_summary": context_summary,

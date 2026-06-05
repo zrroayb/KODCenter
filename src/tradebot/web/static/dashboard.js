@@ -126,6 +126,7 @@ const els = {
   deskRefreshBtn: document.querySelector("#desk-refresh-btn"),
   deskMarketTabs: document.querySelector("#desk-market-tabs"),
   deskPriority: document.querySelector("#desk-priority"),
+  deskSessionProjection: document.querySelector("#desk-session-projection"),
 };
 
 const ALERT_MODAL_HTML = `
@@ -274,6 +275,7 @@ const MARKET_PROXY_LABELS = {
   "EUR/USD": { label: "EUR/USD", note: "Kraken EUR/USD" },
   "GBP/USD": { label: "GBP/USD", note: "Kraken GBP/USD" },
   "PAXG/USD": { label: "Gold proxy", note: "PAXG/USD · not spot XAUUSD" },
+  "NAS100": { label: "NAS100", note: "Yahoo NQ futures · NQ=F" },
 };
 
 function setBootError(message) {
@@ -1960,6 +1962,7 @@ function renderDesk(payload) {
     state.deskSymbol = focusPost?.symbol || symbols[0] || "";
   }
   renderDeskPriority(posts);
+  renderDeskSessionProjection(payload.session_projection || []);
   renderDeskMarkets(posts, symbols);
   const visiblePosts = state.deskSymbol
     ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
@@ -2037,6 +2040,62 @@ function renderDeskPriority(posts) {
           <span class="desk-priority-action">${escapeHtml(post.priority_label || deskStatusLabel(post.status))}</span>
         </button>`).join("")}
     </div>`;
+}
+
+function renderDeskSessionProjection(items) {
+  if (!els.deskSessionProjection) return;
+  const projections = items || [];
+  if (!projections.length) {
+    els.deskSessionProjection.classList.add("hidden");
+    els.deskSessionProjection.innerHTML = "";
+    return;
+  }
+  els.deskSessionProjection.classList.remove("hidden");
+  els.deskSessionProjection.innerHTML = `
+    <div class="desk-session-head">
+      <div>
+        <strong>Session Projection</strong>
+        <span>ICT session ranges · projection only, not a trade signal</span>
+      </div>
+    </div>
+    <div class="desk-session-grid">
+      ${projections.map(renderDeskSessionProjectionCard).join("")}
+    </div>`;
+}
+
+function renderDeskSessionProjectionCard(item) {
+  const status = item.status || "neutral";
+  const draw = item.likely_draw || {};
+  const ranges = item.ranges || [];
+  const rangesHtml = ranges.slice(0, 3).map((range) => `
+    <span>
+      ${escapeHtml(range.name || "")}
+      <b>${escapeHtml(fmtNum(range.high))} / ${escapeHtml(fmtNum(range.low))}</b>
+    </span>`).join("");
+  return `
+    <button type="button" class="desk-session-card desk-session-${escapeHtml(status)}" data-desk-symbol="${escapeHtml(item.symbol || "")}">
+      <div class="desk-session-top">
+        <span>${escapeHtml(marketDisplay(item.symbol))}</span>
+        <b>${escapeHtml(item.focus || "Session focus")}</b>
+      </div>
+      <div class="desk-session-state">
+        <strong>${escapeHtml(projectionStatusLabel(status))}</strong>
+        <small>${escapeHtml(item.current_session || "Between sessions")} · next ${escapeHtml(item.next_session || "—")}</small>
+      </div>
+      <div class="desk-session-ranges">${rangesHtml}</div>
+      <div class="desk-session-read">
+        <span>Taken <b>${escapeHtml(item.taken_liquidity || "—")}</b></span>
+        <span>Draw <b>${escapeHtml(draw.label || "Wait")} ${draw.level == null ? "" : escapeHtml(fmtNum(draw.level))}</b></span>
+        <span>Trigger <b>${escapeHtml(item.trigger || "Wait")}</b></span>
+        <span>Invalid <b>${escapeHtml(item.invalidation || "Wait")}</b></span>
+      </div>
+    </button>`;
+}
+
+function projectionStatusLabel(status) {
+  if (status === "bullish") return "Bullish draw";
+  if (status === "bearish") return "Bearish draw";
+  return "Neutral / wait";
 }
 
 function renderDeskPost(post) {
@@ -3181,7 +3240,7 @@ if (els.replayBtn) els.replayBtn.addEventListener("click", () => runReplay());
 if (els.deskRefreshBtn) els.deskRefreshBtn.addEventListener("click", () => refreshDesk({ force: true }));
 
 document.addEventListener("click", async (event) => {
-  const deskMarketBtn = event.target.closest(".desk-market-btn, .desk-priority-card");
+  const deskMarketBtn = event.target.closest(".desk-market-btn, .desk-priority-card, .desk-session-card");
   if (deskMarketBtn) {
     state.deskSymbol = deskMarketBtn.dataset.deskSymbol || "";
     if (state.deskPayload) renderDesk(state.deskPayload);
