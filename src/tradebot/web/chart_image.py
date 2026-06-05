@@ -166,7 +166,7 @@ def build_chart_svg(
             pad_r=pad_r,
             width=width,
         )
-        if trigger_mode == "raid_msb_or_fvg" and msb_level is not None:
+        if trigger_mode in {"raid_msb_or_fvg", "msb"} and msb_level is not None:
             _draw_pending_msb_level(
                 body,
                 visible,
@@ -202,8 +202,21 @@ def build_chart_svg(
 
     if not is_context:
         if trigger_mode == "raid_msb_or_fvg":
-            _draw_level(body, y_at, width, pad_l, pad_r, reference_level, "HTF raid level", "#7f1d1d", dash="8 5", label_side="left")
-            _draw_level(body, y_at, width, pad_l, pad_r, sweep_extreme, "raid extreme", "#ef4444", dash="5 4", label_side="left")
+            _draw_taken_reference(
+                body,
+                visible,
+                x_at,
+                y_at,
+                signal_index,
+                direction=direction,
+                reference_level=reference_level,
+                sweep_extreme=sweep_extreme,
+                pad_l=pad_l,
+                pad_r=pad_r,
+                width=width,
+                trigger_mode=trigger_mode,
+                msb_at_ms=msb_at_ms,
+            )
         else:
             _draw_taken_reference(
                 body,
@@ -527,6 +540,16 @@ def _draw_zones(
             f'<rect x="{x1:.2f}" y="{y1:.2f}" width="{max(0, x2 - x1):.2f}" height="{height:.2f}" '
             f'fill="{color}" opacity="{opacity}" stroke="{color}" stroke-width="1.2" stroke-dasharray="5 4"/>'
         )
+        edge_price = top_price if bullish else bottom_price if direction == "bearish" else (top_price + bottom_price) / 2
+        edge_y = y_at(edge_price)
+        edge_dash = "" if role == "trigger_zone" else "5 4"
+        edge_dash_attr = f' stroke-dasharray="{edge_dash}"' if edge_dash else ""
+        body.append(
+            f'<line x1="{x1:.2f}" y1="{edge_y:.2f}" x2="{x2:.2f}" y2="{edge_y:.2f}" '
+            f'stroke="{color}" stroke-width="2.0"{edge_dash_attr} opacity="0.92"/>'
+        )
+        edge_label = _zone_edge_label(zone)
+        _draw_inline_tag(body, width - pad_r - 12, edge_y + (20 if bullish else -18), edge_label, color, anchor="end")
         if role != "opposing_zone":
             label_y = y1 + min(max(16 + zone_order * 18, 16), max(18, height - 6))
             _draw_inline_tag(body, width - pad_r - 12, label_y, label, color, anchor="end")
@@ -569,7 +592,7 @@ def _draw_pending_msb_level(
     origin_label = "MSB swing high" if bullish else "MSB swing low"
     close_label = "need close above" if bullish else "need close below"
     _draw_inline_tag(body, min(width - pad_r - 140, max(pad_l + 118, x1 + 82)), y - 24 if bullish else y + 24, origin_label, "#1e3a8a")
-    _draw_inline_tag(body, width - pad_r - 12, y + 20 if bullish else y - 18, f"MSB to break: {close_label}", color, anchor="end")
+    _draw_inline_tag(body, width - pad_r - 12, y + 20 if bullish else y - 18, f"MSB break {'above' if bullish else 'below'}", color, anchor="end")
 
 
 def _draw_raid_footprint(
@@ -719,9 +742,9 @@ def _draw_taken_reference(
     trigger_mode: str = "",
     msb_at_ms: int | None = None,
 ) -> None:
-    if reference_level is None or signal_index is None or not candles:
+    if reference_level is None or not candles:
         return
-    signal_index = max(0, min(signal_index, len(candles) - 1))
+    signal_index = len(candles) - 1 if signal_index is None else max(0, min(signal_index, len(candles) - 1))
     bullish = direction == "bullish"
     is_msb = trigger_mode == "msb"
     is_raid = trigger_mode == "raid_msb_or_fvg"
@@ -751,10 +774,16 @@ def _draw_taken_reference(
         label = "MSB break level"
     else:
         label = "prior 20-bar low taken" if bullish else "prior 20-bar high taken"
+    right_x = width - pad_r
     body.append(
         f'<line x1="{x1:.2f}" y1="{y:.2f}" x2="{x2:.2f}" y2="{y:.2f}" '
         f'stroke="{color}" stroke-width="2.1" opacity="0.95"/>'
     )
+    if right_x - x2 > 8:
+        body.append(
+            f'<line x1="{x2:.2f}" y1="{y:.2f}" x2="{right_x:.2f}" y2="{y:.2f}" '
+            f'stroke="{color}" stroke-width="1.8" stroke-dasharray="9 5" opacity="0.82"/>'
+        )
     body.append(
         f'<circle cx="{x1:.2f}" cy="{y:.2f}" r="4" fill="#ffffff" stroke="{color}" stroke-width="1.6"/>'
         f'<circle cx="{x2:.2f}" cy="{y:.2f}" r="4" fill="{color}"/>'
@@ -764,6 +793,11 @@ def _draw_taken_reference(
         _draw_inline_tag(body, min(width - pad_r - 110, x1 + 8), y + (22 if bullish else -18), origin_label, "#1e3a8a")
     elif is_fvg_trigger:
         _draw_inline_tag(body, width - pad_r - 12, y - 18 if bullish else y + 20, label, color, anchor="end")
+    elif is_raid:
+        liq_label = "sell-side liq taken" if bullish else "buy-side liq taken"
+        _draw_inline_tag(body, min(width - pad_r - 205, max(pad_l + 8, x1 + 8)), y + (22 if bullish else -18), liq_label, color)
+        reclaim_label = "reclaim above" if bullish else "reclaim below"
+        _draw_inline_tag(body, width - pad_r - 12, y - 18 if bullish else y + 22, reclaim_label, color, anchor="end")
     elif not is_raid:
         label_x = min(width - pad_r - 170, max(pad_l + 170, (x1 + x2) / 2))
         label_y = y - 24 if bullish else y + 30
@@ -776,7 +810,9 @@ def _draw_taken_reference(
             f'<line x1="{x2:.2f}" y1="{y:.2f}" x2="{x2:.2f}" y2="{sy:.2f}" '
             f'stroke="#ef4444" stroke-width="2" stroke-dasharray="4 3"/>'
         )
-        if not (is_msb or is_raid or is_fvg_trigger):
+        if is_msb or is_raid or is_fvg_trigger:
+            _draw_inline_tag(body, min(width - pad_r - 150, x2 + 10), sy - 14 if bullish else sy + 18, "sweep / invalid", "#ef4444")
+        else:
             _draw_callout(body, min(width - pad_r - 140, max(pad_l + 140, x2 + 92)), sy, wick_label, "#ef4444", "#ffffff")
 
 
@@ -1404,6 +1440,21 @@ def _zone_label(zone: dict[str, Any]) -> str:
     if side:
         return f"{side} {kind}"
     return kind
+
+
+def _zone_edge_label(zone: dict[str, Any]) -> str:
+    kind = str(zone.get("kind") or "fvg").upper()
+    if kind == "IFVG":
+        kind = "iFVG"
+    role = str(zone.get("role") or "")
+    direction = str(zone.get("direction") or "")
+    if role == "opposing_zone":
+        return f"avoid {kind}"
+    if direction == "bullish":
+        return f"{kind} break/hold up"
+    if direction == "bearish":
+        return f"{kind} break/hold down"
+    return f"{kind} zone"
 
 
 def _context_setup_label(direction: str) -> str:

@@ -248,6 +248,7 @@ class KodTurtleSoupEvaluator:
                     "alignment": alignment.status,
                     "raid": _diagnostic_raid(raid),
                     "msb_level": float(msb["level"]) if msb is not None else None,
+                    "msb_timestamp_ms": int(msb["level_timestamp_ms"]) if msb is not None else None,
                     "displacement": {
                         "passed": bool(displacement["passed"]),
                         "body_ratio": round(float(displacement["body_ratio"]), 2),

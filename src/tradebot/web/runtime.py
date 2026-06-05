@@ -1141,6 +1141,7 @@ def _desk_post(
     grade = quality.get("grade") or "—"
     htf_target = objective.get("level")
     msb_level = direction.get("msb_level")
+    msb_at_ms = direction.get("msb_timestamp_ms")
     wait_text = _desk_wait_text(direction, diagnostic, trigger_tf)
     decision = _desk_decision(status, side, objective, raid, blockers, wait_text)
     priority_score = _desk_priority_score(status, grade, objective, raid, blockers, decision["checklist"])
@@ -1156,6 +1157,9 @@ def _desk_post(
         reference_level=(raid or {}).get("level"),
         sweep_extreme=(raid or {}).get("sweep_extreme"),
         msb_level=msb_level,
+        msb_at_ms=msb_at_ms,
+        fvg_zone=direction.get("fvg"),
+        ifvg_zone=direction.get("ifvg"),
         wait_text=wait_text,
         setup_label=f"{symbol} {profile_name}: {side or 'neutral'} scenario",
         decision=decision,
@@ -1465,7 +1469,11 @@ def _desk_chart_url(
     reference_level: Any = None,
     sweep_extreme: Any = None,
     msb_level: Any = None,
+    msb_at_ms: Any = None,
     htf_raid_at_ms: Any = None,
+    fvg_zone: Any = None,
+    ifvg_zone: Any = None,
+    opposing_zone: Any = None,
     wait_text: str = "",
     setup_label: str = "",
     decision: dict[str, Any] | None = None,
@@ -1481,7 +1489,7 @@ def _desk_chart_url(
         "direction": direction,
         "wait_text": wait_text,
         "setup_label": setup_label,
-        "trigger_mode": "raid_msb_or_fvg" if role == "trigger" else "",
+        "trigger_mode": _desk_trigger_mode(role, reference_level, msb_level, fvg_zone, ifvg_zone),
         "decision_status": decision.get("status") or "",
         "decision_label": decision.get("label") or "",
         "decision_subtitle": decision.get("subtitle") or "",
@@ -1500,11 +1508,42 @@ def _desk_chart_url(
         "sweep_extreme": sweep_extreme,
         "raid_extreme": sweep_extreme,
         "msb_level": msb_level,
+        "msb_at_ms": msb_at_ms,
         "htf_raid_at_ms": htf_raid_at_ms,
     }.items():
         if value not in (None, ""):
             params[key] = value
+    _add_zone_query_params(params, "fvg_zone", fvg_zone)
+    _add_zone_query_params(params, "ifvg_zone", ifvg_zone)
+    _add_zone_query_params(params, "opposing_zone", opposing_zone)
     return f"/api/chart/png?{urlencode(params)}"
+
+
+def _desk_trigger_mode(role: str, reference_level: Any, msb_level: Any, fvg_zone: Any, ifvg_zone: Any) -> str:
+    if role != "trigger":
+        return ""
+    if reference_level not in (None, ""):
+        return "raid_msb_or_fvg"
+    if msb_level not in (None, ""):
+        return "msb"
+    if ifvg_zone:
+        return "ifvg"
+    if fvg_zone:
+        return "fvg"
+    return ""
+
+
+def _add_zone_query_params(params: dict[str, Any], prefix: str, zone: Any) -> None:
+    if not isinstance(zone, dict):
+        return
+    low = zone.get("low")
+    high = zone.get("high")
+    if low in (None, "") or high in (None, ""):
+        return
+    params[f"{prefix}_low"] = low
+    params[f"{prefix}_high"] = high
+    params[f"{prefix}_kind"] = zone.get("kind") or ""
+    params[f"{prefix}_direction"] = zone.get("direction") or ""
 
 
 def _price_text(value: Any) -> str:

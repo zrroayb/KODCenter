@@ -178,6 +178,7 @@ def test_chart_svg_draws_trigger_imbalance_and_precise_prices():
 
     assert "O 1.1600" in svg
     assert "trigger FVG" in svg
+    assert "FVG break/hold up" in svg
 
 
 def test_raid_forming_chart_draws_pending_msb_level():
@@ -202,9 +203,33 @@ def test_raid_forming_chart_draws_pending_msb_level():
         title="ETH/USDT · 1h",
     )
 
-    assert "HTF raid level" in svg
+    assert "sell-side liq taken" in svg
+    assert "reclaim above" in svg
+    assert "sweep / invalid" in svg
     assert "MSB swing high" in svg
-    assert "MSB to break: need close above" in svg
+    assert "MSB break above" in svg
+
+
+def test_raid_chart_without_signal_time_still_marks_taken_liquidity():
+    candles = [
+        {"t": i * 3_600_000, "o": 100, "h": 104 + (i % 3), "l": 97, "c": 101}
+        for i in range(30)
+    ]
+    candles[10]["l"] = 95
+    candles[-1]["l"] = 94
+
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        reference_level=95,
+        sweep_extreme=94,
+        trigger_mode="raid_msb_or_fvg",
+        title="ETH/USDT · 1h",
+    )
+
+    assert "sell-side liq taken" in svg
+    assert "reclaim above" in svg
 
 
 def test_context_chart_marks_htf_raid_candle():

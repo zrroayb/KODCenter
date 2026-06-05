@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from tradebot.journal import JOURNAL_PENDING, JOURNAL_SKIPPED
 from tradebot.models import Alert, Candle
@@ -9,6 +10,7 @@ from tradebot.web.runtime import (
     AlertStore,
     BotController,
     DashboardLogHandler,
+    _desk_chart_url,
     _desk_session_projection,
     _projection_aligns_with_bias,
 )
@@ -128,6 +130,28 @@ def test_cloud_config_contains_nas100_external_symbol():
 
     assert "NAS100" in config.scanner.symbols
     assert config.exchange.external_symbols["NAS100"] == "yahoo:NQ=F"
+
+
+def test_desk_chart_url_carries_structure_and_fvg_annotations():
+    url = _desk_chart_url(
+        "ETH/USDT",
+        "1h",
+        1_700_000_000_000,
+        "bullish",
+        reference_level=95,
+        sweep_extreme=94,
+        msb_level=108,
+        msb_at_ms=1_699_990_000_000,
+        fvg_zone={"low": 101, "high": 103, "kind": "fvg", "direction": "bullish"},
+    )
+
+    query = parse_qs(urlparse(url).query)
+
+    assert query["trigger_mode"] == ["raid_msb_or_fvg"]
+    assert query["msb_at_ms"] == ["1699990000000"]
+    assert query["fvg_zone_low"] == ["101"]
+    assert query["fvg_zone_high"] == ["103"]
+    assert query["fvg_zone_direction"] == ["bullish"]
 
 
 def test_journal_auto_skips_pending_entries_without_active_alert(tmp_path: Path):
