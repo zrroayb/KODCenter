@@ -489,6 +489,7 @@ class BotController:
             decision_label=str(annotations.get("decision_label") or ""),
             decision_subtitle=str(annotations.get("decision_subtitle") or ""),
             checklist=annotations.get("checklist") or None,
+            framework=self._framework_summary(self._cached_analysis(symbol)),
         )
 
     def session_chart_png(self, symbol: str) -> str:
@@ -572,14 +573,30 @@ class BotController:
             "weekly_bias": analysis.get("weekly_bias"),
             "daily_bias": analysis.get("daily_bias"),
             "h4_bias": analysis.get("4h_bias"),
+            "one_h_bias": analysis.get("1h_bias"),
+            "m15_bias": analysis.get("15m_bias"),
+            "timeframes": analysis.get("timeframes") or {},
             "market_structure": analysis.get("market_structure"),
+            "dealing_range": analysis.get("dealing_range") or {},
+            "reference_levels": analysis.get("reference_levels") or {},
             "session": analysis.get("current_session"),
             "killzone": analysis.get("current_killzone"),
             "po3_phase": analysis.get("po3_phase"),
+            "po3": analysis.get("po3") or {},
             "liquidity_objective": analysis.get("liquidity_objective"),
+            "liquidity_map": analysis.get("liquidity_map") or [],
+            "liquidity_ranking": analysis.get("liquidity_ranking") or analysis.get("liquidity_map") or [],
+            "latest_sweep": analysis.get("latest_sweep"),
+            "sweeps": analysis.get("sweeps") or [],
+            "displacement": analysis.get("displacement") or {},
             "mss": analysis.get("mss"),
+            "mss_detail": analysis.get("mss_detail") or {},
             "choch": analysis.get("choch"),
-            "smt_signal": analysis.get("smt_signal"),
+            "choch_detail": analysis.get("choch_detail") or {},
+            "fvg": analysis.get("fvg") or [],
+            "order_blocks": analysis.get("order_blocks") or [],
+            "breaker_blocks": analysis.get("breaker_blocks") or [],
+            "mitigation_blocks": analysis.get("mitigation_blocks") or [],
             "grade": analysis.get("trade_grade"),
             "score": analysis.get("probability_score"),
             "decision": analysis.get("trade_decision"),
@@ -591,7 +608,9 @@ class BotController:
                 "target": crt.get("target"),
                 "rr": crt.get("rr"),
             },
+            "risk_notes": (analysis.get("risk_notes") or [])[:3],
             "reasoning": (analysis.get("reasoning") or [])[:3],
+            "meta": analysis.get("meta") or {},
         }
 
     def _fetch_chart_candles(
@@ -1641,14 +1660,7 @@ def _desk_chart_url(
         "setup_label": setup_label,
         "trigger_mode": _desk_trigger_mode(role, reference_level, msb_level, fvg_zone, ifvg_zone),
         "decision_status": decision.get("status") or "",
-        "decision_label": decision.get("label") or "",
-        "decision_subtitle": decision.get("subtitle") or "",
     }
-    for item in decision.get("checklist") or []:
-        key = item.get("key")
-        status = item.get("status")
-        if key and status:
-            params[f"check_{key}"] = status
     if at_ms is not None:
         params["at"] = int(at_ms)
     for key, value in {

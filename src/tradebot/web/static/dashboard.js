@@ -1862,7 +1862,6 @@ function frameworkModalHtml(alert) {
     ["PO3 phase", fw.po3_phase],
     ["MSS / CHOCH", `${fw.mss || "none"} · ${fw.choch || "none"}`],
     ["Draw on liquidity", fw.liquidity_objective],
-    ["SMT", fw.smt_signal],
   ].filter(([, v]) => v && v !== "unknown");
 
   const crt = fw.crt || {};
@@ -1912,6 +1911,354 @@ function frameworkStripHtml(alert) {
       </div>
       <div class="fw-chips">${chips.join("")}</div>
     </div>`;
+}
+
+function fwScoreNumber(fw) {
+  const value = parseFloat(String(fw?.score || "").replace("%", ""));
+  return Number.isFinite(value) ? value : null;
+}
+
+function normalizeBias(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("strong bullish")) return "strong bullish";
+  if (text.includes("strong bearish")) return "strong bearish";
+  if (text.includes("bull")) return "bullish";
+  if (text.includes("bear")) return "bearish";
+  if (text.includes("pullback")) return "pullback";
+  if (text.includes("expansion")) return "expansion";
+  if (text.includes("consolidation") || text.includes("compression")) return "consolidation";
+  if (text.includes("neutral") || text.includes("unavailable")) return "neutral";
+  return text || "neutral";
+}
+
+function biasClass(value) {
+  const bias = normalizeBias(value);
+  if (bias.includes("bullish")) return "bullish";
+  if (bias.includes("bearish")) return "bearish";
+  if (bias.includes("pullback") || bias.includes("mixed")) return "pullback";
+  if (bias.includes("expansion")) return "expansion";
+  if (bias.includes("consolidation")) return "consolidation";
+  return "neutral";
+}
+
+function directionGlyph(value) {
+  const cls = biasClass(value);
+  if (cls === "bullish") return "UP";
+  if (cls === "bearish") return "DN";
+  if (cls === "pullback") return "PB";
+  if (cls === "expansion") return "EX";
+  if (cls === "consolidation") return "CO";
+  return "NT";
+}
+
+function frameworkTf(fw, tf) {
+  const map = fw?.timeframes || {};
+  const direct = map[tf] || {};
+  const fallback = {
+    "1d": fw?.daily_bias,
+    "4h": fw?.h4_bias,
+    "1h": fw?.one_h_bias,
+    "15m": fw?.m15_bias,
+  };
+  return {
+    bias: direct.bias || fallback[tf] || "neutral",
+    structure: direct.structure || {},
+    pd: direct.pd || {},
+  };
+}
+
+function shortStructureLabel(item) {
+  const structure = item?.structure || {};
+  const pattern = String(structure.pattern || structure.trend || item?.bias || "neutral");
+  if (pattern.includes("HH+HL")) return "HH/HL";
+  if (pattern.includes("LH+LL")) return "LH/LL";
+  if (pattern.includes("HH+LL")) return "EXP";
+  if (pattern.toLowerCase().includes("compression")) return "COMP";
+  return titleCase(pattern).slice(0, 10);
+}
+
+function mtfStructureChipsHtml(fw) {
+  const frames = [
+    ["D1", "1d"],
+    ["H4", "4h"],
+    ["H1", "1h"],
+    ["M15", "15m"],
+  ];
+  return frames.map(([label, key]) => {
+    const item = frameworkTf(fw, key);
+    const cls = biasClass(item.bias);
+    return `
+      <span class="mtf-chip ${cls}" title="${escapeHtml(label)} structure: ${escapeHtml(shortStructureLabel(item))}">
+        <b>${escapeHtml(label)}</b>
+        <i>${escapeHtml(directionGlyph(item.bias))}</i>
+        <em>${escapeHtml(shortStructureLabel(item))}</em>
+      </span>`;
+  }).join("");
+}
+
+function marketBiasBarHtml(post) {
+  const fw = post?.framework || {};
+  const overall = fw.macro_bias || titleCase(post?.bias || "Neutral");
+  const cls = biasClass(overall);
+  return `
+    <div class="market-bias-bar ${cls}">
+      <div class="bias-read">
+        <span>Overall Bias</span>
+        <strong>${escapeHtml(overall)}</strong>
+      </div>
+      <div class="mtf-structure">${mtfStructureChipsHtml(fw)}</div>
+    </div>`;
+}
+
+function normalizeTradeDecision(post) {
+  const fw = post?.framework || {};
+  const raw = String(fw.decision || post?.decision?.label || post?.status || "WAIT").toUpperCase();
+  const subtitle = post?.decision?.subtitle || post?.what_now || "";
+  if (raw.includes("NO TRADE") || post?.status === "blocked") {
+    return { type: "no-trade", label: "NO TRADE", subtitle: shortTacticalText(subtitle || "Wait for cleaner conditions") };
+  }
+  if (raw.includes("LONG")) {
+    return { type: "long", label: "LONG BIAS", subtitle: shortTacticalText(subtitle || "Entry and target mapped") };
+  }
+  if (raw.includes("SHORT")) {
+    return { type: "short", label: "SHORT BIAS", subtitle: shortTacticalText(subtitle || "Entry and target mapped") };
+  }
+  if (raw.includes("READY")) {
+    return { type: post?.bias === "bearish" ? "short" : "long", label: `${directionLabel(post?.bias).toUpperCase()} BIAS`, subtitle: "Plan valid" };
+  }
+  return { type: "wait", label: "WAIT", subtitle: shortTacticalText(subtitle || "Trigger not ready") };
+}
+
+function shortTacticalText(text) {
+  const clean = String(text || "").replace(/^Manual execution only\.\s*/i, "").trim();
+  if (!clean) return "";
+  return clean.length > 54 ? `${clean.slice(0, 53).trim()}...` : clean;
+}
+
+function primaryObjective(post) {
+  const fw = post?.framework || {};
+  const text = fw.liquidity_objective && fw.liquidity_objective !== "none"
+    ? fw.liquidity_objective
+    : post?.objective?.source && post?.objective?.level != null
+    ? `${post.objective.source} @ ${fmtNum(post.objective.level)}`
+    : "No clean draw";
+  return text;
+}
+
+function liquidityLabel(source) {
+  const raw = String(source || "").trim();
+  const upper = raw.toUpperCase();
+  if (upper === "BUY-SIDE LIQUIDITY") return "BSL";
+  if (upper === "SELL-SIDE LIQUIDITY") return "SSL";
+  if (upper === "EQUAL HIGHS") return "EQH";
+  if (upper === "EQUAL LOWS") return "EQL";
+  if (["PDH", "PDL", "PWH", "PWL", "PMH", "PML"].includes(upper)) return upper;
+  return raw || "Liquidity";
+}
+
+function objectiveLevelFromText(text) {
+  const match = String(text || "").replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function liquidityStatus(pool, objectiveLevel) {
+  const level = Number(pool?.level);
+  if (Number.isFinite(level) && Number.isFinite(objectiveLevel) && Math.abs(level - objectiveLevel) <= Math.max(Math.abs(level), 1) * 0.0005) {
+    return "active";
+  }
+  const dist = Number(pool?.distance_pct);
+  if (Number.isFinite(dist)) {
+    if (pool?.side === "buy" && dist < 0) return "taken";
+    if (pool?.side === "sell" && dist > 0) return "taken";
+  }
+  return "pending";
+}
+
+function liquidityRoadmapHtml(post) {
+  const fw = post?.framework || {};
+  const objective = primaryObjective(post);
+  const objectiveLevel = objectiveLevelFromText(objective);
+  const pools = (fw.liquidity_ranking || fw.liquidity_map || []).slice(0, 5);
+  const items = pools.map((pool, index) => {
+    const status = liquidityStatus(pool, objectiveLevel);
+    const label = liquidityLabel(pool.source);
+    const level = pool.level != null ? fmtNum(pool.level) : "";
+    return `
+      <li class="${status}">
+        <span class="roadmap-step">${index + 1}</span>
+        <div>
+          <strong>${escapeHtml(label)}</strong>
+          <small>${escapeHtml(pool.strength || "")}${level ? ` · ${escapeHtml(level)}` : ""}</small>
+        </div>
+        <b>${status === "taken" ? "TAKEN" : status === "active" ? "ACTIVE" : "PENDING"}</b>
+      </li>`;
+  }).join("");
+  return `
+    <aside class="liquidity-roadmap" aria-label="Liquidity roadmap">
+      <div class="roadmap-head">
+        <span>Liquidity Roadmap</span>
+        <strong>${escapeHtml(liquidityLabel(objective.split("@")[0]))}</strong>
+      </div>
+      <ol>${items || `<li class="pending"><span class="roadmap-step">1</span><div><strong>No mapped pool</strong><small>Waiting for draw</small></div><b>WAIT</b></li>`}</ol>
+    </aside>`;
+}
+
+function po3LifecycleHtml(fw) {
+  const active = String(fw?.po3_phase || "unknown").toLowerCase();
+  const phases = ["Accumulation", "Manipulation", "Distribution"];
+  const activeIndex = phases.findIndex((phase) => phase.toLowerCase() === active);
+  return `
+    <div class="po3-life" aria-label="PO3 lifecycle">
+      ${phases.map((phase, index) => {
+        const status = activeIndex < 0 ? "pending" : index < activeIndex ? "done" : index === activeIndex ? "active" : "pending";
+        return `<span class="${status}"><b>${escapeHtml(phase)}</b><em>${status === "done" ? "OK" : status === "active" ? "ACTIVE" : "PENDING"}</em></span>`;
+      }).join("")}
+    </div>`;
+}
+
+function setupGradeHtml(fw, fallbackGrade = "") {
+  const grade = fw?.grade || fallbackGrade || "NO TRADE";
+  const score = fwScoreNumber(fw);
+  const scoreText = score != null ? ` · ${score}%` : "";
+  return `<span class="setup-grade-xl ${frameworkGradeClass(grade)}">${escapeHtml(grade)}${escapeHtml(scoreText)}</span>`;
+}
+
+function floatingSetupCardHtml(post) {
+  const fw = post?.framework || {};
+  const crt = fw.crt || {};
+  const decision = normalizeTradeDecision(post);
+  const hasSetup = Boolean(crt.type || fw.decision || post?.decision);
+  if (!hasSetup) return "";
+  const rows = [
+    ["Phase", fw.po3_phase],
+    ["Objective", primaryObjective(post)],
+    ["Entry", crt.entry],
+    ["Invalidation", crt.stop],
+    ["Target", crt.target],
+    ["RR", crt.rr ? `${crt.rr}R`.replace("RR", "R") : ""],
+  ].filter(([, value]) => value != null && value !== "");
+  return `
+    <div class="floating-setup-card ${decision.type}">
+      <div class="floating-card-head">
+        <span>${escapeHtml(crt.type || decision.label)}</span>
+        ${setupGradeHtml(fw, post?.grade)}
+      </div>
+      <div class="floating-card-grid">
+        ${rows.map(([label, value]) => `
+          <span><b>${escapeHtml(label)}</b><strong>${escapeHtml(String(value))}</strong></span>
+        `).join("")}
+      </div>
+    </div>`;
+}
+
+function tradeDecisionBadgeHtml(post) {
+  const decision = normalizeTradeDecision(post);
+  return `
+    <div class="trade-decision-badge ${decision.type}">
+      <strong>${escapeHtml(decision.label)}</strong>
+      <span>${escapeHtml(decision.subtitle)}</span>
+    </div>`;
+}
+
+function mobileTradeStripHtml(post) {
+  const fw = post?.framework || {};
+  const crt = fw.crt || {};
+  const decision = normalizeTradeDecision(post);
+  const bias = fw.macro_bias || post?.bias || "Neutral";
+  const rows = [
+    ["Bias", bias],
+    ["Objective", primaryObjective(post)],
+    ["Decision", decision.label],
+    ["Entry", crt.entry || "Wait"],
+    ["Invalid", crt.stop || "—"],
+    ["Target", crt.target || "—"],
+  ];
+  return `
+    <div class="crt-mobile-strip ${escapeHtml(decision.type)}">
+      <div class="mobile-strip-head">
+        <strong>${escapeHtml(marketDisplay(post?.symbol))}</strong>
+        ${setupGradeHtml(fw, post?.grade)}
+      </div>
+      <div class="mobile-strip-grid">
+        ${rows.map(([label, value]) => `<span><b>${escapeHtml(label)}</b><em>${escapeHtml(String(value || "—"))}</em></span>`).join("")}
+      </div>
+    </div>`;
+}
+
+function latestSweepLabel(fw) {
+  const sweep = fw?.latest_sweep || (fw?.sweeps || [])[0];
+  if (!sweep) return "";
+  const side = sweep.type === "bullish" ? "SSL SWEPT" : sweep.type === "bearish" ? "BSL SWEPT" : "SWEEP";
+  return `${side}${sweep.strength ? ` · ${sweep.strength}` : ""}`;
+}
+
+function firstFreshFvgLabel(fw) {
+  const fvg = (fw?.fvg || []).find((item) => item.freshness === "fresh") || (fw?.fvg || [])[0];
+  if (!fvg) return "";
+  return `${titleCase(fvg.direction || "")} FVG`;
+}
+
+function marketNarrativeChainHtml(post) {
+  const fw = post?.framework || {};
+  const chain = [
+    latestSweepLabel(fw),
+    fw.mss && fw.mss !== "none" ? `${String(fw.mss).toUpperCase()} MSS` : "",
+    firstFreshFvgLabel(fw),
+    primaryObjective(post) !== "No clean draw" ? `TARGETING ${liquidityLabel(primaryObjective(post).split("@")[0])}` : "",
+  ].filter(Boolean).slice(0, 4);
+  return `
+    <div class="market-story-chain">
+      ${chain.map((item) => `<span>${escapeHtml(item)}</span>`).join(`<i aria-hidden="true">-&gt;</i>`)}
+    </div>`;
+}
+
+function eventTimelineHtml(post) {
+  const fw = post?.framework || {};
+  const events = [];
+  const sweep = latestSweepLabel(fw);
+  if (sweep) events.push([sweep, "recent"]);
+  if (fw.mss && fw.mss !== "none") events.push([`${String(fw.mss).toUpperCase()} MSS`, "now"]);
+  if (fw.choch && fw.choch !== "none") events.push([`${String(fw.choch).toUpperCase()} CHOCH`, "now"]);
+  const fvg = firstFreshFvgLabel(fw);
+  if (fvg) events.push([`${fvg} CREATED`, "recent"]);
+  const crt = fw.crt?.type || normalizeTradeDecision(post).label;
+  if (crt) events.push([String(crt).toUpperCase(), "now"]);
+  const limited = events.slice(-5);
+  return `
+    <div class="event-timeline" aria-label="Market event timeline">
+      ${limited.map(([label, time], index) => `
+        <span class="${index === limited.length - 1 ? "current" : ""}">
+          <b>${escapeHtml(label)}</b>
+          <em>${escapeHtml(time)}</em>
+        </span>
+      `).join("")}
+    </div>`;
+}
+
+function setupBreakdownHtml(post) {
+  const fw = post?.framework || {};
+  const checklist = [
+    ["HTF Alignment", biasClass(fw.macro_bias) === biasClass(post?.bias) && post?.bias !== "neutral"],
+    ["Liquidity Sweep", Boolean(fw.latest_sweep || (fw.sweeps || []).length)],
+    ["Displacement", Boolean(fw.displacement?.present)],
+    ["MSS", fw.mss && fw.mss !== "none"],
+    ["CHOCH", fw.choch && fw.choch !== "none"],
+    ["FVG", Boolean((fw.fvg || []).length)],
+    ["OB", Boolean((fw.order_blocks || []).length)],
+    ["PO3", fw.po3_phase && fw.po3_phase !== "unknown"],
+    ["CRT", Boolean(fw.crt?.type)],
+    ["Killzone", fw.killzone && fw.killzone !== "Outside Killzone"],
+  ];
+  return `
+    <details class="setup-breakdown">
+      <summary>Setup Breakdown</summary>
+      <div class="breakdown-grid">
+        ${checklist.map(([label, ok]) => `
+          <span class="${ok ? "pass" : "wait"}"><b>${ok ? "OK" : "WAIT"}</b>${escapeHtml(label)}</span>
+        `).join("")}
+      </div>
+      <p>Score: ${escapeHtml(fw.score || "—")}</p>
+    </details>`;
 }
 
 function alertPreviewLine(alert) {
@@ -2284,38 +2631,52 @@ function renderDeskPost(post) {
   const checklist = post.checklist || decision.checklist || [];
   const context = post.context_summary || {};
   const checklistHtml = renderDeskChecklist(checklist);
+  const tradeDecision = normalizeTradeDecision(post);
+  const chartLabel = `${post.symbol} ${post.trigger_timeframe} CRT terminal`;
   return `
-    <article class="desk-post desk-${escapeHtml(status)}">
-      <div class="desk-post-compact">
-        <div class="desk-charts-min">
-          <figure class="tv-chart-frame mini">
-            <div class="tv-chart-toolbar">
-              <span>${escapeHtml(post.context_timeframe)} · HTF</span>
-              <span>${escapeHtml(context.bias || directionLabel(post.bias))}</span>
-            </div>
-            <div class="tv-chart-canvas desk-chart expandable-chart" data-chart-url="${escapeHtml(post.context_chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.context_timeframe}`)}"></div>
-          </figure>
-          <figure class="tv-chart-frame mini">
-            <div class="tv-chart-toolbar">
-              <span>${escapeHtml(post.trigger_timeframe)} · trigger</span>
-              <span class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</span>
-            </div>
-            <div class="tv-chart-canvas desk-chart expandable-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.trigger_timeframe}`)}"></div>
-          </figure>
+    <article class="desk-post crt-terminal desk-${escapeHtml(status)} decision-${escapeHtml(tradeDecision.type)}">
+      ${marketBiasBarHtml(post)}
+      <div class="crt-terminal-head">
+        <div>
+          <span class="terminal-kicker">${escapeHtml(post.profile || "CRT")}</span>
+          <h3>${escapeHtml(marketDisplay(post.symbol))} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</h3>
         </div>
-        <div class="desk-copy-min">
-          <div class="desk-title-row">
-            <div>
-              <strong>${escapeHtml(post.profile || "")}</strong>
-              <span class="muted">${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</span>
-            </div>
-            ${post.framework ? frameworkGradeBadge(post.framework) : `<span class="grade-badge ${gradeClass(post.grade)}">${escapeHtml(post.grade || "—")}</span>`}
+        <div class="terminal-priority">
+          ${setupGradeHtml(post.framework || {}, post.grade)}
+          <span class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</span>
+        </div>
+      </div>
+      <div class="crt-stage-grid">
+        <section class="crt-chart-shell">
+          <div class="crt-chart-toolbar">
+            <span>${escapeHtml(post.trigger_timeframe)} execution chart</span>
+            <strong>${escapeHtml(primaryObjective(post))}</strong>
+            <em>${escapeHtml(post.framework?.killzone || "Outside Killzone")}</em>
           </div>
-          <p class="desk-headline">${escapeHtml(post.headline || "Waiting for context")}</p>
-          <p class="desk-now">${escapeHtml(decision.subtitle || post.what_now || "Wait.")}</p>
-          ${frameworkStripHtml(post)}
-          ${checklistHtml}
+          ${mobileTradeStripHtml(post)}
+          <div class="crt-chart-stage">
+            <div class="tv-chart-canvas desk-chart crt-main-chart expandable-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(chartLabel)}"></div>
+            ${tradeDecisionBadgeHtml(post)}
+            ${floatingSetupCardHtml(post)}
+          </div>
+          ${eventTimelineHtml(post)}
+        </section>
+        ${liquidityRoadmapHtml(post)}
+      </div>
+      <div class="crt-context-strip">
+        ${po3LifecycleHtml(post.framework || {})}
+        ${marketNarrativeChainHtml(post)}
+      </div>
+      <div class="crt-secondary-read">
+        <div class="desk-context-card">
+          <div class="desk-context-read">
+            <span>Context</span>
+            <strong>${escapeHtml(context.bias || directionLabel(post.bias))}</strong>
+            <p>${escapeHtml(context.read || post.headline || "Waiting for context")}</p>
+          </div>
         </div>
+        ${checklistHtml}
+        ${setupBreakdownHtml(post)}
       </div>
     </article>`;
 }

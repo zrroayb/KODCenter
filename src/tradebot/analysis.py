@@ -17,9 +17,9 @@ from typing import Any, Iterable
 from tradebot.models import Candle
 
 # Timeframes consumed by the engine, ordered high -> low.
-# (1h is intentionally omitted: macro bias is weighted on 1M/1w/1d/4h and the
-# execution read uses 15m, so fetching 1h would only add latency.)
-ANALYSIS_TIMEFRAMES = ("1M", "1w", "1d", "4h", "15m")
+# Macro bias is still weighted on 1M/1w/1d/4h. 1h is included for the UI's
+# MTF structure read without changing the execution timeframe, which remains 15m.
+ANALYSIS_TIMEFRAMES = ("1M", "1w", "1d", "4h", "1h", "15m")
 HTF_BIAS_WEIGHTS = {"1M": 40, "1w": 30, "1d": 20, "4h": 10}
 
 BULLISH = "bullish"
@@ -728,22 +728,43 @@ def analyze_symbol(
     if displacement.get("present"):
         reasoning.append(f"Displacement: {displacement['rank']} {displacement['direction']} (range x{displacement.get('range_mult')}).")
 
+    timeframe_structure = {
+        tf: {
+            "bias": data.get("bias", NEUTRAL),
+            "structure": data.get("structure", {}),
+            "pd": data.get("pd", {}),
+        }
+        for tf, data in biases.items()
+    }
+    dealing_range = timeframe_structure.get(exec_tf or "", {}).get("pd", {}) if exec_tf else {}
+
     return {
         "asset": symbol,
         "macro_bias": macro["label"],
         "weekly_bias": bias_labels.get("1w", "unavailable"),
         "daily_bias": bias_labels.get("1d", "unavailable"),
         "4h_bias": bias_labels.get("4h", "unavailable"),
+        "1h_bias": bias_labels.get("1h", "unavailable"),
+        "15m_bias": bias_labels.get("15m", "unavailable"),
+        "timeframes": timeframe_structure,
         "market_structure": structure.get("pattern") or structure.get("trend") or "n/a",
+        "dealing_range": dealing_range,
+        "reference_levels": refs,
         "current_session": session["session"],
         "current_killzone": session["killzone"],
         "po3_phase": po3.get("phase", "unknown"),
+        "po3": po3,
         "smt_signal": "unavailable (no intermarket feed)",
         "mss": f"{mss['direction']} {mss['rank']}" if mss.get("present") else "none",
+        "mss_detail": mss,
         "choch": f"{choch['direction']} {choch['rank']}" if choch.get("present") else "none",
+        "choch_detail": choch,
         "liquidity_objective": f"{objective['source']} @ {_fmt(objective['level'])}" if objective else "none",
         "liquidity_map": pools[:10],
+        "liquidity_ranking": pools[:10],
         "sweeps": sweeps,
+        "latest_sweep": sweeps[-1] if sweeps else None,
+        "displacement": displacement,
         "fvg": fvgs,
         "order_blocks": obs,
         "breaker_blocks": breakers,

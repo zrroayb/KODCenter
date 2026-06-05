@@ -5,18 +5,22 @@ from datetime import datetime, timezone
 from typing import Any
 
 THEME = {
-    "bg": "#131722",
-    "header": "#1e222d",
-    "plot": "#131722",
-    "plot_border": "#2a2e39",
-    "grid": "#363a45",
-    "grid_text": "#787b86",
-    "header_text": "#d1d4dc",
-    "bull": "#26a69a",
-    "bear": "#ef5350",
-    "wick": "#b2b5be",
-    "scale_bg": "#1e222d",
-    "last_price": "#2962ff",
+    "bg": "#08090a",
+    "header": "#111419",
+    "plot": "#0b0d10",
+    "plot_border": "#242a31",
+    "grid": "#242a31",
+    "grid_text": "#7b8490",
+    "header_text": "#edf2f7",
+    "bull": "#2bbf8a",
+    "bear": "#e05252",
+    "wick": "#b6bdc7",
+    "scale_bg": "#111419",
+    "last_price": "#6f8cff",
+    "liquidity": "#67a8ff",
+    "sweep": "#e7b84a",
+    "mss": "#f8fafc",
+    "choch": "#cbd5e1",
 }
 
 SESSION_BOX_COLORS = {
@@ -25,6 +29,46 @@ SESSION_BOX_COLORS = {
     "ny_am": ("#22c55e", 0.16),
     "ny_pm": ("#a855f7", 0.16),
 }
+
+
+class _LabelLedger:
+    """Small lane manager that keeps CRT chart labels from stacking."""
+
+    def __init__(self, min_y: float, max_y: float, *, gap: float = 5.0) -> None:
+        self.min_y = min_y
+        self.max_y = max_y
+        self.gap = gap
+        self._lanes: dict[str, list[tuple[float, float]]] = {}
+
+    def place(self, y: float, *, lane: str = "right", priority: int = 3, height: float = 22.0) -> float | None:
+        y = _clamp(y, self.min_y + height / 2, self.max_y - height / 2)
+        if self._fits(y, lane, height):
+            self._remember(y, lane, height)
+            return y
+
+        step = height + self.gap
+        candidates: list[float] = []
+        for distance in range(1, 11):
+            candidates.append(y - step * distance)
+            candidates.append(y + step * distance)
+        for candidate in candidates:
+            candidate = _clamp(candidate, self.min_y + height / 2, self.max_y - height / 2)
+            if self._fits(candidate, lane, height):
+                self._remember(candidate, lane, height)
+                return candidate
+
+        if priority <= 1:
+            self._remember(y, lane, height)
+            return y
+        return None
+
+    def _fits(self, y: float, lane: str, height: float) -> bool:
+        top = y - height / 2 - self.gap
+        bottom = y + height / 2 + self.gap
+        return all(bottom < used_top or top > used_bottom for used_top, used_bottom in self._lanes.get(lane, []))
+
+    def _remember(self, y: float, lane: str, height: float) -> None:
+        self._lanes.setdefault(lane, []).append((y - height / 2, y + height / 2))
 
 
 def build_chart_svg(
@@ -57,6 +101,7 @@ def build_chart_svg(
     decision_label: str = "",
     decision_subtitle: str = "",
     checklist: list[dict[str, Any]] | None = None,
+    framework: dict[str, Any] | None = None,
 ) -> str:
     if not candles:
         return _empty_svg(width, height, message)
@@ -71,12 +116,19 @@ def build_chart_svg(
         return _empty_svg(width, height, "No candle data")
 
     levels = levels or {}
+    framework = framework or {}
     entry = None if is_context else _to_float(levels.get("entry"))
     stop = None if is_context else _to_float(levels.get("stop"))
     tp1 = None if is_context else _to_float(levels.get("tp1"))
     tp2 = None if is_context else _to_float(levels.get("tp2"))
     final_target = None if is_context else _to_float(levels.get("final_target"))
     target = _to_float(htf_target) if is_context else _first_number(htf_target, final_target, tp2, tp1)
+    if not is_context and framework:
+        crt = framework.get("crt") or {}
+        entry = _first_number(entry, crt.get("entry"))
+        stop = _first_number(stop, crt.get("stop"))
+        target = _first_number(target, crt.get("target"))
+        final_target = _first_number(final_target, crt.get("target"))
     reference_level = _to_float(reference_level)
     sweep_extreme = _to_float(sweep_extreme)
     htf_target = _to_float(htf_target)
@@ -119,6 +171,7 @@ def build_chart_svg(
         ]
     )
     prices.extend(value for value in extra_prices if value is not None)
+    prices.extend(_framework_prices(framework))
     y_min = min(prices)
     y_max = max(prices)
     if y_max == y_min:
@@ -167,9 +220,33 @@ def build_chart_svg(
         )
 
     _draw_grid(body, visible, x_at, y_at, y_min, y_max, pad_l, pad_t, pad_r, pad_b, plot_w, plot_h, width, height)
+    label_ledger = _LabelLedger(pad_t + 14, height - pad_b - 14)
+
+    _draw_framework_killzone(body, pad_l, pad_t, plot_w, plot_h, framework, label_ledger)
+    _draw_framework_dealing_range(body, y_at, width, pad_l, pad_r, pad_t, plot_h, framework, label_ledger)
+    _draw_framework_zones(body, visible, x_at, y_at, framework, signal_index, slot, pad_l, pad_r, width, label_ledger)
     _draw_key_liquidity_levels(body, visible, x_at, y_at, pad_l, pad_r, width, htf_target=htf_target)
+    _draw_framework_reference_levels(body, y_at, width, pad_l, pad_r, framework, last_price=float(last["c"]), label_ledger=label_ledger)
+    _draw_framework_liquidity(body, y_at, width, pad_l, pad_r, framework, last_price=float(last["c"]), label_ledger=label_ledger)
     if not is_context:
-        _draw_trade_boxes(body, x_at, y_at, signal_index, len(visible), pad_l, pad_r, width, entry, stop, target)
+        if framework and (framework.get("crt") or {}).get("type"):
+            _draw_crt_setup_overlay(
+                body,
+                x_at,
+                y_at,
+                signal_index,
+                len(visible),
+                pad_l,
+                pad_r,
+                width,
+                entry,
+                stop,
+                target,
+                framework,
+                label_ledger,
+            )
+        else:
+            _draw_trade_boxes(body, x_at, y_at, signal_index, len(visible), pad_l, pad_r, width, entry, stop, target, label_ledger=label_ledger)
         _draw_zones(body, visible, x_at, y_at, zones, signal_index, slot, pad_l, pad_r, width)
         _draw_raid_footprint(
             body,
@@ -219,6 +296,8 @@ def build_chart_svg(
     _draw_ema(body, visible, x_at, y_at, 9, "#a445b6")
     _draw_ema(body, visible, x_at, y_at, 20, "#3d55ff")
     _draw_candles(body, visible, x_at, y_at, candle_w, signal_index)
+    _draw_framework_structure(body, visible, x_at, y_at, framework, pad_l, pad_r, width, label_ledger)
+    _draw_framework_events(body, visible, x_at, y_at, framework, pad_l, pad_r, width, label_ledger)
 
     if not is_context:
         if trigger_mode == "raid_msb_or_fvg":
@@ -457,6 +536,466 @@ def _draw_key_liquidity_levels(
         _draw_inline_tag(body, min(width - pad_r - 12, x1 + 10), y - 16, label, color)
 
 
+def _framework_prices(framework: dict[str, Any]) -> list[float]:
+    if not framework:
+        return []
+    prices: list[float] = []
+    containers = [
+        framework.get("dealing_range") or {},
+        framework.get("reference_levels") or {},
+        framework.get("crt") or {},
+    ]
+    for container in containers:
+        for key in ("high", "low", "eq", "entry", "stop", "target"):
+            value = _to_float(container.get(key))
+            if value is not None:
+                prices.append(value)
+        for value in container.values():
+            converted = _to_float(value)
+            if converted is not None:
+                prices.append(converted)
+    for collection_key in ("liquidity_map", "liquidity_ranking", "fvg", "order_blocks", "breaker_blocks", "mitigation_blocks"):
+        for item in framework.get(collection_key) or []:
+            for key in ("level", "high", "low", "midpoint"):
+                value = _to_float(item.get(key))
+                if value is not None:
+                    prices.append(value)
+    for key in ("latest_sweep",):
+        item = framework.get(key) or {}
+        for field in ("level", "sweep_extreme"):
+            value = _to_float(item.get(field))
+            if value is not None:
+                prices.append(value)
+    structure = ((framework.get("timeframes") or {}).get("15m") or {}).get("structure") or {}
+    for key in ("swing_high", "swing_low", "prior_swing_high", "prior_swing_low"):
+        value = _to_float(structure.get(key))
+        if value is not None:
+            prices.append(value)
+    return prices
+
+
+def _draw_framework_killzone(
+    body: list[str],
+    pad_l: float,
+    pad_t: float,
+    plot_w: float,
+    plot_h: float,
+    framework: dict[str, Any],
+    label_ledger: _LabelLedger,
+) -> None:
+    killzone = str(framework.get("killzone") or "")
+    if not killzone or killzone == "Outside Killzone":
+        return
+    color = "#e7b84a" if "London" in killzone else "#67a8ff"
+    body.append(
+        f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" fill="{color}" opacity="0.035"/>'
+    )
+    _draw_inline_tag(body, pad_l + 12, pad_t + 20, f"{killzone.upper()} ACTIVE", color, fg="#08090a", ledger=label_ledger, lane="left", priority=4)
+
+
+def _draw_framework_dealing_range(
+    body: list[str],
+    y_at,
+    width: int,
+    pad_l: float,
+    pad_r: float,
+    pad_t: float,
+    plot_h: float,
+    framework: dict[str, Any],
+    label_ledger: _LabelLedger,
+) -> None:
+    dr = framework.get("dealing_range") or {}
+    high = _to_float(dr.get("high"))
+    low = _to_float(dr.get("low"))
+    eq = _to_float(dr.get("eq"))
+    if high is None or low is None or high <= low:
+        return
+    eq = eq if eq is not None else (high + low) / 2
+    y_high, y_low, y_eq = y_at(high), y_at(low), y_at(eq)
+    left, right = pad_l, width - pad_r
+    body.append(
+        f'<rect x="{left:.2f}" y="{y_high:.2f}" width="{right - left:.2f}" height="{max(0, y_eq - y_high):.2f}" '
+        f'fill="#e05252" opacity="0.055"/>'
+        f'<rect x="{left:.2f}" y="{y_eq:.2f}" width="{right - left:.2f}" height="{max(0, y_low - y_eq):.2f}" '
+        f'fill="#2bbf8a" opacity="0.055"/>'
+        f'<line x1="{left:.2f}" y1="{y_eq:.2f}" x2="{right:.2f}" y2="{y_eq:.2f}" '
+        f'stroke="#9aa4af" stroke-width="1" stroke-dasharray="2 6" opacity="0.72"/>'
+    )
+    _draw_inline_tag(body, pad_l + 10, max(pad_t + 18, y_high + 18), "PREMIUM", "#5b2528", ledger=label_ledger, lane="left", priority=4)
+    _draw_inline_tag(body, pad_l + 10, y_eq - 12, "EQ", "#343b45", ledger=label_ledger, lane="left", priority=3)
+    _draw_inline_tag(body, pad_l + 10, min(pad_t + plot_h - 16, y_low - 12), "DISCOUNT", "#1d4735", ledger=label_ledger, lane="left", priority=4)
+
+
+def _draw_framework_reference_levels(
+    body: list[str],
+    y_at,
+    width: int,
+    pad_l: float,
+    pad_r: float,
+    framework: dict[str, Any],
+    *,
+    last_price: float,
+    label_ledger: _LabelLedger,
+) -> None:
+    refs = framework.get("reference_levels") or {}
+    objective_level = _framework_objective_level(framework)
+    for name in ("PWH", "PWL", "PDH", "PDL"):
+        price = _to_float(refs.get(name))
+        if price is None:
+            continue
+        is_weekly = name in {"PWH", "PWL"}
+        active = objective_level is not None and _near_price(price, objective_level)
+        status = "ACTIVE TARGET" if active else "TAKEN" if _level_taken(name, price, last_price) else ""
+        color = THEME["liquidity"] if active else "#aeb7c4" if is_weekly else "#7d8794"
+        y = y_at(price)
+        dash = "8 5" if not is_weekly else "11 5"
+        body.append(
+            f'<line x1="{pad_l}" y1="{y:.2f}" x2="{width - pad_r}" y2="{y:.2f}" '
+            f'stroke="{color}" stroke-width="{1.5 if is_weekly else 1.1}" stroke-dasharray="{dash}" '
+            f'opacity="{0.86 if active else 0.54}"/>'
+        )
+        _draw_inline_tag(
+            body,
+            width - pad_r - 10,
+            y,
+            f"{name}{(' ' + status) if status else ''}",
+            color,
+            anchor="end",
+            ledger=label_ledger,
+            lane="right",
+            priority=1 if active else 4,
+        )
+
+
+def _draw_framework_liquidity(
+    body: list[str],
+    y_at,
+    width: int,
+    pad_l: float,
+    pad_r: float,
+    framework: dict[str, Any],
+    *,
+    last_price: float,
+    label_ledger: _LabelLedger,
+) -> None:
+    pools = (framework.get("liquidity_ranking") or framework.get("liquidity_map") or [])[:7]
+    objective_level = _framework_objective_level(framework)
+    for pool in pools:
+        level = _to_float(pool.get("level"))
+        if level is None:
+            continue
+        side = str(pool.get("side") or "")
+        source = _liquidity_short_label(str(pool.get("source") or side or "LIQ"))
+        strength = str(pool.get("strength") or "Weak")
+        active = objective_level is not None and _near_price(level, objective_level)
+        taken = _pool_taken(side, level, last_price)
+        status = "ACTIVE" if active else "TAKEN" if taken else "PENDING"
+        y = y_at(level)
+        radius = {"Extreme": 8.0, "Strong": 6.4, "Moderate": 5.0, "Weak": 3.8, "Very Weak": 3.2}.get(strength, 4.0)
+        color = THEME["liquidity"] if active else "#7390ad" if not taken else "#64707d"
+        opacity = "0.96" if active else "0.68" if not taken else "0.34"
+        x = width - pad_r - 32
+        body.append(
+            f'<line x1="{max(pad_l, x - 72):.2f}" y1="{y:.2f}" x2="{width - pad_r:.2f}" y2="{y:.2f}" '
+            f'stroke="{color}" stroke-width="{1.7 if active else 1.0}" stroke-dasharray="4 6" opacity="{opacity}"/>'
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="{radius:.1f}" fill="none" stroke="{color}" stroke-width="{2.2 if active else 1.4}" opacity="{opacity}">'
+            f'<title>Liquidity Pool | Type: {html.escape(source)} | Strength: {html.escape(strength)} | Status: {status}</title></circle>'
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.9" fill="{color}" opacity="{opacity}"/>'
+        )
+        if active:
+            body.append(
+                f'<path d="M {max(pad_l + 12, x - 240):.2f} {y:.2f} C {x - 175:.2f} {y - 36:.2f}, {x - 86:.2f} {y + 30:.2f}, {x - 14:.2f} {y:.2f}" '
+                f'fill="none" stroke="{THEME["liquidity"]}" stroke-width="1.6" stroke-dasharray="8 7" opacity="0.82"/>'
+            )
+        _draw_inline_tag(
+            body,
+            width - pad_r - 46,
+            y,
+            f"{source} {strength} {status}",
+            color,
+            anchor="end",
+            ledger=label_ledger,
+            lane="right",
+            priority=1 if active else 5 if taken else 3,
+        )
+
+
+def _draw_framework_zones(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    y_at,
+    framework: dict[str, Any],
+    signal_index: int | None,
+    slot: float,
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    label_ledger: _LabelLedger,
+) -> None:
+    objective_level = _framework_objective_level(framework)
+    for zone in _rank_framework_zones(framework.get("fvg") or [], objective_level, limit=3):
+        freshness = str(zone.get("freshness") or "fresh").lower()
+        if freshness == "mitigated" and int(zone.get("age_bars") or 0) > 18:
+            continue
+        direction = str(zone.get("direction") or "")
+        color = "#2bbf8a" if direction == "bullish" else "#e05252"
+        opacity = 0.135 if freshness == "fresh" else 0.07 if freshness == "partial" else 0.035
+        active = _zone_near_objective(zone, objective_level)
+        _draw_framework_zone_box(
+            body, candles, x_at, y_at, zone, signal_index, slot, pad_l, pad_r, width,
+            label=f"{direction.title()} FVG" if direction else "FVG",
+            color=color,
+            opacity=opacity + (0.035 if active else 0.0),
+            dash="5 4",
+            label_ledger=label_ledger,
+            priority=2 if active else 4,
+        )
+    for zone in _rank_framework_zones(framework.get("order_blocks") or [], objective_level, limit=2):
+        direction = str(zone.get("direction") or "")
+        fresh = str(zone.get("freshness") or "fresh").lower() != "mitigated"
+        color = "#278b67" if direction == "bullish" else "#9b3939"
+        active = _zone_near_objective(zone, objective_level)
+        _draw_framework_zone_box(
+            body, candles, x_at, y_at, zone, signal_index, slot, pad_l, pad_r, width,
+            label=f"{direction.title()} OB" if direction else "OB",
+            color=color,
+            opacity=0.13 if fresh else 0.04,
+            dash="",
+            rounded=True,
+            label_ledger=label_ledger,
+            priority=2 if active else 4,
+        )
+    for zone in _rank_framework_zones(framework.get("breaker_blocks") or [], objective_level, limit=1):
+        direction = str(zone.get("direction") or "")
+        color = "#d2a94d" if direction == "bullish" else "#8db5dc"
+        _draw_framework_zone_box(
+            body, candles, x_at, y_at, zone, signal_index, slot, pad_l, pad_r, width,
+            label="BREAKER",
+            color=color,
+            opacity=0.08,
+            dash="7 5",
+            rounded=True,
+            label_ledger=label_ledger,
+            priority=3,
+        )
+    for zone in _rank_framework_zones(framework.get("mitigation_blocks") or [], objective_level, limit=1):
+        direction = str(zone.get("direction") or "")
+        color = "#74a892" if direction == "bullish" else "#b98484"
+        _draw_framework_zone_box(
+            body, candles, x_at, y_at, zone, signal_index, slot, pad_l, pad_r, width,
+            label="MITIGATION",
+            color=color,
+            opacity=0.035,
+            dash="3 5",
+            rounded=True,
+            label_ledger=label_ledger,
+            priority=5,
+        )
+
+
+def _draw_framework_zone_box(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    y_at,
+    zone: dict[str, Any],
+    signal_index: int | None,
+    slot: float,
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    *,
+    label: str,
+    color: str,
+    opacity: float,
+    dash: str,
+    rounded: bool = False,
+    label_ledger: _LabelLedger | None = None,
+    priority: int = 4,
+) -> None:
+    low = _to_float(zone.get("low"))
+    high = _to_float(zone.get("high"))
+    if low is None or high is None:
+        return
+    bottom_price, top_price = min(low, high), max(low, high)
+    zone_index = _find_zone_index(candles, bottom_price, top_price)
+    if zone_index is None:
+        zone_index = max(0, (signal_index if signal_index is not None else len(candles) - 1) - 18)
+    x1 = max(pad_l, x_at(zone_index) - slot * 0.45)
+    x2 = width - pad_r - 14
+    y1 = y_at(top_price)
+    y2 = y_at(bottom_price)
+    dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+    body.append(
+        f'<rect x="{x1:.2f}" y="{y1:.2f}" width="{max(0, x2 - x1):.2f}" height="{max(3, y2 - y1):.2f}" '
+        f'rx="{6 if rounded else 2}" fill="{color}" opacity="{opacity:.3f}" stroke="{color}" '
+        f'stroke-width="1.2"{dash_attr}>'
+        f'<title>{html.escape(label)} | Low: {_fmt_price(bottom_price)} | High: {_fmt_price(top_price)}</title></rect>'
+    )
+    if opacity >= 0.08:
+        _draw_inline_tag(
+            body,
+            width - pad_r - 14,
+            y1 + 15,
+            label,
+            color,
+            anchor="end",
+            ledger=label_ledger,
+            lane="right",
+            priority=priority,
+        )
+
+
+def _draw_framework_structure(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    y_at,
+    framework: dict[str, Any],
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    label_ledger: _LabelLedger,
+) -> None:
+    structure = ((framework.get("timeframes") or {}).get("15m") or {}).get("structure") or {}
+    high = _to_float(structure.get("swing_high"))
+    prior_high = _to_float(structure.get("prior_swing_high"))
+    low = _to_float(structure.get("swing_low"))
+    prior_low = _to_float(structure.get("prior_swing_low"))
+    if high is None and low is None:
+        return
+    end = len(candles) - 1
+    x_recent = min(width - pad_r - 130, x_at(max(0, end - 5)))
+    x_prior = max(pad_l + 70, x_at(max(0, end - 28)))
+    if high is not None and prior_high is not None:
+        label = "HH" if high > prior_high else "LH"
+        color = "#2bbf8a" if label == "HH" else "#e05252"
+        body.append(
+            f'<line x1="{x_prior:.2f}" y1="{y_at(prior_high):.2f}" x2="{x_recent:.2f}" y2="{y_at(high):.2f}" '
+            f'stroke="{color}" stroke-width="1.5" opacity="0.58"/>'
+        )
+        _draw_inline_tag(body, x_recent + 8, y_at(high) - 12, label, color, ledger=label_ledger, lane="structure", priority=2)
+    if low is not None and prior_low is not None:
+        label = "HL" if low > prior_low else "LL"
+        color = "#2bbf8a" if label == "HL" else "#e05252"
+        body.append(
+            f'<line x1="{x_prior:.2f}" y1="{y_at(prior_low):.2f}" x2="{x_recent:.2f}" y2="{y_at(low):.2f}" '
+            f'stroke="{color}" stroke-width="1.25" opacity="0.48"/>'
+        )
+        _draw_inline_tag(body, x_recent + 8, y_at(low) + 16, label, color, ledger=label_ledger, lane="structure", priority=2)
+
+
+def _draw_framework_events(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    y_at,
+    framework: dict[str, Any],
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    label_ledger: _LabelLedger,
+) -> None:
+    if not candles or not framework:
+        return
+    last = candles[-1]
+    last_x = x_at(len(candles) - 1)
+    last_close = float(last["c"])
+    objective_level = _framework_objective_level(framework)
+    if objective_level is not None:
+        target_y = y_at(objective_level)
+        start_y = y_at(last_close)
+        target_x = width - pad_r - 42
+        body.append(
+            f'<path d="M {last_x:.2f} {start_y:.2f} C {last_x + 115:.2f} {start_y:.2f}, {target_x - 115:.2f} {target_y:.2f}, {target_x:.2f} {target_y:.2f}" '
+            f'fill="none" stroke="{THEME["liquidity"]}" stroke-width="1.7" stroke-dasharray="9 8" opacity="0.82"/>'
+        )
+        _draw_inline_tag(
+            body,
+            target_x - 10,
+            target_y - 22,
+            f"TARGETING {_objective_label(framework)}",
+            THEME["liquidity"],
+            anchor="end",
+            ledger=label_ledger,
+            lane="right",
+            priority=1,
+        )
+
+    sweep = framework.get("latest_sweep") or {}
+    sweep_level = _to_float(sweep.get("level"))
+    if sweep and sweep_level is not None:
+        index = _timestamp_index(candles, int(sweep.get("time_ms") or 0)) if sweep.get("time_ms") else None
+        if index is None:
+            index = len(candles) - 1
+        x = x_at(index)
+        y = y_at(sweep_level)
+        strength = str(sweep.get("strength") or "Moderate")
+        side = "SSL" if str(sweep.get("type")) == "bullish" else "BSL"
+        stroke_w = "2.8" if strength in {"Strong", "Violent"} else "2.1"
+        candle = candles[index]
+        extreme = float(candle["l"] if str(sweep.get("type")) == "bullish" else candle["h"])
+        body.append(
+            f'<line x1="{x:.2f}" y1="{y:.2f}" x2="{x:.2f}" y2="{y_at(extreme):.2f}" '
+            f'stroke="{THEME["sweep"]}" stroke-width="{stroke_w}" stroke-dasharray="3 3"/>'
+            f'<circle cx="{x:.2f}" cy="{y:.2f}" r="7" fill="none" stroke="{THEME["sweep"]}" stroke-width="{stroke_w}">'
+            f'<title>{side} SWEPT | Strength: {html.escape(strength)}</title></circle>'
+        )
+        sweep_label_y = label_ledger.place(y - 28, lane="event", priority=1, height=28)
+        if sweep_label_y is not None:
+            _draw_callout(body, min(width - pad_r - 140, max(pad_l + 140, x + 95)), sweep_label_y, f"{side} SWEPT · {strength}", THEME["sweep"], "#08090a")
+
+    displacement = framework.get("displacement") or {}
+    if displacement.get("present"):
+        direction = str(displacement.get("direction") or "")
+        rank = str(displacement.get("rank") or "Displacement")
+        color = "#2bbf8a" if direction == "bullish" else "#e05252"
+        y = y_at(float(last["h"] if direction == "bullish" else last["l"]))
+        arrow = "M {x} {y1} L {x2} {y2} L {x3} {y2}".format(
+            x=f"{last_x:.2f}",
+            y1=f"{y - 28:.2f}" if direction == "bullish" else f"{y + 28:.2f}",
+            x2=f"{last_x - 9:.2f}",
+            x3=f"{last_x + 9:.2f}",
+            y2=f"{y - 9:.2f}" if direction == "bullish" else f"{y + 9:.2f}",
+        )
+        body.append(f'<path d="{arrow}" fill="none" stroke="{color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>')
+        _draw_inline_tag(
+            body,
+            max(pad_l + 12, last_x - 92),
+            y - 36 if direction == "bullish" else y + 36,
+            f"{rank} displacement",
+            color,
+            ledger=label_ledger,
+            lane="event",
+            priority=2,
+        )
+
+    mss = framework.get("mss_detail") or {}
+    if mss.get("present"):
+        direction = str(mss.get("direction") or "")
+        y = y_at(last_close)
+        label_y = y - 54 if direction == "bullish" else y + 54
+        placed_y = label_ledger.place(label_y, lane="event", priority=1, height=28)
+        if placed_y is not None:
+            _draw_callout(body, min(width - pad_r - 145, max(pad_l + 150, last_x - 95)), placed_y, f"{direction.upper()} MSS", "#f8fafc", "#08090a")
+    choch = framework.get("choch_detail") or {}
+    if choch.get("present"):
+        direction = str(choch.get("direction") or "")
+        y = y_at(last_close)
+        _draw_inline_tag(
+            body,
+            min(width - pad_r - 120, max(pad_l + 24, last_x - 55)),
+            y + 34,
+            f"{direction.upper()} CHOCH",
+            THEME["choch"],
+            fg="#08090a",
+            ledger=label_ledger,
+            lane="event",
+            priority=2,
+        )
+
+
 def _draw_candles(body: list[str], candles: list[dict[str, Any]], x_at, y_at, candle_w: float, signal_index: int | None) -> None:
     for index, candle in enumerate(candles):
         o, h, l, c = float(candle["o"]), float(candle["h"]), float(candle["l"]), float(candle["c"])
@@ -489,6 +1028,8 @@ def _draw_trade_boxes(
     entry: float | None,
     stop: float | None,
     target: float | None,
+    *,
+    label_ledger: _LabelLedger | None = None,
 ) -> None:
     if entry is None:
         return
@@ -506,7 +1047,9 @@ def _draw_trade_boxes(
                 f'<rect x="{x1:.2f}" y="{top:.2f}" width="{x2 - x1:.2f}" height="{height:.2f}" '
                 f'fill="#6b7280" opacity="0.18" stroke="#111827" stroke-width="1" stroke-opacity="0.18"/>'
             )
-            _draw_callout(body, (x1 + x2) / 2, top - 12, _target_label(entry, target, stop), "#6b7280", "#ffffff")
+            label_y = label_ledger.place(top - 12, lane="trade", priority=1, height=28) if label_ledger else top - 12
+            if label_y is not None:
+                _draw_callout(body, (x1 + x2) / 2, label_y, _target_label(entry, target, stop), "#6b7280", "#ffffff")
 
     if stop is not None:
         top = min(y_at(entry), y_at(stop))
@@ -516,7 +1059,155 @@ def _draw_trade_boxes(
                 f'<rect x="{x1:.2f}" y="{top:.2f}" width="{x2 - x1:.2f}" height="{height:.2f}" '
                 f'fill="#111827" opacity="0.16" stroke="#111827" stroke-width="1" stroke-opacity="0.22"/>'
             )
-            _draw_callout(body, (x1 + x2) / 2, top + height + 24, _stop_label(entry, stop), "#050505", "#ffffff")
+            label_y = label_ledger.place(top + height + 24, lane="trade", priority=1, height=28) if label_ledger else top + height + 24
+            if label_y is not None:
+                _draw_callout(body, (x1 + x2) / 2, label_y, _stop_label(entry, stop), "#050505", "#ffffff")
+
+
+def _draw_crt_setup_overlay(
+    body: list[str],
+    x_at,
+    y_at,
+    signal_index: int | None,
+    count: int,
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    entry: float | None,
+    stop: float | None,
+    target: float | None,
+    framework: dict[str, Any],
+    label_ledger: _LabelLedger,
+) -> None:
+    if entry is None:
+        return
+    crt = framework.get("crt") or {}
+    crt_type = str(crt.get("type") or "")
+    bullish = "bullish" in crt_type.lower() or (target is not None and target > entry)
+    side_color = THEME["bull"] if bullish else THEME["bear"]
+    entry_color = "#f2d17b"
+    stop_color = "#e05252"
+    target_color = THEME["liquidity"]
+
+    start_index = signal_index if signal_index is not None else max(0, count - 16)
+    x1 = min(width - pad_r - 245, max(pad_l + 96, x_at(max(0, start_index - 4))))
+    x2 = width - pad_r - 18
+    if x2 <= x1:
+        return
+
+    range_low = min(value for value in (entry, stop) if value is not None)
+    range_high = max(value for value in (entry, stop) if value is not None)
+    midpoint = (range_high + range_low) / 2
+    y_high = y_at(range_high)
+    y_low = y_at(range_low)
+    y_mid = y_at(midpoint)
+    y_entry = y_at(entry)
+
+    body.append(
+        f'<rect x="{x1:.2f}" y="{y_high:.2f}" width="{x2 - x1:.2f}" height="{max(4, y_low - y_high):.2f}" '
+        f'rx="7" fill="{side_color}" opacity="0.075" stroke="{side_color}" stroke-width="1.6" stroke-dasharray="8 5">'
+        f'<title>CRT Setup | Type: {html.escape(crt_type or "CRT")} | Entry: {_fmt_price(entry)}'
+        f'{f" | Stop: {_fmt_price(stop)}" if stop is not None else ""}'
+        f'{f" | Target: {_fmt_price(target)}" if target is not None else ""}</title></rect>'
+        f'<line x1="{x1:.2f}" y1="{y_mid:.2f}" x2="{x2:.2f}" y2="{y_mid:.2f}" '
+        f'stroke="#f8fafc" stroke-width="1" stroke-dasharray="3 6" opacity="0.46"/>'
+    )
+
+    entry_band = max(5.0, abs(y_low - y_high) * 0.12)
+    body.append(
+        f'<rect x="{x1:.2f}" y="{y_entry - entry_band / 2:.2f}" width="{x2 - x1:.2f}" height="{entry_band:.2f}" '
+        f'rx="4" fill="{entry_color}" opacity="0.16" stroke="{entry_color}" stroke-width="1.5"/>'
+        f'<line x1="{x1:.2f}" y1="{y_entry:.2f}" x2="{x2:.2f}" y2="{y_entry:.2f}" '
+        f'stroke="{entry_color}" stroke-width="2.2" opacity="0.96"/>'
+    )
+    _draw_inline_tag(
+        body,
+        x2 - 8,
+        y_entry,
+        f"ENTRY ZONE {_fmt_price(entry)}",
+        entry_color,
+        fg="#08090a",
+        anchor="end",
+        ledger=label_ledger,
+        lane="trade",
+        priority=1,
+    )
+
+    if stop is not None:
+        y_stop = y_at(stop)
+        body.append(
+            f'<line x1="{x1:.2f}" y1="{y_stop:.2f}" x2="{x2:.2f}" y2="{y_stop:.2f}" '
+            f'stroke="{stop_color}" stroke-width="1.7" stroke-dasharray="7 5" opacity="0.88"/>'
+        )
+        _draw_inline_tag(
+            body,
+            x2 - 8,
+            y_stop,
+            f"INVALID {_fmt_price(stop)}",
+            stop_color,
+            anchor="end",
+            ledger=label_ledger,
+            lane="trade",
+            priority=1,
+        )
+
+    if target is not None:
+        y_target = y_at(target)
+        reward_top = min(y_entry, y_target)
+        reward_h = max(4, abs(y_entry - y_target))
+        body.append(
+            f'<rect x="{x1:.2f}" y="{reward_top:.2f}" width="{x2 - x1:.2f}" height="{reward_h:.2f}" '
+            f'rx="7" fill="{target_color}" opacity="0.055" stroke="{target_color}" stroke-width="1.3" stroke-dasharray="10 7"/>'
+            f'<line x1="{x1:.2f}" y1="{y_target:.2f}" x2="{x2:.2f}" y2="{y_target:.2f}" '
+            f'stroke="{target_color}" stroke-width="2.0" opacity="0.94"/>'
+        )
+        _draw_inline_tag(
+            body,
+            x2 - 8,
+            y_target,
+            f"TARGET {_fmt_price(target)}",
+            target_color,
+            fg="#08090a",
+            anchor="end",
+            ledger=label_ledger,
+            lane="trade",
+            priority=1,
+        )
+        rr_text = f"CRT {crt.get('rr')}R" if crt.get("rr") else _target_label(entry, target, stop)
+        label_y = label_ledger.place(reward_top - 14, lane="trade-callout", priority=1, height=28)
+        if label_y is not None:
+            _draw_callout(body, (x1 + x2) / 2, label_y, rr_text, target_color, "#08090a")
+
+    _draw_inline_tag(
+        body,
+        x1 + 8,
+        y_high + 15,
+        "CRT HIGH",
+        "#39414c",
+        ledger=label_ledger,
+        lane="left",
+        priority=3,
+    )
+    _draw_inline_tag(
+        body,
+        x1 + 8,
+        y_mid,
+        "CRT MID",
+        "#2f3742",
+        ledger=label_ledger,
+        lane="left",
+        priority=3,
+    )
+    _draw_inline_tag(
+        body,
+        x1 + 8,
+        y_low - 12,
+        "CRT LOW",
+        "#39414c",
+        ledger=label_ledger,
+        lane="left",
+        priority=3,
+    )
 
 
 def _draw_zones(
@@ -1122,13 +1813,21 @@ def _draw_inline_tag(
     *,
     fg: str = "#ffffff",
     anchor: str = "start",
-) -> None:
+    ledger: _LabelLedger | None = None,
+    lane: str | None = None,
+    priority: int = 3,
+) -> bool:
     text = text.strip()
     if not text:
-        return
+        return False
     if len(text) > 38:
         text = text[:37].rstrip() + "..."
     tag_w = min(250, max(72, len(text) * 6.8 + 18))
+    if ledger is not None:
+        placed_y = ledger.place(y, lane=lane or anchor, priority=priority, height=21)
+        if placed_y is None:
+            return False
+        y = placed_y
     rect_x = x - tag_w if anchor == "end" else x
     text_x = rect_x + tag_w - 9 if anchor == "end" else rect_x + 9
     text_anchor = "end" if anchor == "end" else "start"
@@ -1138,6 +1837,7 @@ def _draw_inline_tag(
         f'<text x="{text_x:.2f}" y="{y + 4:.2f}" fill="{fg}" text-anchor="{text_anchor}" '
         f'font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="800">{html.escape(text)}</text>'
     )
+    return True
 
 
 def _draw_trigger_panel(
@@ -1524,6 +2224,112 @@ def _short_context_text(wait_text: str, direction: str, stage: str) -> str:
     return "HTF map only. Confirmation is on trigger chart"
 
 
+def _framework_objective_level(framework: dict[str, Any]) -> float | None:
+    objective_text = str(framework.get("liquidity_objective") or "")
+    for pool in framework.get("liquidity_ranking") or framework.get("liquidity_map") or []:
+        level = _to_float(pool.get("level"))
+        source = str(pool.get("source") or "")
+        if level is not None and source and source in objective_text:
+            return level
+    for token in objective_text.replace("@", " ").replace(",", "").split():
+        value = _to_float(token)
+        if value is not None:
+            return value
+    target = _to_float((framework.get("crt") or {}).get("target"))
+    return target
+
+
+def _objective_label(framework: dict[str, Any]) -> str:
+    objective = str(framework.get("liquidity_objective") or "").strip()
+    if not objective or objective == "none":
+        return "LIQUIDITY"
+    label = objective.split("@", 1)[0].strip()
+    return _liquidity_short_label(label).upper()
+
+
+def _rank_framework_zones(zones: list[dict[str, Any]], objective_level: float | None, *, limit: int) -> list[dict[str, Any]]:
+    def score(zone: dict[str, Any]) -> tuple[int, float]:
+        freshness = str(zone.get("freshness") or "fresh").lower()
+        fresh_score = 0 if freshness == "fresh" else 1 if freshness == "partial" else 2
+        if objective_level is None:
+            distance = 0.0
+        else:
+            low = _to_float(zone.get("low"))
+            high = _to_float(zone.get("high"))
+            if low is None or high is None:
+                distance = float("inf")
+            else:
+                distance = min(abs(objective_level - low), abs(objective_level - high), abs(objective_level - ((low + high) / 2)))
+        return (fresh_score, distance)
+
+    return sorted(zones, key=score)[:limit]
+
+
+def _zone_near_objective(zone: dict[str, Any], objective_level: float | None) -> bool:
+    if objective_level is None:
+        return False
+    low = _to_float(zone.get("low"))
+    high = _to_float(zone.get("high"))
+    if low is None or high is None:
+        return False
+    bottom, top = min(low, high), max(low, high)
+    tolerance = max(abs(objective_level), 1.0) * 0.0015
+    return bottom - tolerance <= objective_level <= top + tolerance
+
+
+def _liquidity_short_label(label: str) -> str:
+    raw = " ".join(str(label or "").split())
+    upper = raw.upper()
+    replacements = {
+        "BUY-SIDE LIQUIDITY": "BSL",
+        "SELL-SIDE LIQUIDITY": "SSL",
+        "EQUAL HIGHS": "EQH",
+        "EQUAL LOWS": "EQL",
+        "SWING HIGHS": "SWING HIGH",
+        "SWING LOWS": "SWING LOW",
+    }
+    if upper in replacements:
+        return replacements[upper]
+    if upper in {"PDH", "PDL", "PWH", "PWL", "PMH", "PML"}:
+        return upper
+    return raw[:16] if raw else "LIQ"
+
+
+def _near_price(a: float, b: float) -> bool:
+    return abs(a - b) <= max(abs(a), abs(b), 1.0) * 0.0005
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    if high < low:
+        return low
+    return max(low, min(high, value))
+
+
+def _level_taken(name: str, price: float, last_price: float) -> bool:
+    if name.endswith("H"):
+        return last_price > price
+    if name.endswith("L"):
+        return last_price < price
+    return False
+
+
+def _pool_taken(side: str, price: float, last_price: float) -> bool:
+    if side == "buy":
+        return last_price > price
+    if side == "sell":
+        return last_price < price
+    return False
+
+
+def _place_y(y: float, occupied: list[float], min_gap: float = 19.0) -> float:
+    placed = y
+    for existing in occupied:
+        if abs(placed - existing) < min_gap:
+            placed = existing + min_gap
+    occupied.append(placed)
+    return placed
+
+
 def _fmt_price(value: float) -> str:
     if abs(value) >= 1000:
         return f"{value:,.2f}"
@@ -1543,7 +2349,7 @@ def _to_float(value: Any) -> float | None:
     if value in (None, ""):
         return None
     try:
-        return float(value)
+        return float(str(value).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
 
