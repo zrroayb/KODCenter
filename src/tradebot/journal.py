@@ -397,6 +397,11 @@ class TradeJournalStore:
         by_setup: dict[str, dict[str, int]] = {}
         by_symbol: dict[str, dict[str, int | float | None]] = {}
         by_grade: dict[str, dict[str, int | float | None]] = {}
+        by_framework_grade: dict[str, dict[str, int | float | None]] = {}
+        by_session: dict[str, dict[str, int | float | None]] = {}
+        by_profile: dict[str, dict[str, int | float | None]] = {}
+        by_direction: dict[str, dict[str, int | float | None]] = {}
+        by_trigger: dict[str, dict[str, int | float | None]] = {}
         for entry in taken:
             setup = entry.get("setup_name") or "unknown"
             bucket = by_setup.setdefault(setup, {"taken": 0, "wins": 0, "losses": 0})
@@ -408,8 +413,15 @@ class TradeJournalStore:
 
             symbol = entry.get("symbol") or "unknown"
             _add_breakdown_trade(by_symbol, symbol, entry)
-            grade = str((entry.get("trade_plan") or {}).get("setup_grade") or "ungraded")
+            plan = entry.get("trade_plan") or {}
+            grade = str(plan.get("setup_grade") or "ungraded")
             _add_breakdown_trade(by_grade, grade, entry)
+            fw_grade = str(entry.get("framework_grade") or "ungraded")
+            _add_breakdown_trade(by_framework_grade, fw_grade, entry)
+            _add_breakdown_trade(by_session, _session_bucket(entry), entry)
+            _add_breakdown_trade(by_profile, _profile_bucket(entry), entry)
+            _add_breakdown_trade(by_direction, _direction_bucket(entry), entry)
+            _add_breakdown_trade(by_trigger, _trigger_bucket(plan), entry)
 
         return {
             "taken": len(taken),
@@ -433,6 +445,11 @@ class TradeJournalStore:
             "by_setup": by_setup,
             "by_symbol": _finalize_breakdown(by_symbol),
             "by_grade": _finalize_breakdown(by_grade),
+            "by_framework_grade": _finalize_breakdown(by_framework_grade),
+            "by_session": _finalize_breakdown(by_session),
+            "by_profile": _finalize_breakdown(by_profile),
+            "by_direction": _finalize_breakdown(by_direction),
+            "by_trigger": _finalize_breakdown(by_trigger),
         }
 
     def save(self) -> None:
@@ -469,6 +486,53 @@ def _to_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _session_bucket(entry: dict[str, Any]) -> str:
+    """Classify a trade into an ICT killzone using its trigger candle time (UTC)."""
+    ts = entry.get("trigger_candle_timestamp_ms") or entry.get("candle_timestamp_ms")
+    ms = _to_float(ts)
+    if ms is None:
+        return "Unknown"
+    try:
+        moment = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return "Unknown"
+    minutes = moment.hour * 60 + moment.minute
+    if 0 <= minutes < 7 * 60:
+        return "Asia"
+    if 7 * 60 <= minutes < 10 * 60:
+        return "London"
+    if 12 * 60 + 30 <= minutes < 16 * 60:
+        return "New York AM"
+    return "Off-session"
+
+
+def _profile_bucket(entry: dict[str, Any]) -> str:
+    profile = entry.get("profile")
+    if isinstance(profile, str) and profile.strip():
+        return profile.strip()
+    return "unknown"
+
+
+def _direction_bucket(entry: dict[str, Any]) -> str:
+    direction = entry.get("direction")
+    if direction == "bullish":
+        return "Long"
+    if direction == "bearish":
+        return "Short"
+    return "unknown"
+
+
+def _trigger_bucket(plan: dict[str, Any]) -> str:
+    mode = str(plan.get("trigger_mode") or "").strip().lower()
+    labels = {
+        "msb": "MSB",
+        "fvg": "FVG",
+        "ifvg": "iFVG",
+        "raid_msb_or_fvg": "Raid+MSB/FVG",
+    }
+    return labels.get(mode, mode.upper() if mode else "unknown")
 
 
 def _add_breakdown_trade(target: dict[str, dict[str, Any]], key: str, entry: dict[str, Any]) -> None:

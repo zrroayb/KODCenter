@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 from tradebot.alert_store import PersistentAlertStore
 from tradebot.config import AppConfig, ConfigError, SetupConfig, load_config
+from tradebot.analysis import ANALYSIS_TIMEFRAMES, analyze_symbol
 from tradebot.kod import KodTurtleSoupEvaluator, enrich_alert_grade, normalize_setup_grade
 from tradebot.journal import JOURNAL_PENDING, JOURNAL_SKIPPED, JOURNAL_TAKEN, TradeJournalStore, alert_snapshot
 from tradebot.exchange import ExchangeClient
@@ -145,10 +146,11 @@ class ActivityStore:
 
 
 class WebNotifier:
-    def __init__(self, telegram: TelegramNotifier, alerts: AlertStore, journal: TradeJournalStore):
+    def __init__(self, telegram: TelegramNotifier, alerts: AlertStore, journal: TradeJournalStore, framework_fn=None):
         self.telegram = telegram
         self.alerts = alerts
         self.journal = journal
+        self.framework_fn = framework_fn
 
     def send(self, alert: Alert, *, refresh_only: bool = False) -> None:
         if refresh_only:
@@ -218,6 +220,14 @@ class WebNotifier:
         snapshot = alert_snapshot(alert)
         snapshot["time"] = stored.get("time", snapshot["time"])
         snapshot["dashboard_id"] = stored.get("id")
+        if self.framework_fn is not None:
+            try:
+                fw = self.framework_fn(alert.symbol)
+                if fw:
+                    snapshot["framework_grade"] = fw.get("grade")
+                    snapshot["framework_decision"] = fw.get("decision")
+            except Exception:
+                logger.exception("framework grade stamp failed for %s", alert.symbol)
         self.journal.upsert_from_alert(alert_key, snapshot)
 
 
@@ -260,6 +270,8 @@ class BotController:
         self._desk_cache: dict[str, Any] | None = None
         self._desk_cache_at = 0.0
         self._desk_cache_ttl = 45.0
+        self._analysis_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._analysis_cache_ttl = 60.0
 
     def start(self) -> dict[str, Any]:
         if self.cloud_readonly:
@@ -391,7 +403,21 @@ class BotController:
     def alerts_snapshot(self) -> list[dict[str, Any]]:
         if self.cloud_readonly:
             return []
-        return self.alerts.latest(journal=self.journal)
+        entries = self.alerts.latest(journal=self.journal)
+        summaries: dict[str, Any] = {}
+        for entry in entries:
+            symbol = entry.get("symbol")
+            if not symbol:
+                continue
+            if symbol not in summaries:
+                try:
+                    summaries[symbol] = self._framework_summary(self._cached_analysis(symbol))
+                except Exception:
+                    logger.exception("framework analysis failed for %s", symbol)
+                    summaries[symbol] = None
+            if summaries[symbol]:
+                entry["framework"] = summaries[symbol]
+        return entries
 
     def dismiss_alert(self, alert_id: int) -> dict[str, Any]:
         if self.cloud_readonly:
@@ -490,6 +516,83 @@ class BotController:
             for candle in candles
         ]
         return build_session_chart_svg(payload, symbol=symbol, projection=projection)
+
+    def analysis_snapshot(self, symbol: str) -> dict[str, Any]:
+        """Cached, feed-free ICT/CRT analysis for a single symbol (the trade framework)."""
+        return self._cached_analysis(symbol)
+
+    def _cached_analysis(self, symbol: str) -> dict[str, Any]:
+        now_ts = time.time()
+        with self._lock:
+            cached = self._analysis_cache.get(symbol)
+        if cached is not None and (now_ts - cached[0]) < self._analysis_cache_ttl:
+            return cached[1]
+        result = self._compute_analysis(symbol)
+        with self._lock:
+            self._analysis_cache[symbol] = (time.time(), result)
+        return result
+
+    def _compute_analysis(self, symbol: str) -> dict[str, Any]:
+        try:
+            config = self._last_config or load_config(self.config_path)
+            exchange = self._get_exchange()
+        except Exception as exc:
+            return {"asset": symbol, "error": str(exc)}
+
+        tf_limits = {"1M": 24, "1w": 60, "1d": 150, "4h": 200, "1h": 240, "15m": 240}
+        use_closed = bool(config.scanner.use_closed_candle)
+        tf_candles: dict[str, list] = {}
+        errors: list[str] = []
+        for tf in ANALYSIS_TIMEFRAMES:
+            try:
+                candles = exchange.fetch_candles(symbol, tf, tf_limits[tf])
+                if use_closed and candles:
+                    candles = candles[:-1]
+                if candles:
+                    tf_candles[tf] = candles
+            except Exception as exc:
+                errors.append(f"{tf}: {type(exc).__name__}")
+                continue
+
+        if not tf_candles:
+            return {"asset": symbol, "error": "No candles available. " + "; ".join(errors)}
+
+        result = analyze_symbol(symbol, tf_candles)
+        if errors:
+            result.setdefault("meta", {})["timeframe_errors"] = errors
+        return result
+
+    def _framework_summary(self, analysis: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Compact framework read attached to every signal and desk card."""
+        if not analysis or analysis.get("error"):
+            return None
+        crt = analysis.get("crt_setup") or {}
+        return {
+            "macro_bias": analysis.get("macro_bias"),
+            "weekly_bias": analysis.get("weekly_bias"),
+            "daily_bias": analysis.get("daily_bias"),
+            "h4_bias": analysis.get("4h_bias"),
+            "market_structure": analysis.get("market_structure"),
+            "session": analysis.get("current_session"),
+            "killzone": analysis.get("current_killzone"),
+            "po3_phase": analysis.get("po3_phase"),
+            "liquidity_objective": analysis.get("liquidity_objective"),
+            "mss": analysis.get("mss"),
+            "choch": analysis.get("choch"),
+            "smt_signal": analysis.get("smt_signal"),
+            "grade": analysis.get("trade_grade"),
+            "score": analysis.get("probability_score"),
+            "decision": analysis.get("trade_decision"),
+            "crt": {
+                "type": crt.get("type"),
+                "confidence": crt.get("confidence"),
+                "entry": crt.get("entry"),
+                "stop": crt.get("stop"),
+                "target": crt.get("target"),
+                "rr": crt.get("rr"),
+            },
+            "reasoning": (analysis.get("reasoning") or [])[:3],
+        }
 
     def _fetch_chart_candles(
         self,
@@ -806,6 +909,11 @@ class BotController:
 
         for symbol in config.scanner.symbols:
             cache: dict[str, list[Any]] = {}
+            try:
+                framework_summary = self._framework_summary(self._cached_analysis(symbol))
+            except Exception:
+                logger.exception("framework analysis failed for %s", symbol)
+                framework_summary = None
             if _session_projection_enabled(symbol):
                 try:
                     projection_candles = _cached_desk_candles(cache, exchange, symbol, "15m", 220, config.scanner.use_closed_candle)
@@ -829,19 +937,20 @@ class BotController:
                         context = _cached_desk_candles(cache, exchange, symbol, context_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
                         trigger = _cached_desk_candles(cache, exchange, symbol, trigger_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
                         diagnostic = evaluator.diagnose(setup, profile, context, trigger)
-                        posts.append(
-                            _desk_post(
-                                symbol,
-                                setup.name,
-                                profile_name,
-                                context_tf,
-                                trigger_tf,
-                                context,
-                                trigger,
-                                diagnostic,
-                                session_projection=session_projection_by_symbol.get(symbol),
-                            )
+                        post = _desk_post(
+                            symbol,
+                            setup.name,
+                            profile_name,
+                            context_tf,
+                            trigger_tf,
+                            context,
+                            trigger,
+                            diagnostic,
+                            session_projection=session_projection_by_symbol.get(symbol),
                         )
+                        if framework_summary:
+                            post["framework"] = framework_summary
+                        posts.append(post)
                     except Exception as exc:
                         logger.exception("desk analysis failed for %s %s/%s", symbol, context_tf, trigger_tf)
                         errors.append({"symbol": symbol, "profile": profile_name, "message": str(exc)})
@@ -910,7 +1019,12 @@ class BotController:
         config = load_config(self.config_path)
         exchange = ExchangeClient(config.exchange)
         telegram = TelegramNotifier(config.telegram, force_dry_run=self.dry_run)
-        notifier = WebNotifier(telegram, self.alerts, self.journal)
+        notifier = WebNotifier(
+            telegram,
+            self.alerts,
+            self.journal,
+            framework_fn=lambda sym: self._framework_summary(self._cached_analysis(sym)),
+        )
         state = StateStore.load(self.state_file)
         return Scanner(config, exchange, notifier, state, event_sink=self.activity.add), config
 
@@ -1644,6 +1758,11 @@ def _empty_journal_stats() -> dict[str, Any]:
         "by_setup": {},
         "by_symbol": {},
         "by_grade": {},
+        "by_framework_grade": {},
+        "by_session": {},
+        "by_profile": {},
+        "by_direction": {},
+        "by_trigger": {},
     }
 
 

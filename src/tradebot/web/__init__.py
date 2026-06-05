@@ -167,6 +167,14 @@ def create_app(controller: BotController) -> Flask:
             headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
         )
 
+    @app.get("/api/analysis")
+    def analysis():
+        symbol = request.args.get("symbol", "")
+        if not symbol:
+            return jsonify({"ok": False, "message": "symbol is required"}), 400
+        result = controller.analysis_snapshot(symbol)
+        return jsonify(result)
+
     @app.get("/api/journal")
     def journal():
         status = request.args.get("status") or None

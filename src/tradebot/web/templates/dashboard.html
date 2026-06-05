@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=74">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=76">
   </head>
   <body class="linear-ui">
     <div id="boot-error" class="boot-error hidden" role="alert"></div>
@@ -232,6 +232,13 @@
               </div>
             </div>
             <div id="journal-review-panel" class="journal-review-panel"></div>
+            <details id="journal-edge" class="edge-panel" open>
+              <summary class="edge-summary">
+                <span>Edge breakdown</span>
+                <small>Where your R actually comes from</small>
+              </summary>
+              <div id="journal-edge-body" class="edge-body"></div>
+            </details>
             <div class="journal-list-wrap">
               <div id="journal-body" class="journal-list"></div>
               <div id="journal-empty" class="empty hidden">
@@ -375,6 +382,6 @@
     </div>
 
     <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="{{ url_for('static', filename='dashboard.js') }}?v=74"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}?v=76"></script>
   </body>
 </html>

@@ -54,6 +54,7 @@ const els = {
   journalAvgPnl: document.querySelector("#journal-avg-pnl"),
   journalReviewWin: document.querySelector("#journal-review-win"),
   journalReviewPanel: document.querySelector("#journal-review-panel"),
+  journalEdgeBody: document.querySelector("#journal-edge-body"),
   dryRun: document.querySelector("#dry-run"),
   terminalNextScan: document.querySelector("#terminal-next-scan"),
   terminalSymbols: document.querySelector("#terminal-symbols"),
@@ -1707,6 +1708,93 @@ function renderJournalReviewPanel(stats, counts) {
   `;
 }
 
+function renderJournalEdge(stats) {
+  if (!els.journalEdgeBody) return;
+  if (!stats) {
+    els.journalEdgeBody.innerHTML = "";
+    return;
+  }
+  const groups = [
+    { key: "by_framework_grade", title: "ICT Grade" },
+    { key: "by_grade", title: "Grade" },
+    { key: "by_session", title: "Session" },
+    { key: "by_profile", title: "Profile" },
+    { key: "by_direction", title: "Direction" },
+    { key: "by_trigger", title: "Trigger" },
+    { key: "by_symbol", title: "Symbol" },
+  ];
+
+  const sections = groups
+    .map((group) => renderEdgeGroup(group.title, stats[group.key]))
+    .filter(Boolean)
+    .join("");
+
+  if (!sections) {
+    els.journalEdgeBody.innerHTML = `<p class="edge-empty muted">Take and close a few trades — this panel will show which grades, sessions and setups actually carry your R, and flags negative-expectancy buckets to cut.</p>`;
+    return;
+  }
+  els.journalEdgeBody.innerHTML = sections;
+}
+
+function renderEdgeGroup(title, bucketMap) {
+  const rows = edgeRows(bucketMap);
+  if (!rows.length) return "";
+  const body = rows.map((row) => edgeRowHtml(row)).join("");
+  return `
+    <section class="edge-group">
+      <h4 class="edge-group-title">${escapeHtml(title)}</h4>
+      <div class="edge-rows">${body}</div>
+    </section>`;
+}
+
+function edgeRows(bucketMap) {
+  return Object.entries(bucketMap || {})
+    .map(([label, data]) => {
+      const closed = (Number(data?.wins || 0) + Number(data?.losses || 0));
+      return {
+        label,
+        taken: Number(data?.taken || 0),
+        open: Number(data?.open || 0),
+        wins: Number(data?.wins || 0),
+        losses: Number(data?.losses || 0),
+        closed,
+        winRate: data?.win_rate,
+        avgR: data?.avg_r,
+        totalR: data?.total_r,
+      };
+    })
+    .filter((row) => row.taken > 0)
+    .sort((a, b) => Number(b.totalR || 0) - Number(a.totalR || 0));
+}
+
+function edgeRowHtml(row) {
+  const cls = journalMetricClass(row.avgR);
+  // Statistical confidence is weak below ~5 closed trades.
+  const thin = row.closed < 5;
+  const cut = !thin && Number(row.avgR) < -0.05;
+  const flag = cut
+    ? `<span class="edge-flag cut" title="Negative expectancy with a usable sample — candidate to cut">CUT</span>`
+    : thin
+      ? `<span class="edge-flag thin" title="Fewer than 5 closed trades — not enough data yet">THIN</span>`
+      : "";
+  const wr = row.winRate == null ? "—" : `${row.winRate}%`;
+  const avg = row.avgR == null ? "—" : fmtR(row.avgR);
+  const total = row.totalR == null ? "—" : fmtR(row.totalR);
+  return `
+    <div class="edge-row ${cut ? "is-cut" : ""}">
+      <div class="edge-row-label">
+        <strong>${escapeHtml(row.label)}</strong>
+        ${flag}
+      </div>
+      <div class="edge-row-metrics">
+        <span class="edge-metric"><i>WR</i><b>${wr}</b></span>
+        <span class="edge-metric"><i>Avg R</i><b class="${cls}">${avg}</b></span>
+        <span class="edge-metric"><i>Total R</i><b class="${journalMetricClass(row.totalR)}">${total}</b></span>
+        <span class="edge-metric"><i>n</i><b>${row.closed}/${row.taken}</b></span>
+      </div>
+    </div>`;
+}
+
 function setupGradeFromAlert(alert) {
   const plan = alert?.trade_plan || {};
   if (plan.setup_grade) {
@@ -1738,6 +1826,92 @@ function gradeBadgeHtml(alert) {
   const info = setupGradeFromAlert(alert);
   if (!info?.grade) return "";
   return `<span class="grade-badge ${gradeClass(info.grade)}" title="${escapeHtml(info.action || "")}">${escapeHtml(info.grade)}</span>`;
+}
+
+function frameworkGradeClass(grade) {
+  if (!grade) return "fw-grade-na";
+  if (grade === "S+" || grade === "S") return "fw-grade-s";
+  if (grade === "A+" || grade === "A") return "fw-grade-a";
+  if (grade === "B+" || grade === "B") return "fw-grade-b";
+  return "fw-grade-na";
+}
+
+function titleCase(text) {
+  return String(text || "")
+    .split(" ")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
+
+function frameworkGradeBadge(fw) {
+  if (!fw) return "";
+  const grade = fw.grade || "—";
+  const score = fw.score ? ` · ${escapeHtml(fw.score)}` : "";
+  return `<span class="fw-grade ${frameworkGradeClass(grade)}" title="ICT framework grade">${escapeHtml(grade)}${score}</span>`;
+}
+
+function frameworkModalHtml(alert) {
+  const fw = alert?.framework;
+  if (!fw) return "";
+  const inKz = fw.killzone && fw.killzone !== "Outside Killzone";
+  const rows = [
+    ["Macro bias", titleCase(fw.macro_bias)],
+    ["Daily / 4H", `${titleCase(fw.daily_bias)} · ${titleCase(fw.h4_bias)}`],
+    ["Structure", fw.market_structure],
+    ["Session", `${fw.session || "—"} · ${fw.killzone || "—"}`],
+    ["PO3 phase", fw.po3_phase],
+    ["MSS / CHOCH", `${fw.mss || "none"} · ${fw.choch || "none"}`],
+    ["Draw on liquidity", fw.liquidity_objective],
+    ["SMT", fw.smt_signal],
+  ].filter(([, v]) => v && v !== "unknown");
+
+  const crt = fw.crt || {};
+  const crtLevels = [
+    ["Entry", crt.entry],
+    ["Stop", crt.stop],
+    ["Target", crt.target],
+    ["RR", crt.rr],
+  ].filter(([, v]) => v);
+
+  const reasoning = (fw.reasoning || []).map((r) => `<li>${escapeHtml(r)}</li>`).join("");
+
+  return `
+    <div class="fw-panel">
+      <div class="fw-panel-head">
+        <span class="fw-panel-title">ICT / CRT Framework</span>
+        ${frameworkGradeBadge(fw)}
+        ${fw.decision && fw.decision !== "NO TRADE"
+          ? `<span class="fw-decision fw-go">${escapeHtml(fw.decision)}</span>`
+          : `<span class="fw-decision fw-no">NO TRADE</span>`}
+      </div>
+      <div class="fw-grid">
+        ${rows.map(([k, v]) => `<div class="fw-row"><span>${escapeHtml(k)}</span><strong class="${k === "Killzone" ? (inKz ? "fw-kz-in" : "fw-kz-out") : ""}">${escapeHtml(v)}</strong></div>`).join("")}
+      </div>
+      ${crtLevels.length ? `<div class="fw-crt"><span class="fw-crt-label">CRT setup${crt.confidence != null ? ` · conf ${escapeHtml(String(crt.confidence))}` : ""}</span><div class="fw-crt-levels">${crtLevels.map(([k, v]) => `<div class="level"><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join("")}</div></div>` : ""}
+      ${reasoning ? `<ul class="fw-reasoning">${reasoning}</ul>` : ""}
+    </div>`;
+}
+
+function frameworkStripHtml(alert) {
+  const fw = alert?.framework;
+  if (!fw) return "";
+  const inKz = fw.killzone && fw.killzone !== "Outside Killzone";
+  const chips = [];
+  if (fw.macro_bias) chips.push(`<span class="fw-chip" title="Macro bias">${escapeHtml(titleCase(fw.macro_bias))}</span>`);
+  if (fw.killzone) chips.push(`<span class="fw-chip ${inKz ? "fw-kz-in" : "fw-kz-out"}" title="Killzone">${escapeHtml(fw.killzone.replace(" Killzone", " KZ"))}</span>`);
+  if (fw.po3_phase && fw.po3_phase !== "unknown") chips.push(`<span class="fw-chip" title="PO3 phase">${escapeHtml(fw.po3_phase)}</span>`);
+  if (fw.liquidity_objective && fw.liquidity_objective !== "none") chips.push(`<span class="fw-chip fw-draw" title="Draw on liquidity">→ ${escapeHtml(fw.liquidity_objective)}</span>`);
+  const decision = fw.decision && fw.decision !== "NO TRADE"
+    ? `<span class="fw-decision fw-go">${escapeHtml(fw.decision)}</span>`
+    : `<span class="fw-decision fw-no">NO TRADE</span>`;
+  return `
+    <div class="fw-strip">
+      <div class="fw-strip-head">
+        ${frameworkGradeBadge(fw)}
+        ${decision}
+      </div>
+      <div class="fw-chips">${chips.join("")}</div>
+    </div>`;
 }
 
 function alertPreviewLine(alert) {
@@ -2135,10 +2309,11 @@ function renderDeskPost(post) {
               <strong>${escapeHtml(post.profile || "")}</strong>
               <span class="muted">${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</span>
             </div>
-            <span class="grade-badge ${gradeClass(post.grade)}">${escapeHtml(post.grade || "—")}</span>
+            ${post.framework ? frameworkGradeBadge(post.framework) : `<span class="grade-badge ${gradeClass(post.grade)}">${escapeHtml(post.grade || "—")}</span>`}
           </div>
           <p class="desk-headline">${escapeHtml(post.headline || "Waiting for context")}</p>
           <p class="desk-now">${escapeHtml(decision.subtitle || post.what_now || "Wait.")}</p>
+          ${frameworkStripHtml(post)}
           ${checklistHtml}
         </div>
       </div>
@@ -2313,7 +2488,10 @@ function renderBlotterRow(alert) {
   const preview = alertPreviewLine(alert);
   const stage = alert.stage || "forming";
   const gradeInfo = setupGradeFromAlert(alert);
-  const gradeCell = gradeInfo?.grade
+  const fw = alert.framework;
+  const gradeCell = fw
+    ? frameworkGradeBadge(fw)
+    : gradeInfo?.grade
     ? `<span class="grade-badge ${gradeClass(gradeInfo.grade)}" title="${escapeHtml(gradeInfo.action || "")}">${escapeHtml(gradeInfo.grade)}</span>`
     : `<span class="muted">—</span>`;
   const action = alertActionText(alert, gradeInfo);
@@ -2342,6 +2520,7 @@ function renderBlotterRow(alert) {
         <span>${escapeHtml(riskLabel(alert))}</span>
       </div>
       <p class="signal-reason">${escapeHtml(preview)}</p>
+      ${frameworkStripHtml(alert)}
       ${tradeLevelsHtml(alert)}
       ${tradeRoadmapHtml(alert)}
       <div class="signal-footer">
@@ -2407,6 +2586,7 @@ function buildAlertModalContent(alert) {
     : "";
 
   const detailHtml = `
+    ${frameworkModalHtml(alert)}
     ${gradeBanner}
     ${buildAlertStoryHtml(alert)}
     <div class="detail-meta">${escapeHtml(formatAlertMeta(alert, status))}</div>
@@ -2805,6 +2985,7 @@ function renderJournal(payload) {
     els.journalSummary.textContent = journalSummaryText(payload.stats, counts) || "No records.";
   }
   renderJournalReviewPanel(payload.stats, counts);
+  renderJournalEdge(payload.stats);
 
   populateJournalFilters(payload.filters);
 
