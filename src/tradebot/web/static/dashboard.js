@@ -66,6 +66,7 @@ const els = {
   activityCurrent: document.querySelector("#activity-current"),
   activityFeed: document.querySelector("#activity-feed"),
   tickerStrip: document.querySelector("#ticker-strip"),
+  headerTicker: document.querySelector("#header-ticker"),
   blotterBody: document.querySelector("#blotter-body"),
   blotterEmpty: document.querySelector("#blotter-empty"),
   alertModal: document.querySelector("#alert-modal"),
@@ -1875,10 +1876,14 @@ function renderStatus(status) {
     els.terminalApiState.className = status.last_error ? "warn" : "ok";
   }
 
-  if (els.tickerStrip && status.symbols?.length) {
-    els.tickerStrip.innerHTML = status.symbols
-      .map((s) => `<span class="ticker-item" title="${escapeHtml(marketProxyNote(s) || s)}">${escapeHtml(marketDisplay(s))}</span>`)
-      .join("");
+  const tickerItems = (status.symbols || [])
+    .map((s) => `<span class="ticker-item" title="${escapeHtml(marketProxyNote(s) || s)}">${escapeHtml(marketDisplay(s))}</span>`)
+    .join("");
+  if (els.tickerStrip) {
+    els.tickerStrip.innerHTML = tickerItems;
+  }
+  if (els.headerTicker) {
+    els.headerTicker.innerHTML = tickerItems ? tickerItems + tickerItems : `<span class="ticker-item muted">No markets</span>`;
   }
   if (els.terminalSymbols) {
     const symbols = status.symbols || [];

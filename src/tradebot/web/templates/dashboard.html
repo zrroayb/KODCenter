@@ -6,10 +6,12 @@
     <title>KOD Center</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+    <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=71">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=74">
   </head>
-  <body>
+  <body class="linear-ui">
     <div id="boot-error" class="boot-error hidden" role="alert"></div>
 
     <div id="scan-banner" class="scan-banner hidden" role="status" aria-live="polite">
@@ -21,30 +23,41 @@
     </div>
 
     <div class="shell">
-      <header class="header">
-        <div class="brand">
-          <span class="brand-icon">KOD</span>
-          <div>
-            <strong>KOD Center</strong>
-            <span id="runtime-line">Connecting</span>
+      <div class="terminal-chrome">
+        <header class="header">
+          <div class="terminal-top-row">
+            <div class="brand">
+              <span class="brand-icon">KOD</span>
+              <div>
+                <strong>KOD Center</strong>
+                <span id="runtime-line">Connecting</span>
+              </div>
+            </div>
+
+            <div class="terminal-marquee-bar" aria-label="Active markets">
+              <span class="terminal-marquee-label">MKTS</span>
+              <div class="terminal-marquee-viewport">
+                <div id="header-ticker" class="terminal-marquee-track"></div>
+              </div>
+            </div>
+
+            <div class="header-actions">
+              <span class="clock mono" id="utc-clock">--:--:-- UTC</span>
+              <button id="start-btn" class="btn btn-go" type="button" title="Start engine">Start</button>
+              <button id="stop-btn" class="btn btn-stop" type="button" title="Stop engine">Stop</button>
+              <button id="scan-btn" class="btn btn-outline" type="button" title="Run scan">Scan</button>
+              <span id="api-state" class="badge ok">Online</span>
+            </div>
           </div>
-        </div>
+        </header>
 
-        <div class="header-actions">
-          <span class="clock mono" id="utc-clock">--:--:-- UTC</span>
-          <button id="start-btn" class="btn btn-go" type="button">Start</button>
-          <button id="stop-btn" class="btn btn-stop" type="button">Stop</button>
-          <button id="scan-btn" class="btn btn-outline" type="button">Scan</button>
-          <span id="api-state" class="badge ok">Online</span>
-        </div>
-      </header>
-
-      <nav class="nav" aria-label="App navigation">
-        <button type="button" class="nav-btn active" data-view="signals">Trades</button>
-        <button type="button" class="nav-btn" data-view="desk">Desk</button>
-        <button type="button" class="nav-btn" data-view="journal">Journal</button>
-        <button type="button" class="nav-btn" data-view="config">Setup</button>
-      </nav>
+        <nav class="nav terminal-tabs" aria-label="App navigation">
+          <button type="button" class="nav-btn active" data-view="signals">Trades</button>
+          <button type="button" class="nav-btn" data-view="desk">Desk</button>
+          <button type="button" class="nav-btn" data-view="journal">Journal</button>
+          <button type="button" class="nav-btn" data-view="config">Setup</button>
+        </nav>
+      </div>
 
       <section class="terminal-status" aria-label="Terminal status">
         <article class="status-cell primary">
@@ -362,6 +375,6 @@
     </div>
 
     <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="{{ url_for('static', filename='dashboard.js') }}?v=71"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}?v=74"></script>
   </body>
 </html>
