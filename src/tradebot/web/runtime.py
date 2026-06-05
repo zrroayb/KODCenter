@@ -929,6 +929,8 @@ def _desk_post(
     msb_level = direction.get("msb_level")
     wait_text = _desk_wait_text(direction, diagnostic, trigger_tf)
     decision = _desk_decision(status, side, objective, raid, blockers, wait_text)
+    priority_score = _desk_priority_score(status, grade, objective, raid, blockers, decision["checklist"])
+    context_summary = _desk_context_summary(context_tf, trigger_tf, side, objective, raid, blockers)
     chart_url = _desk_chart_url(
         symbol,
         trigger_tf,
@@ -971,8 +973,11 @@ def _desk_post(
         "bias": side or "neutral",
         "grade": grade,
         "high_potential": _desk_high_potential(status, grade),
+        "priority_score": priority_score,
+        "priority_label": _desk_priority_label(priority_score, status),
         "quality_action": quality.get("action") or "",
         "decision": decision,
+        "context_summary": context_summary,
         "checklist": decision["checklist"],
         "objective": objective,
         "raid": raid,
@@ -1024,6 +1029,55 @@ def _desk_status(direction: dict[str, Any], diagnostic: dict[str, Any]) -> str:
 def _desk_high_potential(status: str, grade: Any) -> bool:
     normalized_grade = str(grade or "").upper().replace(" ", "")
     return status in {"ready", "armed"} and normalized_grade in {"A", "A+"}
+
+
+def _desk_priority_score(
+    status: str,
+    grade: Any,
+    objective: dict[str, Any],
+    raid: dict[str, Any],
+    blockers: list[str],
+    checklist: list[dict[str, Any]],
+) -> int:
+    score = 0
+    if status == "ready":
+        score += 70
+    elif status == "armed":
+        score += 52
+    elif status == "waiting":
+        score += 18
+    normalized_grade = str(grade or "").upper().replace(" ", "")
+    score += {"A+": 24, "A": 18, "B": 9, "C": 3}.get(normalized_grade, 0)
+    if objective.get("level") is not None:
+        score += 10
+        try:
+            distance_atr = float(objective.get("distance_atr"))
+        except (TypeError, ValueError):
+            distance_atr = None
+        if distance_atr is not None:
+            if distance_atr <= 0.8:
+                score += 8
+            elif distance_atr <= 1.2:
+                score += 4
+    if raid:
+        score += 12
+    pass_count = sum(1 for item in checklist if item.get("status") == "pass")
+    wait_count = sum(1 for item in checklist if item.get("status") == "wait")
+    block_count = sum(1 for item in checklist if item.get("status") == "block")
+    score += pass_count * 4 + wait_count
+    score -= block_count * 12
+    score -= min(len(blockers), 4) * 5
+    return max(0, min(100, int(score)))
+
+
+def _desk_priority_label(score: int, status: str) -> str:
+    if status == "ready" or score >= 78:
+        return "Focus now"
+    if status == "armed" or score >= 58:
+        return "Close watch"
+    if score >= 35:
+        return "Build watch"
+    return "Low priority"
 
 
 def _desk_decision(
@@ -1086,6 +1140,35 @@ def _desk_decision(
         "label": label,
         "subtitle": subtitle,
         "checklist": checklist,
+    }
+
+
+def _desk_context_summary(
+    context_tf: str,
+    trigger_tf: str,
+    side: str,
+    objective: dict[str, Any],
+    raid: dict[str, Any],
+    blockers: list[str],
+) -> dict[str, str]:
+    direction = "Bullish" if side == "bullish" else "Bearish" if side == "bearish" else "Neutral"
+    draw = objective.get("level")
+    raid_level = (raid or {}).get("level")
+    if draw is not None and raid:
+        read = f"{context_tf} draw is mapped; raid/reclaim is on the chart."
+    elif draw is not None:
+        read = f"{context_tf} draw exists; waiting for clean raid/reclaim."
+    elif blockers:
+        read = f"{context_tf} is blocked: {blockers[0]}"
+    else:
+        read = f"{context_tf} has no clean draw yet."
+    return {
+        "title": f"{context_tf} context",
+        "bias": direction,
+        "draw": _price_text(draw),
+        "raid": _price_text(raid_level),
+        "trigger": f"Confirm on {trigger_tf}",
+        "read": read,
     }
 
 

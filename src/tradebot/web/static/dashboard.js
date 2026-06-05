@@ -125,6 +125,7 @@ const els = {
   deskSummary: document.querySelector("#desk-summary"),
   deskRefreshBtn: document.querySelector("#desk-refresh-btn"),
   deskMarketTabs: document.querySelector("#desk-market-tabs"),
+  deskPriority: document.querySelector("#desk-priority"),
 };
 
 const ALERT_MODAL_HTML = `
@@ -1955,13 +1956,14 @@ function renderDesk(payload) {
   state.deskPayload = payload;
   const symbols = [...new Set(posts.map((post) => post.symbol).filter(Boolean))];
   if (!symbols.includes(state.deskSymbol)) {
-    const hotSymbol = symbols.find((symbol) => posts.some((post) => post.symbol === symbol && post.high_potential));
-    state.deskSymbol = hotSymbol || symbols[0] || "";
+    const focusPost = sortedDeskPosts(posts).find((post) => Number(post.priority_score || 0) >= 35) || sortedDeskPosts(posts)[0];
+    state.deskSymbol = focusPost?.symbol || symbols[0] || "";
   }
+  renderDeskPriority(posts);
   renderDeskMarkets(posts, symbols);
   const visiblePosts = state.deskSymbol
-    ? posts.filter((post) => post.symbol === state.deskSymbol)
-    : posts;
+    ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
+    : sortedDeskPosts(posts);
   if (els.deskSummary) {
     const cacheAge = Math.round(Number(payload.cache_age_seconds || 0));
     const cacheText = payload.cached ? ` · cache ${cacheAge}s` : "";
@@ -1980,6 +1982,7 @@ function renderDeskMarkets(posts, symbols) {
   els.deskMarketTabs.innerHTML = symbols.length
     ? symbols.map((symbol) => {
       const symbolPosts = posts.filter((post) => post.symbol === symbol);
+      const bestPost = sortedDeskPosts(symbolPosts)[0] || {};
       const isActive = symbol === state.deskSymbol;
       const isHot = symbolPosts.some((post) => post.high_potential);
       const profiles = symbolPosts.map((post) => `${post.context_timeframe}→${post.trigger_timeframe}`).join(" / ");
@@ -1987,12 +1990,53 @@ function renderDeskMarkets(posts, symbols) {
         <button type="button" class="desk-market-btn ${isActive ? "active" : ""} ${isHot ? "hot" : ""}" data-desk-symbol="${escapeHtml(symbol)}">
           <span class="desk-market-main">
             <strong>${escapeHtml(marketDisplay(symbol))}</strong>
-            ${isHot ? `<span class="desk-hot">HOT</span>` : ""}
+            <span class="desk-score">${Number(bestPost.priority_score || 0)}</span>
           </span>
-          <small>${escapeHtml(profiles || symbol)}</small>
+          <small>${isHot ? "Focus" : escapeHtml(bestPost.priority_label || "Low priority")} · ${escapeHtml(profiles || symbol)}</small>
         </button>`;
     }).join("")
     : "";
+}
+
+function sortedDeskPosts(posts) {
+  return [...(posts || [])].sort((a, b) => {
+    const scoreDiff = Number(b.priority_score || 0) - Number(a.priority_score || 0);
+    if (scoreDiff) return scoreDiff;
+    const rank = { ready: 4, armed: 3, waiting: 2, blocked: 1 };
+    return (rank[b.status] || 0) - (rank[a.status] || 0);
+  });
+}
+
+function renderDeskPriority(posts) {
+  if (!els.deskPriority) return;
+  const focus = sortedDeskPosts(posts).slice(0, 4);
+  if (!focus.length) {
+    els.deskPriority.classList.remove("hidden");
+    els.deskPriority.innerHTML = `
+      <div class="desk-priority-head">
+        <strong>Follow first</strong>
+        <span>No close setups right now</span>
+      </div>
+      <p class="desk-priority-empty">Nothing is close enough. Use the market tabs only if you want a deeper manual read.</p>`;
+    return;
+  }
+  els.deskPriority.classList.remove("hidden");
+  els.deskPriority.innerHTML = `
+    <div class="desk-priority-head">
+      <strong>Follow first</strong>
+      <span>${focus.some((post) => Number(post.priority_score || 0) >= 35) ? `${focus.length} market${focus.length > 1 ? "s" : ""} worth checking before browsing the full list` : "No close setup yet; these are the closest watches"}</span>
+    </div>
+    <div class="desk-priority-list">
+      ${focus.map((post) => `
+        <button type="button" class="desk-priority-card desk-priority-${escapeHtml(post.status || "waiting")}" data-desk-symbol="${escapeHtml(post.symbol || "")}">
+          <span class="desk-priority-score">${Number(post.priority_score || 0)}</span>
+          <span class="desk-priority-main">
+            <strong>${escapeHtml(marketDisplay(post.symbol))}</strong>
+            <small>${escapeHtml(post.profile || "")} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</small>
+          </span>
+          <span class="desk-priority-action">${escapeHtml(post.priority_label || deskStatusLabel(post.status))}</span>
+        </button>`).join("")}
+    </div>`;
 }
 
 function renderDeskPost(post) {
@@ -2004,6 +2048,7 @@ function renderDeskPost(post) {
   const decision = post.decision || {};
   const checklist = post.checklist || decision.checklist || [];
   const objective = post.objective || {};
+  const context = post.context_summary || {};
   const objectiveText = objective.level != null
     ? `${escapeHtml(objective.kind || "HTF draw")} · ${fmtNum(objective.level)}`
     : "No nearby HTF draw";
@@ -2019,32 +2064,55 @@ function renderDeskPost(post) {
       <p>${escapeHtml(item.text || "")}</p>
     </div>`).join("");
   const checklistHtml = renderDeskChecklist(checklist);
+  const contextHtml = `
+    <section class="desk-context-card">
+      <div class="desk-context-read">
+        <span>${escapeHtml(context.title || `${post.context_timeframe} context`)}</span>
+        <strong>${escapeHtml(context.bias || directionLabel(post.bias))}</strong>
+        <p>${escapeHtml(context.read || "Higher-timeframe context is still building.")}</p>
+      </div>
+      <div class="desk-context-levels">
+        <span>Draw <b>${escapeHtml(context.draw || "n/a")}</b></span>
+        <span>Raid <b>${escapeHtml(context.raid || "n/a")}</b></span>
+        <span>${escapeHtml(context.trigger || `Confirm on ${post.trigger_timeframe}`)}</span>
+      </div>
+    </section>`;
   return `
     <article class="desk-post desk-${escapeHtml(status)}">
       <header class="desk-post-head">
         <div class="desk-author">
           <span class="desk-avatar">${escapeHtml((marketDisplay(post.symbol) || post.symbol || "?").slice(0, 3).toUpperCase())}</span>
           <div>
-            <strong>${escapeHtml(marketDisplay(post.symbol))}</strong>
-            ${marketProxyNote(post.symbol) ? `<small>${escapeHtml(marketProxyNote(post.symbol))}</small>` : `<small>${escapeHtml(post.symbol)}</small>`}
-          </div>
+          <strong>${escapeHtml(marketDisplay(post.symbol))}</strong>
+          ${marketProxyNote(post.symbol) ? `<small>${escapeHtml(marketProxyNote(post.symbol))}</small>` : `<small>${escapeHtml(post.symbol)}</small>`}
+        </div>
         </div>
         <div class="desk-thread-meta">
           <span class="desk-profile-line">
             ${escapeHtml(post.profile || "")} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}
             ${isHot ? `<span class="desk-hot">HOT</span>` : ""}
           </span>
+          <span class="desk-priority-pill">${Number(post.priority_score || 0)} · ${escapeHtml(post.priority_label || deskStatusLabel(status))}</span>
           <strong class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</strong>
         </div>
       </header>
       <div class="desk-layout">
-        <figure class="desk-chart-wrap screenshot-pane">
-          <figcaption class="screenshot-cap">
-            <span>${escapeHtml(post.trigger_timeframe)} · local scenario chart</span>
-            <small>${escapeHtml(directionLabel(post.bias))}</small>
-          </figcaption>
-          <div class="screenshot-canvas desk-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.trigger_timeframe}`)}"></div>
-        </figure>
+        <div class="desk-chart-column">
+          <figure class="desk-chart-wrap desk-context-chart-wrap screenshot-pane">
+            <figcaption class="screenshot-cap">
+              <span>${escapeHtml(post.context_timeframe)} · HTF context</span>
+              <small>${escapeHtml(context.bias || directionLabel(post.bias))}</small>
+            </figcaption>
+            <div class="screenshot-canvas desk-chart desk-chart-context" data-chart-url="${escapeHtml(post.context_chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.context_timeframe} context`)}"></div>
+          </figure>
+          <figure class="desk-chart-wrap screenshot-pane">
+            <figcaption class="screenshot-cap">
+              <span>${escapeHtml(post.trigger_timeframe)} · confirmation chart</span>
+              <small>${escapeHtml(directionLabel(post.bias))}</small>
+            </figcaption>
+            <div class="screenshot-canvas desk-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.trigger_timeframe}`)}"></div>
+          </figure>
+        </div>
         <div class="desk-copy">
           <div class="desk-title-row">
             <strong>${escapeHtml(post.headline || "Waiting for context")}</strong>
@@ -2057,6 +2125,7 @@ function renderDeskPost(post) {
             <strong>${escapeHtml(decision.label || deskStatusLabel(status))}</strong>
             <span>${escapeHtml(decision.subtitle || post.what_now || "Wait.")}</span>
           </div>
+          ${contextHtml}
           ${checklistHtml}
           <p class="desk-now">${escapeHtml(post.what_now || "No trade. Wait.")}</p>
           <div class="desk-facts">
@@ -3068,6 +3137,8 @@ async function refreshAll() {
 function switchView(viewId) {
   if (state.cloudReadOnly && viewId !== "desk") viewId = "desk";
   state.activeView = viewId;
+  document.body.classList.remove("view-signals", "view-desk", "view-journal", "view-config");
+  document.body.classList.add(`view-${viewId}`);
   els.navItems.forEach((item) => item.classList.toggle("active", item.dataset.view === viewId));
   els.views.forEach((view) => view.classList.toggle("active", view.dataset.view === viewId));
   if (viewId === "desk") refreshDesk();
@@ -3110,7 +3181,7 @@ if (els.replayBtn) els.replayBtn.addEventListener("click", () => runReplay());
 if (els.deskRefreshBtn) els.deskRefreshBtn.addEventListener("click", () => refreshDesk({ force: true }));
 
 document.addEventListener("click", async (event) => {
-  const deskMarketBtn = event.target.closest(".desk-market-btn");
+  const deskMarketBtn = event.target.closest(".desk-market-btn, .desk-priority-card");
   if (deskMarketBtn) {
     state.deskSymbol = deskMarketBtn.dataset.deskSymbol || "";
     if (state.deskPayload) renderDesk(state.deskPayload);

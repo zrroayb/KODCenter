@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=68">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=69">
   </head>
   <body>
     <div id="boot-error" class="boot-error hidden" role="alert"></div>
@@ -149,6 +149,7 @@
               <button id="desk-refresh-btn" class="btn btn-outline" type="button">Refresh Desk</button>
             </header>
             <div id="desk-market-tabs" class="desk-market-tabs" aria-label="Desk markets"></div>
+            <div id="desk-priority" class="desk-priority hidden" aria-label="Priority setups"></div>
             <div id="desk-feed" class="desk-feed"></div>
             <div id="desk-empty" class="empty hidden">
               <h3>No desk notes</h3>
@@ -347,6 +348,6 @@
     </div>
 
     <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="{{ url_for('static', filename='dashboard.js') }}?v=68"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}?v=69"></script>
   </body>
 </html>
