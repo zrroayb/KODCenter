@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=70">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}?v=71">
   </head>
   <body>
     <div id="boot-error" class="boot-error hidden" role="alert"></div>
@@ -140,23 +140,36 @@
 
         <!-- DESK -->
         <section class="view" data-view="desk">
-          <article class="panel desk-panel">
-            <header class="panel-head desk-head">
-              <div>
-                <h2>ICT Desk</h2>
-                <p id="desk-summary" class="hint">Local chart scenarios for each watched market.</p>
+          <div class="desk-layout-shell">
+            <article class="panel desk-sessions-panel">
+              <header class="panel-head desk-sessions-head">
+                <div>
+                  <h2>Sessions</h2>
+                  <p class="hint">Asia · London · NY — what to wait for</p>
+                </div>
+                <div id="desk-session-tabs" class="desk-session-tabs" aria-label="Session markets"></div>
+              </header>
+              <div id="desk-sessions" class="desk-sessions-body">
+                <p class="muted desk-sessions-placeholder">Loading session map…</p>
               </div>
-              <button id="desk-refresh-btn" class="btn btn-outline" type="button">Refresh Desk</button>
-            </header>
-            <div id="desk-market-tabs" class="desk-market-tabs" aria-label="Desk markets"></div>
-            <div id="desk-priority" class="desk-priority hidden" aria-label="Priority setups"></div>
-            <div id="desk-session-projection" class="desk-session-projection hidden" aria-label="Session projection"></div>
-            <div id="desk-feed" class="desk-feed"></div>
-            <div id="desk-empty" class="empty hidden">
-              <h3>No desk notes</h3>
-              <p>Run a scan or refresh the desk.</p>
-            </div>
-          </article>
+            </article>
+
+            <article class="panel desk-setups-panel">
+              <header class="panel-head desk-head">
+                <div>
+                  <h2>Setups</h2>
+                  <p id="desk-summary" class="hint">KOD context per market</p>
+                </div>
+                <button id="desk-refresh-btn" class="btn btn-outline" type="button">Refresh</button>
+              </header>
+              <div id="desk-market-tabs" class="desk-market-tabs" aria-label="Desk markets"></div>
+              <div id="desk-feed" class="desk-feed"></div>
+              <div id="desk-empty" class="empty hidden">
+                <h3>No setups</h3>
+                <p>Refresh desk or run a scan.</p>
+              </div>
+            </article>
+          </div>
         </section>
 
         <!-- JOURNAL -->
@@ -349,6 +362,6 @@
     </div>
 
     <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="{{ url_for('static', filename='dashboard.js') }}?v=69"></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}?v=71"></script>
   </body>
 </html>

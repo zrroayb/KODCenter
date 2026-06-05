@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from dotenv import load_dotenv
 
@@ -18,7 +18,7 @@ from tradebot.kod import KodTurtleSoupEvaluator, enrich_alert_grade, normalize_s
 from tradebot.journal import JOURNAL_PENDING, JOURNAL_SKIPPED, JOURNAL_TAKEN, TradeJournalStore, alert_snapshot
 from tradebot.exchange import ExchangeClient
 from tradebot.models import Alert
-from tradebot.web.chart_image import build_chart_svg
+from tradebot.web.chart_image import build_chart_svg, build_session_chart_svg
 from tradebot.scanner import Scanner
 from tradebot.state import StateStore
 from tradebot.telegram import TelegramNotifier
@@ -464,6 +464,32 @@ class BotController:
             decision_subtitle=str(annotations.get("decision_subtitle") or ""),
             checklist=annotations.get("checklist") or None,
         )
+
+    def session_chart_png(self, symbol: str) -> str:
+        try:
+            config = self._last_config or load_config(self.config_path)
+            exchange = self._get_exchange()
+        except Exception as exc:
+            return build_session_chart_svg([], symbol=symbol, message=str(exc))
+
+        candles = exchange.fetch_candles(symbol, "15m", 220)
+        if config.scanner.use_closed_candle and candles:
+            candles = candles[:-1]
+        projection = _desk_session_projection(symbol, candles)
+        if not projection:
+            return build_session_chart_svg([], symbol=symbol, message="No session data for this symbol")
+        payload = [
+            {
+                "t": candle.timestamp_ms,
+                "o": candle.open,
+                "h": candle.high,
+                "l": candle.low,
+                "c": candle.close,
+                "v": candle.volume,
+            }
+            for candle in candles
+        ]
+        return build_session_chart_svg(payload, symbol=symbol, projection=projection)
 
     def _fetch_chart_candles(
         self,
@@ -953,6 +979,15 @@ def _desk_session_projection(symbol: str, candles: list[Any]) -> dict[str, Any] 
     trigger = _projection_trigger_text(direction)
     invalidation = _projection_invalidation_text(direction, event)
     taken = event.get("label") if event else "No clean raid/reclaim yet"
+    draw_label = likely_draw.get("label") or "Wait"
+    draw_level = likely_draw.get("level")
+    draw_text = f"{draw_label} @ {_price_text(draw_level)}" if draw_level is not None else draw_label
+    expectations = [
+        {"key": "taken", "title": "Liquidity taken", "text": taken},
+        {"key": "draw", "title": "Likely draw", "text": draw_text},
+        {"key": "trigger", "title": "Wait for", "text": trigger},
+        {"key": "invalid", "title": "Invalid if", "text": invalidation},
+    ]
     return {
         "symbol": symbol,
         "focus": focus,
@@ -966,7 +1001,9 @@ def _desk_session_projection(symbol: str, candles: list[Any]) -> dict[str, Any] 
         "likely_draw": likely_draw,
         "trigger": trigger,
         "invalidation": invalidation,
-        "note": "Projection only. It must line up with KOD context before it matters.",
+        "expectations": expectations,
+        "chart_url": f"/api/chart/session?{urlencode({'symbol': symbol})}",
+        "note": "Session projection only — must align with KOD before trading.",
     }
 
 
@@ -974,7 +1011,7 @@ def _session_ranges(candles: list[Any], latest_dt: datetime) -> list[dict[str, A
     dates = sorted({datetime.fromtimestamp(candle.timestamp_ms / 1000, tz=timezone.utc).date() for candle in candles})
     recent_dates = dates[-2:]
     ranges: list[dict[str, Any]] = []
-    for window in SESSION_WINDOWS[:3]:
+    for window in SESSION_WINDOWS:
         selected = None
         for day in reversed(recent_dates):
             items = [
@@ -1483,7 +1520,6 @@ def _desk_chart_url(
         "symbol": symbol,
         "timeframe": timeframe,
         "limit": 140,
-        "snapshot": "1",
         "role": role,
         "stage": "forming",
         "direction": direction,

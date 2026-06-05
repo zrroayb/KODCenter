@@ -155,6 +155,18 @@ def create_app(controller: BotController) -> Flask:
             headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
         )
 
+    @app.get("/api/chart/session")
+    def session_chart():
+        symbol = request.args.get("symbol", "")
+        if not symbol:
+            return Response("symbol is required", status=400, mimetype="text/plain")
+        svg = controller.session_chart_png(symbol)
+        return Response(
+            svg,
+            mimetype="image/svg+xml",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+        )
+
     @app.get("/api/journal")
     def journal():
         status = request.args.get("status") or None

@@ -24,6 +24,7 @@ const state = {
   deskCache: [],
   deskPayload: null,
   deskSymbol: "",
+  deskSessionSymbol: "",
   cloudReadOnly: false,
   cloudBootstrapped: false,
 };
@@ -125,8 +126,8 @@ const els = {
   deskSummary: document.querySelector("#desk-summary"),
   deskRefreshBtn: document.querySelector("#desk-refresh-btn"),
   deskMarketTabs: document.querySelector("#desk-market-tabs"),
-  deskPriority: document.querySelector("#desk-priority"),
-  deskSessionProjection: document.querySelector("#desk-session-projection"),
+  deskSessions: document.querySelector("#desk-sessions"),
+  deskSessionTabs: document.querySelector("#desk-session-tabs"),
 };
 
 const ALERT_MODAL_HTML = `
@@ -1961,8 +1962,7 @@ function renderDesk(payload) {
     const focusPost = sortedDeskPosts(posts).find((post) => Number(post.priority_score || 0) >= 35) || sortedDeskPosts(posts)[0];
     state.deskSymbol = focusPost?.symbol || symbols[0] || "";
   }
-  renderDeskPriority(posts);
-  renderDeskSessionProjection(payload.session_projection || []);
+  renderDeskSessions(payload.session_projection || []);
   renderDeskMarkets(posts, symbols);
   const visiblePosts = state.deskSymbol
     ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
@@ -1991,11 +1991,8 @@ function renderDeskMarkets(posts, symbols) {
       const profiles = symbolPosts.map((post) => `${post.context_timeframe}→${post.trigger_timeframe}`).join(" / ");
       return `
         <button type="button" class="desk-market-btn ${isActive ? "active" : ""} ${isHot ? "hot" : ""}" data-desk-symbol="${escapeHtml(symbol)}">
-          <span class="desk-market-main">
-            <strong>${escapeHtml(marketDisplay(symbol))}</strong>
-            <span class="desk-score">${Number(bestPost.priority_score || 0)}</span>
-          </span>
-          <small>${isHot ? "Focus" : escapeHtml(bestPost.priority_label || "Low priority")} · ${escapeHtml(profiles || symbol)}</small>
+          <strong>${escapeHtml(marketDisplay(symbol))}</strong>
+          <small>${escapeHtml(profiles || symbol)}</small>
         </button>`;
     }).join("")
     : "";
@@ -2010,86 +2007,90 @@ function sortedDeskPosts(posts) {
   });
 }
 
-function renderDeskPriority(posts) {
-  if (!els.deskPriority) return;
-  const focus = sortedDeskPosts(posts).slice(0, 4);
-  if (!focus.length) {
-    els.deskPriority.classList.remove("hidden");
-    els.deskPriority.innerHTML = `
-      <div class="desk-priority-head">
-        <strong>Follow first</strong>
-        <span>No close setups right now</span>
-      </div>
-      <p class="desk-priority-empty">Nothing is close enough. Use the market tabs only if you want a deeper manual read.</p>`;
+function renderDeskSessions(projections) {
+  if (!els.deskSessions) return;
+  const items = projections || [];
+  if (!items.length) {
+    if (els.deskSessionTabs) els.deskSessionTabs.innerHTML = "";
+    els.deskSessions.innerHTML = `
+      <div class="desk-sessions-empty">
+        <p>No session markets configured.</p>
+        <span class="muted">NAS100, EUR/USD, GBP/USD show session boxes.</span>
+      </div>`;
     return;
   }
-  els.deskPriority.classList.remove("hidden");
-  els.deskPriority.innerHTML = `
-    <div class="desk-priority-head">
-      <strong>Follow first</strong>
-      <span>${focus.some((post) => Number(post.priority_score || 0) >= 35) ? `${focus.length} market${focus.length > 1 ? "s" : ""} worth checking before browsing the full list` : "No close setup yet; these are the closest watches"}</span>
-    </div>
-    <div class="desk-priority-list">
-      ${focus.map((post) => `
-        <button type="button" class="desk-priority-card desk-priority-${escapeHtml(post.status || "waiting")}" data-desk-symbol="${escapeHtml(post.symbol || "")}">
-          <span class="desk-priority-score">${Number(post.priority_score || 0)}</span>
-          <span class="desk-priority-main">
-            <strong>${escapeHtml(marketDisplay(post.symbol))}</strong>
-            <small>${escapeHtml(post.profile || "")} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</small>
-          </span>
-          <span class="desk-priority-action">${escapeHtml(post.priority_label || deskStatusLabel(post.status))}</span>
-        </button>`).join("")}
-    </div>`;
-}
 
-function renderDeskSessionProjection(items) {
-  if (!els.deskSessionProjection) return;
-  const projections = items || [];
-  if (!projections.length) {
-    els.deskSessionProjection.classList.add("hidden");
-    els.deskSessionProjection.innerHTML = "";
-    return;
+  if (!items.some((item) => item.symbol === state.deskSessionSymbol)) {
+    state.deskSessionSymbol = items[0].symbol || "";
   }
-  els.deskSessionProjection.classList.remove("hidden");
-  els.deskSessionProjection.innerHTML = `
-    <div class="desk-session-head">
-      <div>
-        <strong>Session Projection</strong>
-        <span>ICT session ranges · projection only, not a trade signal</span>
-      </div>
-    </div>
-    <div class="desk-session-grid">
-      ${projections.map(renderDeskSessionProjectionCard).join("")}
-    </div>`;
+
+  if (els.deskSessionTabs) {
+    els.deskSessionTabs.innerHTML = items.map((item) => {
+      const active = item.symbol === state.deskSessionSymbol ? "active" : "";
+      const status = item.status || "neutral";
+      return `
+        <button type="button" class="desk-session-tab ${active} status-${escapeHtml(status)}" data-desk-session-symbol="${escapeHtml(item.symbol || "")}">
+          ${escapeHtml(marketDisplay(item.symbol))}
+        </button>`;
+    }).join("");
+  }
+
+  const active = items.find((item) => item.symbol === state.deskSessionSymbol) || items[0];
+  els.deskSessions.innerHTML = renderDeskSessionPanel(active);
+  void loadDeskSessionChart(active);
 }
 
-function renderDeskSessionProjectionCard(item) {
+function renderDeskSessionPanel(item) {
   const status = item.status || "neutral";
-  const draw = item.likely_draw || {};
   const ranges = item.ranges || [];
-  const rangesHtml = ranges.slice(0, 3).map((range) => `
-    <span>
-      ${escapeHtml(range.name || "")}
-      <b>${escapeHtml(fmtNum(range.high))} / ${escapeHtml(fmtNum(range.low))}</b>
-    </span>`).join("");
+  const expectations = item.expectations || [];
+  const chartUrl = item.chart_url || `/api/chart/session?symbol=${encodeURIComponent(item.symbol || "")}`;
+
+  const rangePills = ranges.map((range) => `
+    <div class="session-range-pill ${range.active ? "live" : ""} session-${escapeHtml(range.key || "")}">
+      <span class="session-range-name">${escapeHtml(range.name || "")}</span>
+      <span class="session-range-values mono">${escapeHtml(fmtNum(range.high))} / ${escapeHtml(fmtNum(range.low))}</span>
+    </div>`).join("");
+
+  const expectHtml = expectations.map((row) => `
+    <div class="session-expect-row">
+      <span class="session-expect-label">${escapeHtml(row.title || row.key || "")}</span>
+      <p>${escapeHtml(row.text || "—")}</p>
+    </div>`).join("");
+
   return `
-    <button type="button" class="desk-session-card desk-session-${escapeHtml(status)}" data-desk-symbol="${escapeHtml(item.symbol || "")}">
-      <div class="desk-session-top">
-        <span>${escapeHtml(marketDisplay(item.symbol))}</span>
-        <b>${escapeHtml(item.focus || "Session focus")}</b>
+    <div class="session-panel status-${escapeHtml(status)}">
+      <div class="session-chart-frame tv-chart-frame">
+        <div class="tv-chart-toolbar">
+          <span>${escapeHtml(marketDisplay(item.symbol))} · 15m</span>
+          <span class="session-bias">${escapeHtml(projectionStatusLabel(status))}</span>
+        </div>
+        <div class="tv-chart-canvas session-chart-canvas expandable-chart" data-chart-url="${escapeHtml(chartUrl)}" data-chart-label="${escapeHtml(`${item.symbol} sessions`)}"></div>
       </div>
-      <div class="desk-session-state">
-        <strong>${escapeHtml(projectionStatusLabel(status))}</strong>
-        <small>${escapeHtml(item.current_session || "Between sessions")} · next ${escapeHtml(item.next_session || "—")}</small>
-      </div>
-      <div class="desk-session-ranges">${rangesHtml}</div>
-      <div class="desk-session-read">
-        <span>Taken <b>${escapeHtml(item.taken_liquidity || "—")}</b></span>
-        <span>Draw <b>${escapeHtml(draw.label || "Wait")} ${draw.level == null ? "" : escapeHtml(fmtNum(draw.level))}</b></span>
-        <span>Trigger <b>${escapeHtml(item.trigger || "Wait")}</b></span>
-        <span>Invalid <b>${escapeHtml(item.invalidation || "Wait")}</b></span>
-      </div>
-    </button>`;
+      <aside class="session-guide">
+        <div class="session-now">
+          <span class="session-now-label">Now</span>
+          <strong>${escapeHtml(item.current_session || "Between sessions")}</strong>
+          <small>Next · ${escapeHtml(item.next_session || "—")}</small>
+          <span class="session-focus">${escapeHtml(item.focus || "")}</span>
+        </div>
+        <div class="session-range-grid">${rangePills || `<p class="muted">No session ranges yet.</p>`}</div>
+        <div class="session-expect">
+          <h3>What to wait for</h3>
+          ${expectHtml}
+        </div>
+        <p class="session-note muted">${escapeHtml(item.note || "")}</p>
+      </aside>
+    </div>`;
+}
+
+async function loadDeskSessionChart(item) {
+  if (!item || !els.deskSessions) return;
+  const host = els.deskSessions.querySelector(".session-chart-canvas[data-chart-url]");
+  if (!host) return;
+  const url = host.dataset.chartUrl;
+  if (!url) return;
+  await loadChartCanvas(host, url, `${item.symbol} sessions`, { force: true });
 }
 
 function projectionStatusLabel(status) {
@@ -2100,107 +2101,40 @@ function projectionStatusLabel(status) {
 
 function renderDeskPost(post) {
   const status = post.status || "waiting";
-  const isHot = Boolean(post.high_potential);
-  const blockers = post.blockers || [];
-  const reasons = post.reasons || [];
-  const scenarios = post.scenarios || [];
   const decision = post.decision || {};
   const checklist = post.checklist || decision.checklist || [];
-  const objective = post.objective || {};
   const context = post.context_summary || {};
-  const objectiveText = objective.level != null
-    ? `${escapeHtml(objective.kind || "HTF draw")} · ${fmtNum(objective.level)}`
-    : "No nearby HTF draw";
-  const blockerHtml = blockers.length
-    ? blockers.slice(0, 3).map((line) => `<li>${escapeHtml(line)}</li>`).join("")
-    : `<li>No hard blocker shown. Wait for trigger quality.</li>`;
-  const reasonHtml = reasons.length
-    ? reasons.slice(0, 3).map((line) => `<li>${escapeHtml(line)}</li>`).join("")
-    : `<li>Context is still building.</li>`;
-  const scenarioHtml = scenarios.map((item) => `
-    <div class="desk-scenario">
-      <strong>${escapeHtml(item.title || "Scenario")}</strong>
-      <p>${escapeHtml(item.text || "")}</p>
-    </div>`).join("");
   const checklistHtml = renderDeskChecklist(checklist);
-  const contextHtml = `
-    <section class="desk-context-card">
-      <div class="desk-context-read">
-        <span>${escapeHtml(context.title || `${post.context_timeframe} context`)}</span>
-        <strong>${escapeHtml(context.bias || directionLabel(post.bias))}</strong>
-        <p>${escapeHtml(context.read || "Higher-timeframe context is still building.")}</p>
-      </div>
-      <div class="desk-context-levels">
-        <span>Draw <b>${escapeHtml(context.draw || "n/a")}</b></span>
-        <span>Raid <b>${escapeHtml(context.raid || "n/a")}</b></span>
-        <span>${escapeHtml(context.trigger || `Confirm on ${post.trigger_timeframe}`)}</span>
-      </div>
-    </section>`;
   return `
     <article class="desk-post desk-${escapeHtml(status)}">
-      <header class="desk-post-head">
-        <div class="desk-author">
-          <span class="desk-avatar">${escapeHtml((marketDisplay(post.symbol) || post.symbol || "?").slice(0, 3).toUpperCase())}</span>
-          <div>
-          <strong>${escapeHtml(marketDisplay(post.symbol))}</strong>
-          ${marketProxyNote(post.symbol) ? `<small>${escapeHtml(marketProxyNote(post.symbol))}</small>` : `<small>${escapeHtml(post.symbol)}</small>`}
-        </div>
-        </div>
-        <div class="desk-thread-meta">
-          <span class="desk-profile-line">
-            ${escapeHtml(post.profile || "")} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}
-            ${isHot ? `<span class="desk-hot">HOT</span>` : ""}
-          </span>
-          <span class="desk-priority-pill">${Number(post.priority_score || 0)} · ${escapeHtml(post.priority_label || deskStatusLabel(status))}</span>
-          <strong class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</strong>
-        </div>
-      </header>
-      <div class="desk-layout">
-        <div class="desk-chart-column">
-          <figure class="desk-chart-wrap desk-context-chart-wrap screenshot-pane">
-            <figcaption class="screenshot-cap">
-              <span>${escapeHtml(post.context_timeframe)} · HTF context</span>
-              <small>${escapeHtml(context.bias || directionLabel(post.bias))}</small>
-            </figcaption>
-            <div class="screenshot-canvas desk-chart desk-chart-context" data-chart-url="${escapeHtml(post.context_chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.context_timeframe} context`)}"></div>
-          </figure>
-          <figure class="desk-chart-wrap screenshot-pane">
-            <figcaption class="screenshot-cap">
-              <span>${escapeHtml(post.trigger_timeframe)} · confirmation chart</span>
-              <small>${escapeHtml(directionLabel(post.bias))}</small>
-            </figcaption>
-            <div class="screenshot-canvas desk-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.trigger_timeframe}`)}"></div>
-          </figure>
-        </div>
-        <div class="desk-copy">
-          <div class="desk-title-row">
-            <strong>${escapeHtml(post.headline || "Waiting for context")}</strong>
-            <span class="desk-grade-wrap">
-              ${isHot ? `<span class="desk-hot">HOT</span>` : ""}
-              <span class="grade-badge ${gradeClass(post.grade)}">${escapeHtml(post.grade || "—")}</span>
-            </span>
-          </div>
-          <div class="desk-decision ${escapeHtml(decision.status || status)}">
-            <strong>${escapeHtml(decision.label || deskStatusLabel(status))}</strong>
-            <span>${escapeHtml(decision.subtitle || post.what_now || "Wait.")}</span>
-          </div>
-          ${contextHtml}
-          ${checklistHtml}
-          <p class="desk-now">${escapeHtml(post.what_now || "No trade. Wait.")}</p>
-          <div class="desk-facts">
-            <span>Price <strong>${post.price == null ? "—" : escapeHtml(fmtNum(post.price))}</strong></span>
-            <span>Draw <strong>${escapeHtml(objectiveText)}</strong></span>
-            <span>MSB <strong>${post.msb_level == null ? "n/a" : escapeHtml(fmtNum(post.msb_level))}</strong></span>
-          </div>
-          <div class="desk-scenarios">${scenarioHtml}</div>
-          <details class="desk-notes">
-            <summary>Why no trade / what matters</summary>
-            <div class="desk-note-grid">
-              <section><h3>Blockers</h3><ul>${blockerHtml}</ul></section>
-              <section><h3>HTF reasons</h3><ul>${reasonHtml}</ul></section>
+      <div class="desk-post-compact">
+        <div class="desk-charts-min">
+          <figure class="tv-chart-frame mini">
+            <div class="tv-chart-toolbar">
+              <span>${escapeHtml(post.context_timeframe)} · HTF</span>
+              <span>${escapeHtml(context.bias || directionLabel(post.bias))}</span>
             </div>
-            <p>${escapeHtml(post.data_note || "")}</p>
-          </details>
+            <div class="tv-chart-canvas desk-chart expandable-chart" data-chart-url="${escapeHtml(post.context_chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.context_timeframe}`)}"></div>
+          </figure>
+          <figure class="tv-chart-frame mini">
+            <div class="tv-chart-toolbar">
+              <span>${escapeHtml(post.trigger_timeframe)} · trigger</span>
+              <span class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</span>
+            </div>
+            <div class="tv-chart-canvas desk-chart expandable-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(`${post.symbol} ${post.trigger_timeframe}`)}"></div>
+          </figure>
+        </div>
+        <div class="desk-copy-min">
+          <div class="desk-title-row">
+            <div>
+              <strong>${escapeHtml(post.profile || "")}</strong>
+              <span class="muted">${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</span>
+            </div>
+            <span class="grade-badge ${gradeClass(post.grade)}">${escapeHtml(post.grade || "—")}</span>
+          </div>
+          <p class="desk-headline">${escapeHtml(post.headline || "Waiting for context")}</p>
+          <p class="desk-now">${escapeHtml(decision.subtitle || post.what_now || "Wait.")}</p>
+          ${checklistHtml}
         </div>
       </div>
     </article>`;
@@ -2234,7 +2168,7 @@ async function loadDeskCharts() {
   await Promise.all(charts.map((el) => {
     const url = el.dataset.chartUrl;
     if (!url) return Promise.resolve(null);
-    return loadChartCanvas(el, url, el.dataset.chartLabel || "chart", { force: false });
+    return loadChartCanvas(el, url, el.dataset.chartLabel || "chart", { force: true });
   }));
 }
 
@@ -3240,7 +3174,16 @@ if (els.replayBtn) els.replayBtn.addEventListener("click", () => runReplay());
 if (els.deskRefreshBtn) els.deskRefreshBtn.addEventListener("click", () => refreshDesk({ force: true }));
 
 document.addEventListener("click", async (event) => {
-  const deskMarketBtn = event.target.closest(".desk-market-btn, .desk-priority-card, .desk-session-card");
+  const deskSessionTab = event.target.closest("[data-desk-session-symbol]");
+  if (deskSessionTab) {
+    state.deskSessionSymbol = deskSessionTab.dataset.deskSessionSymbol || "";
+    if (state.deskPayload?.session_projection) {
+      renderDeskSessions(state.deskPayload.session_projection);
+    }
+    return;
+  }
+
+  const deskMarketBtn = event.target.closest(".desk-market-btn");
   if (deskMarketBtn) {
     state.deskSymbol = deskMarketBtn.dataset.deskSymbol || "";
     if (state.deskPayload) renderDesk(state.deskPayload);

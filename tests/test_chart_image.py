@@ -1,6 +1,6 @@
 import re
 
-from tradebot.web.chart_image import build_chart_svg
+from tradebot.web.chart_image import THEME, build_chart_svg, build_session_chart_svg
 
 
 def test_build_chart_svg_renders_candles_and_levels():
@@ -24,7 +24,7 @@ def test_build_chart_svg_renders_candles_and_levels():
 
     assert "<svg" in svg
     assert "BTC/USDT · 15m" in svg
-    assert 'fill="#050505"' in svg or 'fill="#48b45e"' in svg
+    assert THEME["bear"] in svg or THEME["bull"] in svg
     assert "Entry" in svg
     assert "Invalid" in svg
     assert "reference level" in svg
@@ -70,7 +70,7 @@ def test_chart_svg_leaves_space_after_rightmost_bar():
     svg = build_chart_svg(candles, role="trigger", title="BTC/USDT · 1d")
 
     candle_rects = re.findall(
-        r'<rect x="([0-9.]+)" y="[0-9.]+" width="([0-9.]+)" height="[0-9.]+" fill="(?:#48b45e|#050505)"',
+        rf'<rect x="([0-9.]+)" y="[0-9.]+" width="([0-9.]+)" height="[0-9.]+" fill="(?:{THEME["bull"]}|{THEME["bear"]})"',
         svg,
     )
     assert candle_rects
@@ -257,3 +257,28 @@ def test_context_chart_marks_htf_raid_candle():
 def test_build_chart_svg_empty_message():
     svg = build_chart_svg([], message="Baglanti hatasi")
     assert "Baglanti hatasi" in svg
+
+
+def test_build_session_chart_svg_draws_session_boxes():
+    candles = [
+        {"t": i * 900_000, "o": 1.08, "h": 1.082, "l": 1.078, "c": 1.081}
+        for i in range(40)
+    ]
+    projection = {
+        "status": "bullish",
+        "current_session": "London",
+        "ranges": [
+            {"key": "asia", "name": "Asia", "high": 1.085, "low": 1.078, "active": False},
+            {"key": "london", "name": "London", "high": 1.087, "low": 1.080, "active": True},
+        ],
+        "expectations": [
+            {"title": "Sweep", "text": "Wait for Asia low raid then reclaim."},
+        ],
+    }
+    svg = build_session_chart_svg(candles, symbol="EUR/USD", projection=projection)
+
+    assert "<svg" in svg
+    assert "EUR/USD" in svg
+    assert "Asia" in svg
+    assert "London" in svg
+    assert THEME["bg"] in svg

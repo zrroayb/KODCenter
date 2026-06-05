@@ -4,6 +4,28 @@ import html
 from datetime import datetime, timezone
 from typing import Any
 
+THEME = {
+    "bg": "#131722",
+    "header": "#1e222d",
+    "plot": "#131722",
+    "plot_border": "#2a2e39",
+    "grid": "#363a45",
+    "grid_text": "#787b86",
+    "header_text": "#d1d4dc",
+    "bull": "#26a69a",
+    "bear": "#ef5350",
+    "wick": "#b2b5be",
+    "scale_bg": "#1e222d",
+    "last_price": "#2962ff",
+}
+
+SESSION_BOX_COLORS = {
+    "asia": ("#6366f1", 0.16),
+    "london": ("#f59e0b", 0.16),
+    "ny_am": ("#22c55e", 0.16),
+    "ny_pm": ("#a855f7", 0.16),
+}
+
 
 def build_chart_svg(
     candles: list[dict[str, Any]],
@@ -118,20 +140,18 @@ def build_chart_svg(
         return pad_t + (1 - (price - y_min) / (y_max - y_min)) * plot_h
 
     body: list[str] = []
-    body.append(f'<rect width="{width}" height="{height}" fill="#cfd3dc"/>')
-    body.append(f'<rect x="0" y="0" width="{width}" height="36" fill="#d8dce4"/>')
-    body.append(f'<rect x="{width - pad_r}" y="36" width="{pad_r}" height="{height - 36}" fill="#c6cbd5" opacity="0.62"/>')
+    body.append(f'<rect width="{width}" height="{height}" fill="{THEME["bg"]}"/>')
+    body.append(f'<rect x="0" y="0" width="{width}" height="36" fill="{THEME["header"]}"/>')
+    body.append(
+        f'<rect x="{width - pad_r}" y="36" width="{pad_r}" height="{height - 36}" '
+        f'fill="{THEME["scale_bg"]}" opacity="0.95"/>'
+    )
 
     last = visible[-1]
     header = _chart_header(title, last, stage, role)
     body.append(
-        f'<text x="{pad_l}" y="24" fill="#1f232b" font-family="Inter,system-ui,sans-serif" '
-        f'font-size="15" font-weight="700">{html.escape(header)}</text>'
-    )
-    body.append(
-        f'<rect x="{width - 82}" y="8" width="58" height="24" rx="6" fill="#ffffff" opacity="0.9"/>'
-        f'<text x="{width - 53}" y="25" fill="#111827" text-anchor="middle" '
-        f'font-family="Inter,system-ui,sans-serif" font-size="12" font-weight="700">USDT</text>'
+        f'<text x="{pad_l}" y="24" fill="{THEME["header_text"]}" font-family="Inter,system-ui,sans-serif" '
+        f'font-size="14" font-weight="600">{html.escape(header)}</text>'
     )
 
     if signal_index is not None:
@@ -372,18 +392,18 @@ def _draw_grid(
 ) -> None:
     body.append(
         f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" '
-        f'fill="#d2d6df" stroke="#b6bdc9" stroke-width="1"/>'
+        f'fill="{THEME["plot"]}" stroke="{THEME["plot_border"]}" stroke-width="1"/>'
     )
     for i in range(7):
         gy = pad_t + (i / 6) * plot_h
         price = y_max - (i / 6) * (y_max - y_min)
         body.append(
             f'<line x1="{pad_l}" y1="{gy:.2f}" x2="{width - pad_r}" y2="{gy:.2f}" '
-            f'stroke="#c2c8d2" stroke-width="1"/>'
+            f'stroke="{THEME["grid"]}" stroke-width="1" opacity="0.55"/>'
         )
         body.append(
-            f'<text x="{width - pad_r + 12}" y="{gy + 4:.2f}" fill="#7b8290" '
-            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="12">{_fmt_price(price)}</text>'
+            f'<text x="{width - pad_r + 12}" y="{gy + 4:.2f}" fill="{THEME["grid_text"]}" '
+            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="11">{_fmt_price(price)}</text>'
         )
 
     count = len(candles)
@@ -394,11 +414,11 @@ def _draw_grid(
         x = x_at(index)
         body.append(
             f'<line x1="{x:.2f}" y1="{pad_t}" x2="{x:.2f}" y2="{height - pad_b}" '
-            f'stroke="#c8cdd6" stroke-width="1"/>'
+            f'stroke="{THEME["grid"]}" stroke-width="1" opacity="0.35"/>'
         )
         body.append(
-            f'<text x="{x:.2f}" y="{height - 18}" fill="#8b929e" text-anchor="middle" '
-            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="11">{_fmt_time(int(candles[index]["t"]))}</text>'
+            f'<text x="{x:.2f}" y="{height - 18}" fill="{THEME["grid_text"]}" text-anchor="middle" '
+            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">{_fmt_time(int(candles[index]["t"]))}</text>'
         )
 
 
@@ -442,18 +462,18 @@ def _draw_candles(body: list[str], candles: list[dict[str, Any]], x_at, y_at, ca
         o, h, l, c = float(candle["o"]), float(candle["h"]), float(candle["l"]), float(candle["c"])
         x = x_at(index)
         up = c >= o
-        color = "#48b45e" if up else "#050505"
+        color = THEME["bull"] if up else THEME["bear"]
         is_signal = signal_index is not None and index == signal_index
         body.append(
             f'<line x1="{x:.2f}" y1="{y_at(h):.2f}" x2="{x:.2f}" y2="{y_at(l):.2f}" '
-            f'stroke="#101010" stroke-width="{2.0 if is_signal else 1.35}" stroke-linecap="round"/>'
+            f'stroke="{THEME["wick"]}" stroke-width="{1.6 if is_signal else 1.1}" stroke-linecap="round"/>'
         )
         top = y_at(max(o, c))
         bottom = y_at(min(o, c))
         body_h = max(2.0, bottom - top)
         body.append(
             f'<rect x="{x - candle_w / 2:.2f}" y="{top:.2f}" width="{candle_w:.2f}" '
-            f'height="{body_h:.2f}" fill="{color}" stroke="#0b0b0b" stroke-width="{1.2 if is_signal else 0.8}"/>'
+            f'height="{body_h:.2f}" fill="{color}" stroke="{color}" stroke-width="{1.4 if is_signal else 0.6}"/>'
         )
 
 
@@ -1536,12 +1556,192 @@ def _first_number(*values: float | None) -> float | None:
     return None
 
 
+def build_session_chart_svg(
+    candles: list[dict[str, Any]],
+    *,
+    symbol: str = "",
+    projection: dict[str, Any] | None = None,
+    width: int = 1280,
+    height: int = 640,
+    message: str = "No session data",
+) -> str:
+    projection = projection or {}
+    if not candles:
+        return _empty_svg(width, height, message)
+
+    visible = candles[-96:] if len(candles) > 96 else candles
+    pad_l, pad_r, pad_t, pad_b = 12, 88, 40, 52
+    plot_w = width - pad_l - pad_r
+    plot_h = height - pad_t - pad_b
+
+    prices = [float(c["h"]) for c in visible] + [float(c["l"]) for c in visible]
+    draw = projection.get("likely_draw") or {}
+    draw_level = _to_float(draw.get("level"))
+    if draw_level is not None:
+        prices.append(draw_level)
+    for item in projection.get("ranges") or []:
+        prices.extend([_to_float(item.get("high")), _to_float(item.get("low"))])
+    prices = [p for p in prices if p is not None]
+    y_min, y_max = min(prices), max(prices)
+    if y_max == y_min:
+        y_max += 1
+        y_min -= 1
+    spread = y_max - y_min
+    y_min -= spread * 0.08
+    y_max += spread * 0.08
+
+    slot = plot_w / max(len(visible), 1)
+    candle_w = max(3.0, min(14.0, slot * 0.62))
+
+    def x_at(index: int) -> float:
+        return pad_l + (index + 0.5) * slot
+
+    def y_at(price: float) -> float:
+        return pad_t + (1 - (price - y_min) / (y_max - y_min)) * plot_h
+
+    def index_for_ms(ms: int) -> int | None:
+        best_idx = None
+        best_diff = None
+        for idx, candle in enumerate(visible):
+            diff = abs(int(candle["t"]) - ms)
+            if best_diff is None or diff < best_diff:
+                best_diff = diff
+                best_idx = idx
+        return best_idx
+
+    body: list[str] = []
+    body.append(f'<rect width="{width}" height="{height}" fill="{THEME["bg"]}"/>')
+    body.append(f'<rect x="0" y="0" width="{width}" height="34" fill="{THEME["header"]}"/>')
+    status = projection.get("status") or "neutral"
+    status_label = {"bullish": "Bullish draw", "bearish": "Bearish draw"}.get(status, "Neutral / wait")
+    title = f"{symbol} · 15m Sessions" if symbol else "15m Sessions"
+    body.append(
+        f'<text x="{pad_l}" y="22" fill="{THEME["header_text"]}" font-family="Inter,system-ui,sans-serif" '
+        f'font-size="14" font-weight="600">{html.escape(title)}</text>'
+    )
+    body.append(
+        f'<text x="{width - pad_r - 8}" y="22" fill="{THEME["grid_text"]}" text-anchor="end" '
+        f'font-family="Inter,system-ui,sans-serif" font-size="12">{html.escape(status_label)}</text>'
+    )
+
+    body.append(
+        f'<rect x="{pad_l}" y="{pad_t}" width="{plot_w}" height="{plot_h}" '
+        f'fill="{THEME["plot"]}" stroke="{THEME["plot_border"]}" stroke-width="1"/>'
+    )
+
+    for i in range(6):
+        gy = pad_t + (i / 5) * plot_h
+        price = y_max - (i / 5) * (y_max - y_min)
+        body.append(
+            f'<line x1="{pad_l}" y1="{gy:.2f}" x2="{width - pad_r}" y2="{gy:.2f}" '
+            f'stroke="{THEME["grid"]}" stroke-width="1" opacity="0.45"/>'
+        )
+        body.append(
+            f'<text x="{width - pad_r + 10}" y="{gy + 4:.2f}" fill="{THEME["grid_text"]}" '
+            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">{_fmt_price(price)}</text>'
+        )
+
+    for item in projection.get("ranges") or []:
+        start_ms = int(item.get("start_ms") or 0)
+        end_ms = int(item.get("end_ms") or 0)
+        start_idx = index_for_ms(start_ms)
+        end_idx = index_for_ms(end_ms)
+        if start_idx is None or end_idx is None:
+            continue
+        left = min(x_at(start_idx), x_at(end_idx)) - slot * 0.5
+        right = max(x_at(start_idx), x_at(end_idx)) + slot * 0.5
+        key = str(item.get("key") or "")
+        color, opacity = SESSION_BOX_COLORS.get(key, ("#64748b", 0.12))
+        body.append(
+            f'<rect x="{left:.2f}" y="{pad_t}" width="{max(2, right - left):.2f}" height="{plot_h}" '
+            f'fill="{color}" opacity="{opacity}"/>'
+        )
+        label_x = left + 6
+        active = " · LIVE" if item.get("active") else ""
+        body.append(
+            f'<text x="{label_x:.2f}" y="{pad_t + 14}" fill="{color}" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="700">'
+            f'{html.escape(str(item.get("name") or key))}{html.escape(active)}</text>'
+        )
+        high = _to_float(item.get("high"))
+        low = _to_float(item.get("low"))
+        if high is not None:
+            yh = y_at(high)
+            body.append(
+                f'<line x1="{left:.2f}" y1="{yh:.2f}" x2="{width - pad_r}" y2="{yh:.2f}" '
+                f'stroke="{color}" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.85"/>'
+            )
+            body.append(
+                f'<text x="{width - pad_r + 10}" y="{yh + 4:.2f}" fill="{color}" '
+                f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">{_fmt_price(high)} H</text>'
+            )
+        if low is not None:
+            yl = y_at(low)
+            body.append(
+                f'<line x1="{left:.2f}" y1="{yl:.2f}" x2="{width - pad_r}" y2="{yl:.2f}" '
+                f'stroke="{color}" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.85"/>'
+            )
+            body.append(
+                f'<text x="{width - pad_r + 10}" y="{yl + 4:.2f}" fill="{color}" '
+                f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10">{_fmt_price(low)} L</text>'
+            )
+
+    _draw_candles(body, visible, x_at, y_at, candle_w, None)
+
+    latest_close = _to_float(projection.get("latest_price"))
+    if latest_close is not None:
+        yp = y_at(latest_close)
+        body.append(
+            f'<line x1="{pad_l}" y1="{yp:.2f}" x2="{width - pad_r}" y2="{yp:.2f}" '
+            f'stroke="{THEME["last_price"]}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.9"/>'
+        )
+        body.append(
+            f'<rect x="{width - pad_r + 4}" y="{yp - 10:.2f}" width="72" height="18" rx="3" fill="{THEME["last_price"]}"/>'
+            f'<text x="{width - pad_r + 40}" y="{yp + 4:.2f}" fill="#ffffff" text-anchor="middle" '
+            f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="700">'
+            f'{_fmt_price(latest_close)}</text>'
+        )
+
+    if draw_level is not None:
+        yd = y_at(draw_level)
+        body.append(
+            f'<line x1="{pad_l}" y1="{yd:.2f}" x2="{width - pad_r}" y2="{yd:.2f}" '
+            f'stroke="#fbbf24" stroke-width="1.4" opacity="0.9"/>'
+        )
+        body.append(
+            f'<text x="{pad_l + 8}" y="{yd - 6:.2f}" fill="#fbbf24" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="10" font-weight="600">Likely draw</text>'
+        )
+
+    footer_y = height - 36
+    body.append(f'<rect x="0" y="{footer_y}" width="{width}" height="36" fill="{THEME["header"]}"/>')
+    current = projection.get("current_session") or "—"
+    nxt = projection.get("next_session") or "—"
+    body.append(
+        f'<text x="{pad_l}" y="{height - 14}" fill="{THEME["grid_text"]}" '
+        f'font-family="Inter,system-ui,sans-serif" font-size="11">'
+        f'Now: {html.escape(str(current))} · Next: {html.escape(str(nxt))}</text>'
+    )
+    trigger = str(projection.get("trigger") or "")
+    if trigger:
+        short = trigger if len(trigger) <= 92 else f"{trigger[:89]}…"
+        body.append(
+            f'<text x="{width - pad_r - 8}" y="{height - 14}" fill="{THEME["header_text"]}" text-anchor="end" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="11">{html.escape(short)}</text>'
+        )
+
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" shape-rendering="geometricPrecision">{"".join(body)}</svg>'
+    )
+
+
 def _empty_svg(width: int, height: int, message: str) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}">'
-        f'<rect width="{width}" height="{height}" fill="#cfd3dc"/>'
-        f'<text x="{width / 2:.1f}" y="{height / 2:.1f}" fill="#374151" '
-        f'text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="16" font-weight="700">'
+        f'<rect width="{width}" height="{height}" fill="{THEME["bg"]}"/>'
+        f'<text x="{width / 2:.1f}" y="{height / 2:.1f}" fill="{THEME["grid_text"]}" '
+        f'text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="15" font-weight="600">'
         f"{html.escape(message)}</text></svg>"
     )
