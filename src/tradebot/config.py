@@ -23,6 +23,8 @@ class ExchangeConfig:
     id: str = "binance"
     market_type: str = "spot"
     timeout_ms: int = 10000
+    fallback_ids: tuple[str, ...] = ()
+    symbol_exchanges: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,11 @@ def load_config(path: Path) -> AppConfig:
             id=str(exchange_raw.get("id", "binance")),
             market_type=str(exchange_raw.get("market_type", "spot")),
             timeout_ms=int(exchange_raw.get("timeout_ms", 10000)),
+            fallback_ids=tuple(str(item) for item in exchange_raw.get("fallback_ids", []) or []),
+            symbol_exchanges={
+                str(symbol): tuple(str(item) for item in exchanges or [])
+                for symbol, exchanges in (exchange_raw.get("symbol_exchanges", {}) or {}).items()
+            },
         ),
         scanner=scanner,
         setups=tuple(setups),

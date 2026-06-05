@@ -270,6 +270,9 @@ const MARKET_PROXY_LABELS = {
   "EUR/USDT": { label: "EUR proxy", note: "Binance EUR/USDT · not EURUSD" },
   "GBP/USDT": { label: "GBP proxy", note: "Binance GBP/USDT · not GBPUSD" },
   "PAXG/USDT": { label: "Gold proxy", note: "PAXG/USDT · not XAUUSD" },
+  "EUR/USD": { label: "EUR/USD", note: "Kraken EUR/USD" },
+  "GBP/USD": { label: "GBP/USD", note: "Kraken GBP/USD" },
+  "PAXG/USD": { label: "Gold proxy", note: "PAXG/USD · not spot XAUUSD" },
 };
 
 function setBootError(message) {

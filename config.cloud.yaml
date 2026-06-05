@@ -4,9 +4,39 @@ telegram:
   dry_run: true
 
 exchange:
-  id: binance
+  id: htx
   market_type: spot
   timeout_ms: 10000
+  fallback_ids:
+    - kraken
+    - bitstamp
+    - okx
+    - kucoin
+    - bitget
+    - mexc
+    - bingx
+    - cryptocom
+    - gateio
+  symbol_exchanges:
+    BTC/USDT:
+      - htx
+      - okx
+      - kucoin
+      - bitget
+    ETH/USDT:
+      - htx
+      - okx
+      - kucoin
+      - bitget
+    EUR/USD:
+      - kraken
+      - bitstamp
+    GBP/USD:
+      - kraken
+      - bitstamp
+    PAXG/USD:
+      - kraken
+      - bitstamp
 
 scanner:
   timeframe: 15m
@@ -16,9 +46,9 @@ scanner:
   symbols:
     - BTC/USDT
     - ETH/USDT
-    - EUR/USDT
-    - GBP/USDT
-    - PAXG/USDT
+    - EUR/USD
+    - GBP/USD
+    - PAXG/USD
 
 setups:
   - name: kod-turtle-soup-reclaim
