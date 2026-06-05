@@ -1,0 +1,31 @@
+[project]
+name = "tradebot"
+version = "0.1.0"
+description = "Configurable crypto trade setup scanner with Telegram alerts."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "ccxt>=4.4.0",
+  "Flask>=3.0.0",
+  "python-dotenv>=1.0.1",
+  "Pillow>=10.0.0",
+  "PyYAML>=6.0.2",
+  "requests>=2.32.3",
+  "urllib3<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+]
+
+[project.scripts]
+tradebot = "tradebot.main:main"
+tradebot-web = "tradebot.web:main"
+
+[tool.setuptools.package-data]
+"tradebot.web" = ["templates/*.html", "static/*.css", "static/*.js"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

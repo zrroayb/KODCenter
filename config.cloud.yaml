@@ -1,0 +1,89 @@
+telegram:
+  bot_token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID
+  dry_run: true
+
+exchange:
+  id: binance
+  market_type: spot
+  timeout_ms: 10000
+
+scanner:
+  timeframe: 15m
+  poll_seconds: 60
+  candle_limit: 300
+  use_closed_candle: true
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - EUR/USDT
+    - GBP/USDT
+    - PAXG/USDT
+
+setups:
+  - name: kod-turtle-soup-reclaim
+    type: kod_turtle_soup
+    enabled: true
+    cooldown_minutes: 45
+    profiles:
+      - name: intraday
+        context_timeframe: 4h
+        trigger_timeframe: 15m
+      - name: swing
+        context_timeframe: 1d
+        trigger_timeframe: 1h
+    lookback: 20
+    msb_profiles:
+      - intraday
+      - swing
+    msb_lookback: 30
+    msb_span: 2
+    require_htf_raid_confirmation: true
+    htf_raid_lookback: 8
+    htf_raid_confirmation_bars: 8
+    freshness_bars_by_profile:
+      intraday: 6
+      swing: 4
+    important_candle_min_range_atr: 0.7
+    require_displacement_confirmation: true
+    displacement_min_body_ratio: 0.55
+    displacement_min_range_atr: 0.65
+    displacement_close_ratio: 0.7
+    min_tp2_rr: 1.25
+    min_final_rr: 1.0
+    previous_candle_sweep: false
+    min_level_age: 4
+    objective_max_atr: 1.2
+    stop_buffer_atr: 0.1
+    max_stop_atr: 1.5
+    hide_missed_setups: true
+    max_chase_atr: 0.75
+    max_chase_r: 0.75
+    target_lookback: 60
+    fvg_lookback: 50
+    min_alert_grade_by_stage:
+      forming: A
+      confirmed: A
+    telegram_min_grade_by_stage:
+      forming: A+
+      confirmed: A
+    require_premium_discount_for_forming: true
+    one_alert_per_raid: true
+    htf_alignment:
+      mode: strict
+      require_objective_for_confirmed: true
+      allow_forming_without_alignment: true
+      block_opposite_reclaim: true
+      require_premium_discount_for_confirmed: true
+    alert_stages:
+      - forming
+      - confirmed
+      - invalidated
+    filters:
+      - premium_discount
+      - candle_profile
+      - displacement
+      - session
+      - fvg
+      - ifvg
+    top_tier_only: false
