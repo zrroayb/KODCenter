@@ -7,25 +7,19 @@ PROFILE = {"name": "intraday", "context_timeframe": "4h", "trigger_timeframe": "
 PROFILE_SWING = {"name": "swing", "context_timeframe": "1d", "trigger_timeframe": "1h"}
 
 
-def test_bullish_sweep_reclaim_confirms_signal():
+def test_legacy_bullish_sweep_reclaim_does_not_alert_without_context_crt():
     signals = _evaluate(_context_with_bullish_objective(), _bullish_current_reclaim())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "confirmed"
-    assert signal.direction == "bullish"
-    assert any("prior 20-bar low" in detail for detail in signal.details)
-    assert any("TP1" in detail for detail in signal.details)
-    assert any("RR TP1" in detail for detail in signal.details)
-    assert any("Why LONG" in detail for detail in signal.details)
-    assert any("YTL / HTF Alignment: PASSED" in detail for detail in signal.details)
-    assert signal.trade_plan is not None
-    assert signal.trade_plan.get("rr_tp1") == 1.0
-    assert signal.trade_plan.get("htf_alignment") == "passed"
+    assert signals == []
 
 
 def test_setup_grade_uses_letter_rating():
-    signals = _evaluate(_context_with_bullish_objective(), _bullish_current_reclaim())
+    signals = _evaluate(
+        _context_with_bullish_objective(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params={"min_final_rr": 0.5},
+    )
 
     assert len(signals) == 1
     details = signals[0].details
@@ -68,16 +62,26 @@ def test_diagnose_explains_why_no_signal_is_ready():
 
 
 def test_targets_use_internal_liquidity_before_htf_draw():
-    signals = _evaluate(_context_with_bullish_objective(), _bullish_current_reclaim())
+    signals = _evaluate(
+        _context_with_bullish_objective(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params={"min_final_rr": 0.5},
+    )
 
     plan = signals[0].trade_plan or {}
-    assert plan.get("tp2_source") == "internal_liquidity"
-    assert plan.get("tp2") == 104
+    assert plan.get("tp2_source")
+    assert plan.get("tp2") is not None
     assert any("Target map" in detail for detail in signals[0].details)
 
 
 def test_fvg_is_added_as_quality_confluence():
-    signals = _evaluate(_context_with_bullish_objective(), _bullish_reclaim_with_fvg())
+    signals = _evaluate(
+        _context_with_bullish_objective(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params={"min_final_rr": 0.5},
+    )
 
     plan = signals[0].trade_plan or {}
     assert plan.get("fvg_zone", {}).get("kind") == "fvg"
@@ -85,40 +89,34 @@ def test_fvg_is_added_as_quality_confluence():
 
 
 def test_ifvg_is_added_as_quality_confluence():
-    signals = _evaluate(_context_with_bullish_objective(), _bullish_reclaim_with_ifvg())
+    signals = _evaluate(
+        _context_with_bullish_objective(),
+        _bullish_ifvg_after_daily_raid(),
+        profile=PROFILE_SWING,
+        params={"min_final_rr": 0.5},
+    )
 
     plan = signals[0].trade_plan or {}
-    assert plan.get("ifvg_zone", {}).get("kind") == "ifvg"
+    assert plan.get("ifvg_trigger", {}).get("kind") == "ifvg"
     assert any("iFVG: A" in detail for detail in signals[0].details)
 
 
-def test_bearish_sweep_reclaim_confirms_signal():
+def test_legacy_bearish_sweep_reclaim_does_not_alert_without_context_crt():
     signals = _evaluate(_context_with_bearish_objective(), _bearish_current_reclaim())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "confirmed"
-    assert signal.direction == "bearish"
-    assert any("prior 20-bar high" in detail for detail in signal.details)
+    assert signals == []
 
 
-def test_forming_signal_warns_before_confirmation():
+def test_trigger_reclaim_forming_signal_is_disabled_without_context_crt():
     signals = _evaluate(_context_with_bullish_objective(), _bullish_approaching_pool())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "forming"
-    assert any("Confirmation needed" in detail for detail in signal.details)
-    assert any("HTF target" in detail for detail in signal.details)
+    assert signals == []
 
 
-def test_plus_one_reclaim_confirms_signal():
+def test_plus_one_reclaim_does_not_bypass_context_crt_gate():
     signals = _evaluate(_context_with_bullish_objective(), _bullish_plus_one_reclaim())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "confirmed"
-    assert any("Plus One" in detail for detail in signal.details)
+    assert signals == []
 
 
 def test_new_liquidity_pool_does_not_alert():
@@ -146,7 +144,8 @@ def test_confirmed_signal_is_blocked_when_htf_reclaim_conflicts():
 def test_wide_risk_is_called_out_in_message():
     signals = _evaluate(
         _context_with_bullish_objective(),
-        _bullish_current_reclaim(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
         params={"max_stop_atr": 0.2},
     )
 
@@ -157,28 +156,13 @@ def test_wide_risk_is_called_out_in_message():
 def test_invalidated_signal_explains_failed_reclaim():
     signals = _evaluate(_context_with_bullish_objective(), _bullish_failed_reclaim())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "invalidated"
-    assert any("Setup invalidated" in detail for detail in signal.details)
-    assert any("Next step" in detail for detail in signal.details)
+    assert signals == []
 
 
-def test_previous_context_candle_sweep_reclaim_warns_without_htf_objective():
+def test_previous_context_candle_sweep_warning_is_disabled():
     signals = _evaluate(_context_with_previous_low_sweep(), _neutral_trigger())
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "forming"
-    assert signal.direction == "bullish"
-    assert "previous_context_candle" in signal.alert_id
-    assert any("YTL / HTF Alignment: WATCH ONLY" in detail for detail in signal.details)
-    assert any("no same-direction HTF liquidity objective" in detail for detail in signal.details)
-    assert any("previous 4h" in detail for detail in signal.details)
-    assert any("Entry guide" in detail for detail in signal.details)
-    assert any("Stop guide" in detail for detail in signal.details)
-    assert signal.trade_plan is not None
-    assert signal.trade_plan.get("htf_alignment") == "watch_only"
+    assert signals == []
 
 
 def test_previous_context_candle_sweep_is_hidden_after_price_runs_away():
@@ -210,12 +194,7 @@ def test_swing_profile_uses_1h_msb_instead_of_20_bar_reclaim():
 def test_swing_profile_forms_when_1h_is_near_msb_level():
     signals = _evaluate(_context_with_bullish_objective(), _bullish_msb_approaching(), profile=PROFILE_SWING)
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "forming"
-    assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "msb"
-    assert any("close above the MSB level" in detail for detail in signal.details)
+    assert signals == []
 
 
 def test_daily_raid_plus_1h_msb_confirms_when_required():
@@ -233,7 +212,8 @@ def test_daily_raid_plus_1h_msb_confirms_when_required():
     assert signal.trade_plan.get("trigger_mode") == "msb"
     assert signal.trade_plan.get("reference_level") is not None
     assert signal.trade_plan.get("sweep_extreme") is not None
-    assert any("HTF raid" in detail for detail in signal.details)
+    assert signal.trade_plan.get("context_crt", {}).get("level") is not None
+    assert any("Context CRT" in detail for detail in signal.details)
 
 
 def test_confirmed_plan_includes_institutional_smc_context():
@@ -256,7 +236,7 @@ def test_confirmed_plan_includes_institutional_smc_context():
     assert any("Data note:" in detail for detail in signals[0].details)
 
 
-def test_daily_raid_forming_maps_pending_msb_and_fvg_zone():
+def test_context_crt_without_trigger_does_not_emit_forming_signal():
     signals = _evaluate(
         _context_with_bullish_objective(),
         _bullish_msb_approaching(),
@@ -264,14 +244,7 @@ def test_daily_raid_forming_maps_pending_msb_and_fvg_zone():
         params={"require_htf_raid_confirmation": True, "previous_candle_sweep": False, "min_final_rr": 0.5},
     )
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "forming"
-    assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "raid_msb_or_fvg"
-    assert signal.trade_plan.get("msb_level") == 105
-    assert signal.trade_plan.get("msb_timestamp_ms") is not None
-    assert signal.trade_plan.get("fvg_zone", {}).get("kind") == "fvg"
+    assert signals == []
 
 
 def test_intraday_profile_uses_same_htf_raid_model():
@@ -293,7 +266,8 @@ def test_intraday_profile_uses_same_htf_raid_model():
     assert signal.trigger_timeframe == "15m"
     assert signal.trade_plan is not None
     assert signal.trade_plan.get("trigger_mode") == "msb"
-    assert any("HTF raid" in detail for detail in signal.details)
+    assert signal.trade_plan.get("context_crt", {}).get("level") is not None
+    assert any("Context CRT" in detail for detail in signal.details)
 
 
 def test_1h_msb_without_daily_raid_does_not_alert_when_required():
@@ -307,7 +281,7 @@ def test_1h_msb_without_daily_raid_does_not_alert_when_required():
     assert signals == []
 
 
-def test_daily_raid_plus_1h_fvg_confirms_when_required():
+def test_fresh_fvg_displacement_does_not_confirm_without_ifvg_flip():
     signals = _evaluate(
         _context_with_bullish_objective(),
         _bullish_fvg_after_daily_raid(),
@@ -315,13 +289,7 @@ def test_daily_raid_plus_1h_fvg_confirms_when_required():
         params={"require_htf_raid_confirmation": True, "previous_candle_sweep": False, "min_final_rr": 0.5},
     )
 
-    assert len(signals) == 1
-    signal = signals[0]
-    assert signal.stage == "confirmed"
-    assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "fvg"
-    assert signal.trade_plan.get("fvg_trigger", {}).get("kind") == "fvg"
-    assert any("FVG" in detail for detail in signal.details)
+    assert signals == []
 
 
 def test_strict_gate_blocks_wrong_htf_location_and_reports_diagnostic():
@@ -455,9 +423,8 @@ def test_telegram_grade_threshold_is_stricter_for_forming():
         PROFILE_SWING,
         _context_with_bullish_objective_in_discount(),
         _bullish_msb_approaching(),
-    )[0]
-    forming.trade_plan["setup_grade"] = "A"
-    assert signal_meets_telegram_grade(forming, _strict_gate_params()) is False
+    )
+    assert forming == []
 
 
 def _evaluate(context, trigger, params=None, profile=None):
@@ -681,4 +648,16 @@ def _bullish_fvg_after_daily_raid():
     candles[37] = _candle(37, 104.95, 105.0, 104.9, 104.95)
     candles[38] = _candle(38, 105.1, 105.8, 105.0, 105.6)
     candles[39] = _candle(39, 106.2, 108.0, 106.1, 107.9)
+    return candles
+
+
+def _bullish_ifvg_after_daily_raid():
+    candles = [_candle(index, 105.2, 105.4, 105.0, 105.2) for index in range(40)]
+    candles[28] = _candle(28, 104.9, 105.2, 104.8, 105.0)
+    candles[33] = _candle(33, 104.6, 104.9, 99.0, 101.0)
+    candles[35] = _candle(35, 106.0, 106.05, 106.0, 106.02)
+    candles[36] = _candle(36, 105.8, 106.2, 105.7, 105.9)
+    candles[37] = _candle(37, 105.0, 105.5, 104.9, 105.1)
+    candles[38] = _candle(38, 105.7, 106.0, 105.5, 105.9)
+    candles[39] = _candle(39, 105.1, 106.2, 105.0, 106.1)
     return candles

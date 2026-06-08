@@ -1062,7 +1062,7 @@ def _setup_summary(setup: SetupConfig) -> dict[str, Any]:
 
 def _setup_brief(setup: SetupConfig) -> str:
     if setup.type == "kod_turtle_soup":
-        return "YTL/HTF alignment, important HTF candle raid, fast trigger-timeframe MSB or FVG/iFVG confirmation, ATR risk, and structure-based target map."
+        return "YTL/HTF bias, Context CRT, fast trigger-timeframe MSB or iFVG confirmation, ATR risk, and structure-based target map."
     if setup.type == "conditions":
         return "Configured indicator stack on the latest closed candle."
     return "Configured strategy rules."
@@ -1344,7 +1344,7 @@ def _desk_post(
         reference_level=(raid or {}).get("level"),
         sweep_extreme=(raid or {}).get("sweep_extreme"),
         htf_raid_at_ms=(raid or {}).get("timestamp_ms"),
-        wait_text=f"HTF map: draw + raid context. Confirm on {trigger_tf}.",
+        wait_text=f"HTF map: bias + Context CRT. Confirm on {trigger_tf} MSB/iFVG.",
         setup_label=f"{symbol} HTF context",
         decision=decision,
     )
@@ -1458,6 +1458,8 @@ def _desk_priority_score(
     score += pass_count * 4 + wait_count
     score -= block_count * 12
     score -= min(len(blockers), 4) * 5
+    if status != "ready":
+        score = min(score, 24)
     return max(0, min(100, int(score)))
 
 
@@ -1481,17 +1483,21 @@ def _desk_decision(
 ) -> dict[str, Any]:
     blocker_text = " | ".join(str(item) for item in blockers).lower()
     has_draw = objective.get("level") is not None
+    htf_blocked = (
+        "htf bias" in blocker_text
+        or "wrong htf location" in blocker_text
+        or "opposite" in blocker_text
+        or "no same-direction htf" in blocker_text
+    )
     wrong_location = "wrong htf location" in blocker_text or "premium" in blocker_text and "discount" in blocker_text
-    weak_trigger = "weak displacement" in blocker_text or "weak trigger" in blocker_text
-    no_raid = "no fresh htf raid" in blocker_text or "no fresh htf raid/reclaim" in blocker_text
+    missing_trigger = "missing" in blocker_text and "msb/ifvg" in blocker_text
+    weak_trigger = "weak displacement" in blocker_text or "weak trigger" in blocker_text or missing_trigger
+    no_raid = "missing context crt" in blocker_text or "no fresh htf raid" in blocker_text or "no fresh htf raid/reclaim" in blocker_text
     risk_blocked = "risk" in blocker_text and ("wide" in blocker_text or "geniş" in blocker_text or "blocked" in blocker_text)
 
     if status == "ready":
         label = "READY: PLAN VALID"
         subtitle = "Manual execution only. Check entry, invalidation and targets."
-    elif status == "armed":
-        label = "ARMED: WAIT CONFIRMATION"
-        subtitle = wait_text
     elif blockers:
         label = "NO TRADE: BLOCKED"
         subtitle = blockers[0]
@@ -1503,21 +1509,21 @@ def _desk_decision(
         subtitle = wait_text
 
     checklist = [
-        {"key": "draw", "label": "HTF draw", "status": "pass" if has_draw else "wait"},
+        {"key": "bias", "label": "HTF bias", "status": "block" if htf_blocked else "pass" if has_draw else "wait"},
         {
             "key": "location",
             "label": "PD array",
             "status": "block" if wrong_location else "pass" if has_draw else "wait",
         },
         {
-            "key": "raid",
-            "label": "Raid",
+            "key": "context_crt",
+            "label": "Context CRT",
             "status": "pass" if raid else "block" if no_raid and has_draw else "wait",
         },
         {
             "key": "trigger",
-            "label": "MSB/FVG",
-            "status": "pass" if status == "ready" else "block" if weak_trigger else "wait",
+            "label": "MSB/iFVG",
+            "status": "pass" if status == "ready" else "block" if weak_trigger or raid else "wait",
         },
         {
             "key": "risk",
@@ -1546,9 +1552,9 @@ def _desk_context_summary(
     draw = objective.get("level")
     raid_level = (raid or {}).get("level")
     if draw is not None and raid:
-        read = f"{context_tf} draw is mapped; raid/reclaim is on the chart."
+        read = f"{context_tf} bias and draw are mapped; Context CRT is on the chart."
     elif draw is not None:
-        read = f"{context_tf} draw exists; waiting for clean raid/reclaim."
+        read = f"{context_tf} draw exists; waiting for clean Context CRT."
     elif blockers:
         read = f"{context_tf} is blocked: {blockers[0]}"
     else:
@@ -1558,6 +1564,7 @@ def _desk_context_summary(
         "bias": direction,
         "draw": _price_text(draw),
         "raid": _price_text(raid_level),
+        "context_crt": _price_text(raid_level),
         "trigger": f"Confirm on {trigger_tf}",
         "read": read,
     }
@@ -1569,14 +1576,12 @@ def _desk_wait_text(direction: dict[str, Any], diagnostic: dict[str, Any], trigg
     steps = diagnostic.get("next_steps") or []
     if steps:
         return str(steps[0])
-    return f"Wait for {trigger_tf} MSB or FVG/iFVG displacement after HTF context is clean."
+    return f"Wait for {trigger_tf} MSB or iFVG reclaim after Context CRT is clean."
 
 
 def _desk_what_now(status: str, wait_text: str, blockers: list[str]) -> str:
     if status == "ready":
         return "Plan is clean enough to monitor on the chart. Manual execution only."
-    if status == "armed":
-        return wait_text
     if blockers:
         return f"No trade. Main blocker: {blockers[0]}"
     return wait_text
@@ -1597,29 +1602,29 @@ def _desk_scenarios(
     if side == "bullish":
         primary = {
             "title": "Bullish case",
-            "text": f"Need sell-side raid/reclaim to hold, then {trigger_tf} close above MSB {msb_text}. Target draw: {target_text}.",
+            "text": f"Need sell-side Context CRT to hold, then {trigger_tf} close above MSB {msb_text} or reclaim iFVG. Target draw: {target_text}.",
         }
         opposite = {
             "title": "Bearish failure",
-            "text": f"If price loses the raid level {raid_level} or cannot displace above structure, stand down and wait for a fresh HTF draw.",
+            "text": f"If price loses the Context CRT level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF draw.",
         }
     elif side == "bearish":
         primary = {
             "title": "Bearish case",
-            "text": f"Need buy-side raid/reclaim to hold, then {trigger_tf} close below MSB {msb_text}. Target draw: {target_text}.",
+            "text": f"Need buy-side Context CRT to hold, then {trigger_tf} close below MSB {msb_text} or reclaim iFVG. Target draw: {target_text}.",
         }
         opposite = {
             "title": "Bullish failure",
-            "text": f"If price reclaims above the raid level {raid_level} or cannot displace below structure, stand down and wait for a fresh HTF draw.",
+            "text": f"If price reclaims above the Context CRT level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF draw.",
         }
     else:
         primary = {
             "title": "Bullish case",
-            "text": f"Wait for HTF draw above price, discount location, sell-side raid, then {trigger_tf} bullish MSB/FVG.",
+            "text": f"Wait for HTF draw above price, discount location, sell-side Context CRT, then {trigger_tf} bullish MSB/iFVG.",
         }
         opposite = {
             "title": "Bearish case",
-            "text": f"Wait for HTF draw below price, premium location, buy-side raid, then {trigger_tf} bearish MSB/FVG.",
+            "text": f"Wait for HTF draw below price, premium location, buy-side Context CRT, then {trigger_tf} bearish MSB/iFVG.",
         }
     neutral = {
         "title": "No trade rule",
@@ -1690,8 +1695,6 @@ def _desk_trigger_mode(role: str, reference_level: Any, msb_level: Any, fvg_zone
         return "msb"
     if ifvg_zone:
         return "ifvg"
-    if fvg_zone:
-        return "fvg"
     return ""
 
 

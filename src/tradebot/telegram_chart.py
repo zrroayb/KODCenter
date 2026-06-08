@@ -85,9 +85,9 @@ def build_alert_chart_png(alert: Alert, candles: list[Candle], *, limit: int = 1
     ref = _num(plan.get("msb_level")) or _num(plan.get("reference_level"))
     if ref is not None:
         if trigger_mode == "raid_msb_or_fvg":
-            label = "HTF low raid" if bullish else "HTF high raid"
+            label = "Context CRT low" if bullish else "Context CRT high"
         elif trigger_mode in {"fvg", "ifvg"}:
-            label = "FVG trigger level" if bullish else "FVG trigger level"
+            label = "iFVG trigger level"
         else:
             label = "MSB high: wait close above" if bullish else "MSB low: wait close below"
         if alert.stage == "confirmed" and trigger_mode == "msb":
@@ -114,9 +114,9 @@ def build_alert_chart_png(alert: Alert, candles: list[Candle], *, limit: int = 1
     status = _next_action(alert)
     _callout(draw, pad_l + 16, pad_t + 16, status, "#111827", small)
     if trigger_mode == "raid_msb_or_fvg":
-        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: wait MSB or FVG/iFVG", "#334155", tiny)
+        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: wait MSB or iFVG", "#334155", tiny)
     elif trigger_mode in {"fvg", "ifvg"}:
-        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: FVG/iFVG displacement", "#334155", tiny)
+        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: iFVG reclaim", "#334155", tiny)
     elif trigger_mode == "msb":
         _callout(draw, pad_l + 16, pad_t + 52, "Trigger: market structure break", "#334155", tiny)
 
@@ -128,7 +128,7 @@ def _next_action(alert: Alert) -> str:
         tf = alert.trigger_timeframe or alert.timeframe
         mode = str((alert.trade_plan or {}).get("trigger_mode") or "")
         if mode == "raid_msb_or_fvg":
-            return f"Wait: {tf} MSB or FVG/iFVG"
+            return f"Wait: {tf} MSB or iFVG"
         side = "above MSB high" if alert.direction == "bullish" else "below MSB low"
         return f"Wait: {tf} close {side}"
     if alert.stage == "confirmed":

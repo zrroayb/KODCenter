@@ -624,7 +624,7 @@ function chartAnnotationsFromAlert(alert, role) {
       sweep_extreme: null,
       htf_target: firstNumeric(plan.final_target, htfTargetFromDetails),
       ...raidMeta,
-      wait_text: `HTF only: raid candle + draw. Confirm on ${triggerTf}.`,
+      wait_text: `HTF only: Context CRT + draw. Confirm on ${triggerTf} MSB/iFVG.`,
       setup_label: `HTF CONTEXT: ${contextTf || "HTF"} ${side} draw ${targetSide}`,
       trigger_mode: triggerMode,
     };
@@ -633,13 +633,13 @@ function chartAnnotationsFromAlert(alert, role) {
   const setupLabel =
     stage === "forming"
       ? isRaid
-        ? `${triggerTf} CONFIRMATION: wait MSB/FVG`
+        ? `${triggerTf} CONFIRMATION: wait MSB/iFVG`
         : isMsb
         ? `${triggerTf} CONFIRMATION: wait MSB`
         : `${triggerTf} CONFIRMATION: wait ${refSide} reclaim`
       : stage === "confirmed"
         ? isFvgTrigger
-          ? `${triggerTf} CONFIRMATION: FVG/iFVG confirmed`
+          ? `${triggerTf} CONFIRMATION: iFVG confirmed`
           : isMsb
           ? `${triggerTf} CONFIRMATION: MSB confirmed`
           : `${triggerTf} CONFIRMATION: reclaim confirmed`
@@ -650,12 +650,12 @@ function chartAnnotationsFromAlert(alert, role) {
   const triggerWait =
     stage === "confirmed"
       ? isFvgTrigger
-        ? `On ${triggerTf}: FVG/iFVG displacement confirmed.`
+        ? `On ${triggerTf}: iFVG reclaim confirmed.`
         : isMsb
         ? `On ${triggerTf}: MSB close confirmed.`
         : `On ${triggerTf}: reclaim confirmed.`
       : isRaid
-        ? `On ${triggerTf}: wait MSB close or FVG/iFVG displacement.`
+        ? `On ${triggerTf}: wait MSB close or iFVG reclaim.`
         : isMsb
         ? `On ${triggerTf}: wait close ${reclaimSide} MSB level.`
         : `On ${triggerTf}: wait ${refSide} take and close back ${reclaimSide}.`;
@@ -1340,7 +1340,7 @@ function buildAlertStoryHtml(alert) {
   const triggerItems = alert.stage === "forming"
     ? [
         `No entry yet.`,
-        `Wait for closed ${triggerTf || "trigger"} displacement: MSB or FVG/iFVG.`,
+        `Wait for closed ${triggerTf || "trigger"} MSB or iFVG reclaim.`,
       ]
     : alert.stage === "confirmed"
       ? [`Confirmed. Use the plan levels, no auto order.`]
@@ -1406,11 +1406,12 @@ function stripDetailLabel(line) {
 function cleanTraderSummary(text, alert = {}) {
   let cleaned = String(text || "");
   cleaned = cleaned
-    .replace("HTF raid happened. No entry yet; wait for", "Raid done. Waiting for")
+    .replace("HTF raid happened. No entry yet; wait for", "Context CRT done. Waiting for")
+    .replace("Context CRT happened. No entry yet; wait for", "Context CRT done. Waiting for")
     .replace("Setup confirmed.", "Setup confirmed.")
     .replace("the bot still does not place orders.", "Manual execution only.")
     .replace("YTL", "HTF");
-  if (!cleaned && alert.stage === "forming") return "Raid done. Waiting for clean trigger.";
+  if (!cleaned && alert.stage === "forming") return "Context CRT done. Waiting for clean trigger.";
   if (!cleaned && alert.stage === "confirmed") return "Plan ready. Manage the levels.";
   return cleaned || "Setup";
 }
@@ -2748,11 +2749,11 @@ function compactTriggerText(alert) {
   const { trigger } = resolveAlertTimeframes(alert || {});
   const mode = String(alert?.trade_plan?.trigger_mode || "").toLowerCase();
   if ((alert?.stage || "") === "confirmed") {
-    if (mode.includes("fvg")) return `${trigger} FVG/iFVG confirmed`;
+    if (mode.includes("ifvg")) return `${trigger} iFVG confirmed`;
     if (mode.includes("msb")) return `${trigger} MSB confirmed`;
     return `${trigger} trigger confirmed`;
   }
-  return `Wait ${trigger} MSB or FVG/iFVG`;
+  return `Wait ${trigger} MSB or iFVG`;
 }
 
 function biasChipText(alert) {
@@ -2784,7 +2785,7 @@ function tradeLevelItems(alert) {
     ].filter(([, value]) => value != null);
   }
   return [
-    ["Raid level", plan.reference_level],
+    ["Context CRT", plan.reference_level],
     ["Sweep", plan.sweep_extreme],
     ["HTF draw", target],
     ["Window", freshness],
@@ -2833,7 +2834,7 @@ function tradeRoadmapHtml(alert) {
   const triggerDone = stage === "confirmed";
   const stopped = stage === "invalidated";
   const steps = [
-    ["HTF raid", firstDone ? "done" : "idle"],
+    ["Context CRT", firstDone ? "done" : "idle"],
     [triggerDone ? "Trigger confirmed" : "Trigger pending", triggerDone ? "done" : stopped ? "dead" : "pending"],
     [triggerDone ? "Manage plan" : "No entry", triggerDone ? "live" : stopped ? "dead" : "idle"],
   ];

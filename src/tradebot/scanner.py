@@ -133,7 +133,6 @@ class Scanner:
             profile_name = str(profile.get("name") or "profile")
             context_timeframe = str(profile["context_timeframe"])
             trigger_timeframe = str(profile["trigger_timeframe"])
-            raid_mode = bool(setup.params.get("require_htf_raid_confirmation", False))
             self._emit(
                 "strategy",
                 f"Looking for KOD Turtle Soup Reclaim on {symbol}.",
@@ -143,42 +142,18 @@ class Scanner:
                 context_timeframe=context_timeframe,
                 trigger_timeframe=trigger_timeframe,
                 looking_for=[
-                    "YTL/HTF alignment: trigger signal must agree with HTF liquidity direction.",
+                    "YTL/HTF bias: trigger signal must agree with HTF liquidity direction.",
                     "Nearby unclaimed HTF swing/equal liquidity objective.",
-                    (
-                        f"Important {context_timeframe} candle raid: bullish needs its low taken and reclaimed; bearish needs its high taken and reclaimed."
-                        if raid_mode
-                        else "Previous HTF candle high/low sweep and reclaim."
-                    ),
-                    (
-                        f"Trigger: fast {trigger_timeframe} MSB close or same-direction FVG/iFVG displacement after the raid."
-                        if raid_mode
-                        else f"Trigger: {trigger_timeframe} candle must close through the recent MSB level."
-                        if _uses_msb_profile(profile_name, context_timeframe, trigger_timeframe, setup.params)
-                        else "Trigger-timeframe 20-bar reference at least 4 bars old."
-                    ),
+                    f"Context CRT: important {context_timeframe} candle high/low must be raided and reclaimed first.",
+                    f"Trigger: fast {trigger_timeframe} MSB close or iFVG reclaim after Context CRT.",
                     "Displacement guard: trigger candle must show real directional expansion, not a weak close.",
                     "Session quality: London / New York killzone receives higher grade; outside session is marked weaker.",
-                    _freshness_brief(setup.params, profile_name, trigger_timeframe)
-                    if raid_mode
-                    else "No 20-bar requirement on this profile; MSB confirmation is enough."
-                    if _uses_msb_profile(profile_name, context_timeframe, trigger_timeframe, setup.params)
-                    else "Sweep plus reclaim, Plus One reclaim, or entry-break confirmation.",
+                    _freshness_brief(setup.params, profile_name, trigger_timeframe),
                     "No-chase guard: hide setups already beyond the configured ATR/R distance from entry.",
-                    (
-                        f"FVG/iFVG can confirm the setup when it appears after the {context_timeframe} raid; opposing imbalances are still used for targets."
-                        if raid_mode
-                        else "FVG/iFVG confluence and opposing imbalance targets are mapped, but they are not standalone entry triggers."
-                    ),
+                    "Fresh FVG is confluence only; confirmation requires MSB or iFVG reclaim.",
                     "Target guard: TP2 must be meaningful in R terms; weak target maps are blocked or downgraded.",
                 ],
-                confirmation=(
-                    f"Wait for the {context_timeframe} raid first, then a {trigger_timeframe} MSB or FVG/iFVG confirmation."
-                    if raid_mode
-                    else f"HTF context is an early warning; confirmation requires a {trigger_timeframe} MSB close."
-                    if _uses_msb_profile(profile_name, context_timeframe, trigger_timeframe, setup.params)
-                    else "HTF sweep is an early warning; confirmation requires trigger-timeframe reclaim or entry break."
-                ),
+                confirmation=f"Wait for {context_timeframe} Context CRT first, then {trigger_timeframe} MSB or iFVG confirmation.",
             )
             context_candles = self._fetch_symbol_candles(
                 symbol,
@@ -500,7 +475,7 @@ def _freshness_brief(params: dict[str, Any], profile_name: str, trigger_timefram
             bars = int(params.get("htf_raid_confirmation_bars", 8))
         except (TypeError, ValueError):
             bars = 8
-    return f"Freshness: confirmation must happen within {max(1, bars)} {trigger_timeframe} bars after the raid."
+    return f"Freshness: confirmation must happen within {max(1, bars)} {trigger_timeframe} bars after Context CRT."
 
 
 def _condition_names(node: Any) -> list[str]:
@@ -532,4 +507,8 @@ def _uses_msb_profile(profile_name: str, context_timeframe: str, trigger_timefra
     profile_key = str(profile_name or "").lower()
     context_key = str(context_timeframe or "").lower()
     trigger_key = str(trigger_timeframe or "").lower()
-    return profile_key in msb_profiles or (context_key == "1d" and trigger_key == "1h")
+    return (
+        profile_key in msb_profiles
+        or (context_key == "1d" and trigger_key == "1h")
+        or (context_key == "4h" and trigger_key == "15m")
+    )

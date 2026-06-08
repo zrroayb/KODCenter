@@ -1336,14 +1336,14 @@ def _draw_raid_footprint(
     x2 = min(width - pad_r, x_at(end_index))
     y = y_at(raid_level)
     color = "#7f1d1d"
-    label = "HTF raid low" if bullish else "HTF raid high"
+    label = "Context CRT low" if bullish else "Context CRT high"
     body.append(
         f'<line x1="{x1:.2f}" y1="{y:.2f}" x2="{x2:.2f}" y2="{y:.2f}" '
         f'stroke="{color}" stroke-width="1.8" stroke-dasharray="8 5" opacity="0.9"/>'
     )
     body.append(f'<circle cx="{x1:.2f}" cy="{y:.2f}" r="4" fill="#ffffff" stroke="{color}" stroke-width="1.5"/>')
     if compact:
-        _draw_inline_tag(body, min(width - pad_r - 90, x1 + 8), y + (18 if bullish else -18), "HTF raid", color)
+        _draw_inline_tag(body, min(width - pad_r - 90, x1 + 8), y + (18 if bullish else -18), "Context CRT", color)
     else:
         _draw_callout(body, min(width - pad_r - 140, max(pad_l + 140, (x1 + x2) / 2)), y + (30 if bullish else -24), label, color, "#ffffff")
     if raid_extreme is not None:
@@ -1381,7 +1381,7 @@ def _draw_htf_raid_candle(
         f'<rect x="{x - 12:.2f}" y="{y_high - 8:.2f}" width="24" height="{max(16, y_low - y_high + 16):.2f}" '
         f'rx="4" fill="none" stroke="#b91c1c" stroke-width="2.2" stroke-dasharray="5 4"/>'
     )
-    label = htf_raid_label or ("daily raid candle" if direction else "HTF raid candle")
+    label = htf_raid_label or ("daily Context CRT candle" if direction else "Context CRT candle")
     _draw_callout(body, min(width - pad_r - 150, max(pad_l + 150, x + 110)), y_high - 18, label, "#7f1d1d", "#ffffff")
     if raid_level is not None:
         y = y_at(raid_level)
@@ -1478,9 +1478,9 @@ def _draw_taken_reference(
     elif is_raid:
         color = "#7f1d1d"
     if is_raid:
-        label = "HTF low raid" if bullish else "HTF high raid"
+        label = "Context CRT low" if bullish else "Context CRT high"
     elif is_fvg_trigger:
-        label = "FVG/iFVG trigger"
+        label = "iFVG trigger"
     elif is_msb:
         label = "MSB break level"
     else:
@@ -1645,9 +1645,9 @@ def _draw_signal_annotation(
         reclaim_preferred = sx - 170 if sx > callout_max_x - 70 else sx + 100
         reclaim_x = min(callout_max_x, max(callout_min_x, reclaim_preferred))
         if is_raid:
-            label = "HTF raid level"
+            label = "Context CRT level"
         elif is_fvg_trigger:
-            label = "FVG/iFVG trigger"
+            label = "iFVG trigger"
         else:
             label = f"MSB close {direction_word}" if is_msb else f"reclaim must close {direction_word}"
         _draw_callout(body, reclaim_x, ry + 28, label, "#111827", "#ffffff")
@@ -1867,7 +1867,7 @@ def _draw_trigger_panel(
     if zone_labels:
         lines.append(("FVG", " / ".join(zone_labels[:2])))
     if reference_level is not None:
-        lines.append(("Raid", _fmt_price(reference_level)))
+        lines.append(("Context CRT", _fmt_price(reference_level)))
     if sweep_extreme is not None:
         lines.append(("Invalid", _fmt_price(sweep_extreme)))
     if not lines and wait_text:
@@ -2187,9 +2187,9 @@ def _reference_label(trigger_mode: str) -> str:
     if trigger_mode == "msb":
         return "MSB level"
     if trigger_mode == "raid_msb_or_fvg":
-        return "HTF raid level"
+        return "Context CRT level"
     if trigger_mode in {"fvg", "ifvg"}:
-        return "FVG/iFVG trigger"
+        return "iFVG trigger"
     return "reference level"
 
 
@@ -2204,7 +2204,7 @@ def _short_wait_text(wait_text: str, direction: str) -> str:
             return "Need 20-bar low take + close back above"
         if "MSB level" in text or "market structure" in text:
             return text[:72]
-        if "FVG/iFVG" in text or "HTF raid" in text:
+        if "FVG/iFVG" in text or "Context CRT" in text or "HTF raid" in text:
             return text[:72]
         if "close back through it" in text:
             side = "below it" if direction == "bearish" else "above it"

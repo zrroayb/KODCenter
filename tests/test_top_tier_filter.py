@@ -3,6 +3,7 @@ from tradebot.kod import KodTurtleSoupEvaluator, TOP_SETUP_GRADE
 from test_kod_turtle_soup import (
     PROFILE,
     _bullish_current_reclaim,
+    _bullish_msb_break,
     _context_with_bullish_objective,
 )
 
@@ -39,13 +40,14 @@ def test_top_tier_only_keeps_a_plus_setups():
             "alert_stages": ["confirmed"],
             "top_tier_only": True,
             "filters": [],
+            "min_final_rr": 0.5,
         },
     )
     signals = KodTurtleSoupEvaluator().evaluate(
         setup,
         PROFILE,
         _context_with_bullish_objective(),
-        _bullish_current_reclaim(),
+        _bullish_msb_break(),
     )
     assert len(signals) == 1
     assert signals[0].trade_plan.get("setup_grade") == TOP_SETUP_GRADE

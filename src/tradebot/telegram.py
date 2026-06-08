@@ -150,7 +150,7 @@ def _next_action(alert: Alert) -> str:
     mode = str((alert.trade_plan or {}).get("trigger_mode") or "")
     if alert.stage == "forming":
         if mode == "raid_msb_or_fvg":
-            return f"No trade. Wait for closed {trigger_tf} displacement: MSB or FVG/iFVG."
+            return f"No trade. Wait for closed {trigger_tf} MSB or iFVG reclaim."
         if direction == "bullish":
             return f"No trade. Need closed {trigger_tf} candle above MSB high."
         if direction == "bearish":
@@ -228,7 +228,8 @@ def _bias_text(line: str) -> str:
 
 def _clean_trader_line(text: str) -> str:
     replacements = {
-        "HTF raid happened. No entry yet; wait for": "Raid done. Waiting for",
+        "HTF raid happened. No entry yet; wait for": "Context CRT done. Waiting for",
+        "Context CRT happened. No entry yet; wait for": "Context CRT done. Waiting for",
         "the bot still does not place orders": "manual execution only",
         "YTL": "HTF",
     }

@@ -50,16 +50,18 @@ def test_confirmed_signal_includes_rr_details():
         enabled=True,
         cooldown_minutes=45,
         type="kod_turtle_soup",
-        params={"profiles": [profile], "alert_stages": ["confirmed"]},
+        params={"profiles": [profile], "alert_stages": ["confirmed"], "min_final_rr": 0.5},
     )
 
     context = [_candle(index, 106, 108, 104, 106) for index in range(60)]
     context[35] = _candle(35, 106, 110, 104, 107)
     context[-1] = _candle(59, 107, 108.8, 104.8, 108.5)
 
-    trigger = [_candle(index, 103, 104, 102, 103) for index in range(24)]
-    trigger[10] = _candle(10, 102, 103, 100, 102)
-    trigger.append(_candle(24, 99.5, 103, 99, 101))
+    trigger = [_candle(index, 102, 103, 101, 102) for index in range(40)]
+    trigger[28] = _candle(28, 103, 105, 102, 103.5)
+    trigger[33] = _candle(33, 101, 102, 99, 101)
+    trigger[-2] = _candle(38, 103.5, 104.4, 102.8, 104)
+    trigger[-1] = _candle(39, 104.2, 106.4, 103.9, 106)
 
     signals = KodTurtleSoupEvaluator().evaluate(setup, profile, context, trigger)
     assert len(signals) == 1

@@ -528,9 +528,9 @@ def _trigger_bucket(plan: dict[str, Any]) -> str:
     mode = str(plan.get("trigger_mode") or "").strip().lower()
     labels = {
         "msb": "MSB",
-        "fvg": "FVG",
+        "fvg": "FVG confluence",
         "ifvg": "iFVG",
-        "raid_msb_or_fvg": "Raid+MSB/FVG",
+        "raid_msb_or_fvg": "Context CRT+MSB/iFVG",
     }
     return labels.get(mode, mode.upper() if mode else "unknown")
 
