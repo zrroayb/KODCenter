@@ -177,8 +177,8 @@ def build_chart_svg(
     candle_min = min(float(c["l"]) for c in visible)
     candle_max = max(float(c["h"]) for c in visible)
     candle_spread = max(candle_max - candle_min, abs(float(visible[-1]["c"])) * 0.0005, 1e-9)
-    domain_cap_min = candle_min - candle_spread * 2.5
-    domain_cap_max = candle_max + candle_spread * 2.5
+    domain_cap_min = candle_min - candle_spread * 1.6
+    domain_cap_max = candle_max + candle_spread * 1.6
     prices.extend(
         price for price in _framework_prices(framework)
         if domain_cap_min <= price <= domain_cap_max
@@ -234,6 +234,8 @@ def build_chart_svg(
     label_ledger = _LabelLedger(pad_t + 14, height - pad_b - 14)
 
     _draw_framework_killzone(body, pad_l, pad_t, plot_w, plot_h, framework, label_ledger)
+    if role == "trigger":
+        _draw_killzone_time_bands(body, visible, x_at, slot, pad_t, plot_h)
     _draw_framework_dealing_range(body, y_at, width, pad_l, pad_r, pad_t, plot_h, framework, label_ledger)
     _draw_framework_zones(body, visible, x_at, y_at, framework, signal_index, slot, pad_l, pad_r, width, label_ledger)
     _draw_key_liquidity_levels(body, visible, x_at, y_at, pad_l, pad_r, width, htf_target=htf_target)
@@ -258,7 +260,7 @@ def build_chart_svg(
             )
         else:
             _draw_trade_boxes(body, x_at, y_at, signal_index, len(visible), pad_l, pad_r, width, entry, stop, target, label_ledger=label_ledger)
-        _draw_zones(body, visible, x_at, y_at, zones, signal_index, slot, pad_l, pad_r, width)
+        _draw_zones(body, visible, x_at, y_at, zones, signal_index, slot, pad_l, pad_r, width, y_min=y_min, y_max=y_max)
         _draw_raid_footprint(
             body,
             visible,
@@ -304,6 +306,7 @@ def build_chart_svg(
             pad_r=pad_r,
             width=width,
         )
+    _draw_volume(body, visible, x_at, candle_w, pad_t, plot_h)
     _draw_ema(body, visible, x_at, y_at, 9, "#a445b6")
     _draw_ema(body, visible, x_at, y_at, 20, "#3d55ff")
     _draw_candles(body, visible, x_at, y_at, candle_w, signal_index)
@@ -441,6 +444,7 @@ def build_chart_svg(
             pad_l=pad_l,
             pad_r=pad_r,
             width=width,
+            has_decision_ui=bool(decision_label or decision_status),
         )
         if not decision_label:
             _draw_trigger_panel(
@@ -625,6 +629,54 @@ def _draw_framework_killzone(
     _draw_inline_tag(body, pad_l + 12, pad_t + 20, f"{killzone.upper()} ACTIVE", color, fg="#08090a", ledger=label_ledger, lane="left", priority=4)
 
 
+_KILLZONE_BANDS = (
+    ("LDN KZ", 7 * 60, 10 * 60, "#e7b84a"),
+    ("NY KZ", 12 * 60, 15 * 60, "#67a8ff"),
+)
+
+
+def _draw_killzone_time_bands(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    slot: float,
+    pad_t: float,
+    plot_h: float,
+) -> None:
+    """Vertical London/NY killzone bands on intraday execution charts."""
+    if len(candles) < 3:
+        return
+    deltas = [int(candles[i + 1]["t"]) - int(candles[i]["t"]) for i in range(min(8, len(candles) - 1))]
+    median_delta = sorted(deltas)[len(deltas) // 2]
+    if median_delta > 3_600_000:  # daily/4h charts: bands would be meaningless
+        return
+
+    def minute_of_day(ts_ms: int) -> int:
+        return int(ts_ms // 60_000) % 1440
+
+    for label, start_min, end_min, color in _KILLZONE_BANDS:
+        run_start: int | None = None
+        for index in range(len(candles) + 1):
+            inside = False
+            if index < len(candles):
+                minute = minute_of_day(int(candles[index]["t"]))
+                inside = start_min <= minute < end_min
+            if inside and run_start is None:
+                run_start = index
+            elif not inside and run_start is not None:
+                x1 = x_at(run_start) - slot * 0.5
+                x2 = x_at(index - 1) + slot * 0.5
+                body.append(
+                    f'<rect x="{x1:.2f}" y="{pad_t}" width="{max(0.0, x2 - x1):.2f}" height="{plot_h}" '
+                    f'fill="{color}" opacity="0.06"/>'
+                )
+                body.append(
+                    f'<text x="{x1 + 5:.2f}" y="{pad_t + 14:.2f}" fill="{color}" opacity="0.75" '
+                    f'font-family="Inter,system-ui,sans-serif" font-size="10" font-weight="800">{label}</text>'
+                )
+                run_start = None
+
+
 def _draw_framework_dealing_range(
     body: list[str],
     y_at,
@@ -739,6 +791,10 @@ def _draw_framework_liquidity(
                 f'<path d="M {max(pad_l + 12, x - 240):.2f} {y:.2f} C {x - 175:.2f} {y - 36:.2f}, {x - 86:.2f} {y + 30:.2f}, {x - 14:.2f} {y:.2f}" '
                 f'fill="none" stroke="{THEME["liquidity"]}" stroke-width="1.6" stroke-dasharray="8 7" opacity="0.82"/>'
             )
+        if taken and not active:
+            # Swept pools keep their marker for context but drop the text tag;
+            # the right lane stays reserved for actionable levels.
+            continue
         _draw_inline_tag(
             body,
             width - pad_r - 46,
@@ -748,7 +804,7 @@ def _draw_framework_liquidity(
             anchor="end",
             ledger=label_ledger,
             lane="right",
-            priority=1 if active else 5 if taken else 3,
+            priority=1 if active else 3,
         )
 
 
@@ -1028,6 +1084,39 @@ def _draw_framework_events(
         )
 
 
+def _draw_volume(
+    body: list[str],
+    candles: list[dict[str, Any]],
+    x_at,
+    candle_w: float,
+    pad_t: float,
+    plot_h: float,
+) -> None:
+    """Subtle volume histogram along the bottom of the plot.
+
+    Volume confirms displacement legs, so it earns a small (12%) strip; bars
+    are drawn under candles and stay out of the way of price labels.
+    """
+    volumes = [max(0.0, _to_float(c.get("v")) or 0.0) for c in candles]
+    v_max = max(volumes, default=0.0)
+    if v_max <= 0:
+        return
+    strip_h = plot_h * 0.12
+    base_y = pad_t + plot_h
+    for index, candle in enumerate(candles):
+        volume = volumes[index]
+        if volume <= 0:
+            continue
+        bar_h = max(1.5, (volume / v_max) * strip_h)
+        is_bull = float(candle["c"]) >= float(candle["o"])
+        color = THEME["bull"] if is_bull else THEME["bear"]
+        x = x_at(index)
+        body.append(
+            f'<rect x="{x - candle_w / 2:.2f}" y="{base_y - bar_h:.2f}" '
+            f'width="{candle_w:.2f}" height="{bar_h:.2f}" fill="{color}" opacity="0.28"/>'
+        )
+
+
 def _draw_candles(body: list[str], candles: list[dict[str, Any]], x_at, y_at, candle_w: float, signal_index: int | None) -> None:
     for index, candle in enumerate(candles):
         o, h, l, c = float(candle["o"]), float(candle["h"]), float(candle["l"]), float(candle["c"])
@@ -1253,6 +1342,8 @@ def _draw_zones(
     pad_l: float,
     pad_r: float,
     width: int,
+    y_min: float | None = None,
+    y_max: float | None = None,
 ) -> None:
     if not zones:
         return
@@ -1262,9 +1353,14 @@ def _draw_zones(
         if low is None or high is None:
             continue
         bottom_price, top_price = min(low, high), max(low, high)
+        if y_min is not None and y_max is not None and (bottom_price > y_max or top_price < y_min):
+            continue  # entirely outside the visible domain
         zone_index = _find_zone_index(candles, bottom_price, top_price)
         if zone_index is None:
             zone_index = max(0, (signal_index if signal_index is not None else len(candles) - 1) - 2)
+        if y_min is not None and y_max is not None:
+            bottom_price = max(bottom_price, y_min)
+            top_price = min(top_price, y_max)
         x1 = max(pad_l, x_at(zone_index) - slot * 0.5)
         x2 = width - pad_r - 10
         y1 = y_at(top_price)
@@ -1603,7 +1699,7 @@ def _draw_current_price(body: list[str], y_at, width: int, pad_l: float, pad_r: 
     y = y_at(price)
     body.append(
         f'<line x1="{pad_l}" y1="{y:.2f}" x2="{width - pad_r}" y2="{y:.2f}" '
-        f'stroke="#111827" stroke-width="1" stroke-dasharray="2 5" opacity="0.85"/>'
+        f'stroke="#cbd5e1" stroke-width="1" stroke-dasharray="2 5" opacity="0.55"/>'
     )
     body.append(
         f'<rect x="{width - pad_r + 3}" y="{y - 16:.2f}" width="{pad_r - 8}" height="32" rx="4" fill="#050505"/>'
@@ -1632,6 +1728,7 @@ def _draw_signal_annotation(
     pad_l: float,
     pad_r: float,
     width: int,
+    has_decision_ui: bool = False,
 ) -> None:
     if signal_index is None:
         return
@@ -1655,19 +1752,23 @@ def _draw_signal_annotation(
     if is_msb or is_raid or is_fvg_trigger or is_model1:
         return
 
-    label = _clean_setup_label(setup_label, stage, direction)
-    banner_color = "#111827"
-    if stage == "forming":
-        banner_color = "#d97706"
-    elif stage == "confirmed":
-        banner_color = "#15803d"
-    elif stage == "invalidated":
-        banner_color = "#b91c1c"
-
     callout_min_x = pad_l + 210
     callout_max_x = width - pad_r - 230
-    label_x = min(callout_max_x, max(callout_min_x, sx + 120))
-    _draw_callout(body, label_x, pad_t + 24, label, banner_color, "#ffffff")
+
+    # When a decision badge/panel already narrates the state (desk cards and
+    # the alert modal), the WATCHLIST banner and wait text would duplicate it
+    # and pile up over the price action — skip them there.
+    if not has_decision_ui:
+        label = _clean_setup_label(setup_label, stage, direction)
+        banner_color = "#111827"
+        if stage == "forming":
+            banner_color = "#d97706"
+        elif stage == "confirmed":
+            banner_color = "#15803d"
+        elif stage == "invalidated":
+            banner_color = "#b91c1c"
+        label_x = min(callout_max_x, max(callout_min_x, sx + 120))
+        _draw_callout(body, label_x, pad_t + 24, label, banner_color, "#ffffff")
 
     if sweep_extreme is not None and not is_raid:
         sy = y_at(sweep_extreme)
@@ -1690,7 +1791,7 @@ def _draw_signal_annotation(
             label = f"MSS close {direction_word}" if is_msb else f"reclaim must close {direction_word}"
         _draw_callout(body, reclaim_x, ry + 28, label, "#111827", "#ffffff")
 
-    wait = "" if is_raid else _short_wait_text(wait_text, direction)
+    wait = "" if (is_raid or has_decision_ui) else _short_wait_text(wait_text, direction)
     if wait:
         _draw_callout(body, width - pad_r - 280, pad_t + 58, wait, "#111827", "#ffffff")
 

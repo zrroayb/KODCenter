@@ -3750,7 +3750,8 @@ body.view-desk .shell {
 
 .trade-decision-badge {
   position: absolute;
-  top: 16px;
+  /* Below the 36px SVG header bar so the OHLC line stays readable. */
+  top: 44px;
   left: 16px;
   z-index: 2;
   display: grid;
@@ -3762,6 +3763,13 @@ body.view-desk .shell {
   background: rgba(8, 9, 10, 0.82);
   box-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(12px);
+  transition: opacity 0.18s var(--ease);
+}
+
+/* Peek under the overlays: hovering any chart overlay fades it out. */
+.trade-decision-badge:hover,
+.floating-setup-card:hover {
+  opacity: 0.08;
 }
 
 .trade-decision-badge strong {
@@ -3793,16 +3801,18 @@ body.view-desk .shell {
 
 .floating-setup-card {
   position: absolute;
-  right: 18px;
+  /* Bottom-left: price action and the label lane live on the right edge. */
+  left: 18px;
   bottom: 18px;
   z-index: 2;
-  width: min(360px, calc(100% - 36px));
-  padding: 12px;
+  width: min(320px, calc(100% - 36px));
+  padding: 10px 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
   background: rgba(10, 12, 15, 0.86);
   box-shadow: 0 18px 46px rgba(0, 0, 0, 0.38);
   backdrop-filter: blur(14px);
+  transition: opacity 0.18s var(--ease);
 }
 
 .floating-card-head {

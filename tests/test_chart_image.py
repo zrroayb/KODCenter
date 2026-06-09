@@ -309,6 +309,61 @@ def test_far_framework_levels_do_not_squash_candles():
     assert min(axis_prices) > 55_000
 
 
+def test_chart_draws_volume_histogram():
+    candles = [
+        {"t": i * 60_000, "o": 100, "h": 102, "l": 99, "c": 101, "v": 50 + i * 10}
+        for i in range(20)
+    ]
+    svg = build_chart_svg(candles, role="trigger", title="BTC/USDT · 15m")
+    assert 'opacity="0.28"' in svg
+
+    no_volume = [
+        {"t": i * 60_000, "o": 100, "h": 102, "l": 99, "c": 101}
+        for i in range(20)
+    ]
+    svg_no_vol = build_chart_svg(no_volume, role="trigger", title="BTC/USDT · 15m")
+    assert 'opacity="0.28"' not in svg_no_vol
+
+
+def test_trigger_chart_marks_killzone_time_bands():
+    # 15m candles spanning 06:00-16:00 UTC cross both London and NY killzones.
+    start = 1_700_000_000_000 - (1_700_000_000_000 % 86_400_000) + 6 * 3_600_000
+    candles = [
+        {"t": start + i * 900_000, "o": 100, "h": 102, "l": 99, "c": 101}
+        for i in range(40)
+    ]
+    svg = build_chart_svg(candles, role="trigger", title="EUR/USD · 15m")
+    assert "LDN KZ" in svg
+    assert "NY KZ" in svg
+
+    # Context charts skip the bands.
+    svg_context = build_chart_svg(candles, role="context", title="EUR/USD · 15m")
+    assert "LDN KZ" not in svg_context
+
+
+def test_taken_liquidity_pools_drop_text_tags():
+    candles = [
+        {"t": i * 60_000, "o": 61_800, "h": 61_950, "l": 61_650, "c": 61_870}
+        for i in range(30)
+    ]
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        framework={
+            "liquidity_map": [
+                # Buy-side pool below price = already swept (taken) -> no text tag.
+                {"level": 61_700, "side": "buy", "source": "Equal highs", "strength": "Moderate"},
+                # Buy-side pool above price = still resting (pending) -> tagged.
+                {"level": 62_050, "side": "buy", "source": "Equal highs", "strength": "Moderate"},
+            ],
+        },
+        title="BTC/USDT · 15m",
+    )
+    assert "EQH Moderate PENDING" in svg
+    assert "EQH Moderate TAKEN" not in svg
+
+
 def test_build_chart_svg_empty_message():
     svg = build_chart_svg([], message="Baglanti hatasi")
     assert "Baglanti hatasi" in svg
