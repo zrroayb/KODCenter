@@ -102,6 +102,7 @@ def build_chart_svg(
     decision_subtitle: str = "",
     checklist: list[dict[str, Any]] | None = None,
     framework: dict[str, Any] | None = None,
+    minimal: bool = False,
 ) -> str:
     if not candles:
         return _empty_svg(width, height, message)
@@ -232,6 +233,39 @@ def build_chart_svg(
 
     _draw_grid(body, visible, x_at, y_at, y_min, y_max, pad_l, pad_t, pad_r, pad_b, plot_w, plot_h, width, height)
     label_ledger = _LabelLedger(pad_t + 14, height - pad_b - 14)
+
+    if minimal:
+        if role == "trigger":
+            _draw_killzone_time_bands(body, visible, x_at, slot, pad_t, plot_h)
+        _draw_framework_dealing_range(
+            body, y_at, width, pad_l, pad_r, pad_t, plot_h, framework, label_ledger, show_labels=False,
+        )
+        if is_context:
+            _draw_minimal_levels(
+                body, y_at, pad_l, width, pad_r,
+                [
+                    (htf_target, "#7c3aed", "6 4"),
+                    (reference_level, "#64748b", "4 4"),
+                ],
+            )
+        else:
+            plan_target = target or final_target or htf_target
+            _draw_minimal_levels(
+                body, y_at, pad_l, width, pad_r,
+                [
+                    (entry, "#f2d17b", ""),
+                    (stop, "#e05252", "5 4"),
+                    (plan_target, "#67a8ff", "6 4"),
+                ],
+            )
+        _draw_volume(body, visible, x_at, candle_w, pad_t, plot_h)
+        _draw_candles(body, visible, x_at, y_at, candle_w, signal_index)
+        _draw_current_price(body, y_at, width, pad_l, pad_r, float(last["c"]))
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+            f'viewBox="0 0 {width} {height}" shape-rendering="geometricPrecision" '
+            f'text-rendering="geometricPrecision">{"".join(body)}</svg>'
+        )
 
     _draw_framework_killzone(body, pad_l, pad_t, plot_w, plot_h, framework, label_ledger)
     if role == "trigger":
@@ -677,6 +711,26 @@ def _draw_killzone_time_bands(
                 run_start = None
 
 
+def _draw_minimal_levels(
+    body: list[str],
+    y_at,
+    pad_l: float,
+    width: int,
+    pad_r: float,
+    levels: list[tuple[float | None, str, str]],
+) -> None:
+    """Thin plan lines only — prices live on the y-axis grid, no text tags."""
+    for price, color, dash in levels:
+        if price is None:
+            continue
+        y = y_at(price)
+        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+        body.append(
+            f'<line x1="{pad_l:.2f}" y1="{y:.2f}" x2="{width - pad_r:.2f}" y2="{y:.2f}" '
+            f'stroke="{color}" stroke-width="1.25"{dash_attr} opacity="0.78"/>'
+        )
+
+
 def _draw_framework_dealing_range(
     body: list[str],
     y_at,
@@ -687,6 +741,8 @@ def _draw_framework_dealing_range(
     plot_h: float,
     framework: dict[str, Any],
     label_ledger: _LabelLedger,
+    *,
+    show_labels: bool = True,
 ) -> None:
     dr = framework.get("dealing_range") or {}
     high = _to_float(dr.get("high"))
@@ -705,9 +761,10 @@ def _draw_framework_dealing_range(
         f'<line x1="{left:.2f}" y1="{y_eq:.2f}" x2="{right:.2f}" y2="{y_eq:.2f}" '
         f'stroke="#9aa4af" stroke-width="1" stroke-dasharray="2 6" opacity="0.72"/>'
     )
-    _draw_inline_tag(body, pad_l + 10, max(pad_t + 18, y_high + 18), "PREMIUM", "#5b2528", ledger=label_ledger, lane="left", priority=4)
-    _draw_inline_tag(body, pad_l + 10, y_eq - 12, "EQ", "#343b45", ledger=label_ledger, lane="left", priority=3)
-    _draw_inline_tag(body, pad_l + 10, min(pad_t + plot_h - 16, y_low - 12), "DISCOUNT", "#1d4735", ledger=label_ledger, lane="left", priority=4)
+    if show_labels:
+        _draw_inline_tag(body, pad_l + 10, max(pad_t + 18, y_high + 18), "PREMIUM", "#5b2528", ledger=label_ledger, lane="left", priority=4)
+        _draw_inline_tag(body, pad_l + 10, y_eq - 12, "EQ", "#343b45", ledger=label_ledger, lane="left", priority=3)
+        _draw_inline_tag(body, pad_l + 10, min(pad_t + plot_h - 16, y_low - 12), "DISCOUNT", "#1d4735", ledger=label_ledger, lane="left", priority=4)
 
 
 def _draw_framework_reference_levels(

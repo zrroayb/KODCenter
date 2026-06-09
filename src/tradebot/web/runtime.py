@@ -490,6 +490,7 @@ class BotController:
             decision_subtitle=str(annotations.get("decision_subtitle") or ""),
             checklist=annotations.get("checklist") or None,
             framework=self._framework_summary(self._cached_analysis(symbol)),
+            minimal=bool(annotations.get("minimal")),
         )
 
     def session_chart_png(self, symbol: str) -> str:
@@ -1683,6 +1684,7 @@ def _desk_chart_url(
         "setup_label": setup_label,
         "trigger_mode": _desk_trigger_mode(role, reference_level, msb_level, fvg_zone, ifvg_zone),
         "decision_status": decision.get("status") or "",
+        "minimal": "1",
     }
     if at_ms is not None:
         params["at"] = int(at_ms)

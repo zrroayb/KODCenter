@@ -2141,31 +2141,20 @@ function setupGradeHtml(fw, fallbackGrade = "") {
   return `<span class="setup-grade-xl ${frameworkGradeClass(grade)}">${escapeHtml(grade)}${escapeHtml(scoreText)}</span>`;
 }
 
-function floatingSetupCardHtml(post) {
+function deskChartMetaHtml(post) {
   const fw = post?.framework || {};
   const crt = fw.crt || {};
   const decision = normalizeTradeDecision(post);
-  const hasSetup = Boolean(crt.type || fw.decision || post?.decision);
-  if (!hasSetup) return "";
-  const rows = [
-    ["Phase", fw.po3_phase],
-    ["Objective", primaryObjective(post)],
-    ["Entry", crt.entry],
-    ["Invalidation", crt.stop],
-    ["Target", crt.target],
-    ["RR", crt.rr ? `${crt.rr}R`.replace("RR", "R") : ""],
-  ].filter(([, value]) => value != null && value !== "");
+  const facts = [
+    crt.entry != null && crt.entry !== "" ? `E ${fmtNum(crt.entry)}` : "",
+    crt.stop != null && crt.stop !== "" ? `S ${fmtNum(crt.stop)}` : "",
+    crt.target != null && crt.target !== "" ? `T ${fmtNum(crt.target)}` : "",
+    crt.rr != null && crt.rr !== "" ? `${String(crt.rr).replace(/R$/i, "")}R` : "",
+  ].filter(Boolean).join(" · ");
   return `
-    <div class="floating-setup-card ${decision.type}">
-      <div class="floating-card-head">
-        <span>${escapeHtml(crt.type || decision.label)}</span>
-        ${setupGradeHtml(fw, post?.grade)}
-      </div>
-      <div class="floating-card-grid">
-        ${rows.map(([label, value]) => `
-          <span><b>${escapeHtml(label)}</b><strong>${escapeHtml(String(value))}</strong></span>
-        `).join("")}
-      </div>
+    <div class="crt-chart-meta">
+      <span class="desk-decision-pill ${escapeHtml(decision.type)}">${escapeHtml(decision.label)}</span>
+      ${facts ? `<span class="desk-plan-facts">${escapeHtml(facts)}</span>` : ""}
     </div>`;
 }
 
@@ -2667,15 +2656,13 @@ function renderDeskPost(post) {
       <div class="crt-stage-grid">
         <section class="crt-chart-shell">
           <div class="crt-chart-toolbar">
-            <span>${escapeHtml(post.trigger_timeframe)} execution chart</span>
-            <strong>${escapeHtml(primaryObjective(post))}</strong>
+            <span>${escapeHtml(post.trigger_timeframe)} chart</span>
+            ${deskChartMetaHtml(post)}
             <em>${escapeHtml(post.framework?.killzone || "Outside Killzone")}</em>
           </div>
           ${mobileTradeStripHtml(post)}
           <div class="crt-chart-stage">
             <div class="tv-chart-canvas desk-chart crt-main-chart expandable-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(chartLabel)}"></div>
-            ${tradeDecisionBadgeHtml(post)}
-            ${floatingSetupCardHtml(post)}
           </div>
           ${eventTimelineHtml(post)}
         </section>

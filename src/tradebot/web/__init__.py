@@ -136,6 +136,7 @@ def create_app(controller: BotController) -> Flask:
             "decision_label": request.args.get("decision_label", ""),
             "decision_subtitle": request.args.get("decision_subtitle", ""),
             "checklist": _checklist_args(),
+            "minimal": request.args.get("minimal") in {"1", "true", "yes"},
         }
         svg = controller.chart_png(
             symbol,

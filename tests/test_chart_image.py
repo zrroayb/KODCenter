@@ -364,6 +364,33 @@ def test_taken_liquidity_pools_drop_text_tags():
     assert "EQH Moderate TAKEN" not in svg
 
 
+def test_minimal_desk_chart_has_no_label_clutter():
+    candles = [
+        {"t": i * 900_000, "o": 61_800, "h": 61_950, "l": 61_650, "c": 61_870, "v": 100 + i}
+        for i in range(30)
+    ]
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        minimal=True,
+        levels={"entry": 61_685, "stop": 61_490, "final_target": 63_562},
+        framework={
+            "dealing_range": {"high": 63_000, "low": 61_000, "eq": 62_000},
+            "liquidity_map": [{"level": 62_050, "side": "buy", "source": "Equal highs", "strength": "Moderate"}],
+            "reference_levels": {"PDH": 62_300, "PDL": 61_200},
+            "crt": {"type": "Bullish CRT", "entry": 61_685, "stop": 61_490, "target": 63_562},
+        },
+        title="BTC/USDT · 15m",
+    )
+    assert "PREMIUM" not in svg
+    assert "TARGETING" not in svg
+    assert "EQH" not in svg
+    assert "ENTRY ZONE" not in svg
+    assert "NO TRADE" not in svg
+    assert THEME["bull"] in svg or THEME["bear"] in svg
+
+
 def test_build_chart_svg_empty_message():
     svg = build_chart_svg([], message="Baglanti hatasi")
     assert "Baglanti hatasi" in svg
