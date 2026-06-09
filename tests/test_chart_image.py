@@ -385,9 +385,12 @@ def test_minimal_desk_chart_has_no_label_clutter():
     )
     assert "PREMIUM" not in svg
     assert "TARGETING" not in svg
-    assert "EQH" not in svg
     assert "ENTRY ZONE" not in svg
     assert "NO TRADE" not in svg
+    assert ">ENTRY<" in svg
+    assert ">SL<" in svg
+    assert ">TP<" in svg
+    assert ">PDH<" in svg or ">PDL<" in svg
     assert THEME["bull"] in svg or THEME["bear"] in svg
 
 

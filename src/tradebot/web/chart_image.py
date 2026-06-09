@@ -188,6 +188,15 @@ def build_chart_svg(
     y_max = min(max(prices), domain_cap_max)
     if y_max <= y_min:
         y_min, y_max = candle_min, candle_max
+    if minimal:
+        # Trade-plan lines must stay on-chart even when TP sits outside the candle cap.
+        plan_prices = [
+            price for price in (entry, stop, target, final_target, htf_target, reference_level, msb_level)
+            if price is not None
+        ]
+        if plan_prices:
+            y_min = min(y_min, min(plan_prices))
+            y_max = max(y_max, max(plan_prices))
     spread = y_max - y_min
     y_min -= spread * 0.12
     y_max += spread * 0.12
@@ -236,28 +245,30 @@ def build_chart_svg(
 
     if minimal:
         if role == "trigger":
-            _draw_killzone_time_bands(body, visible, x_at, slot, pad_t, plot_h)
-        _draw_framework_dealing_range(
-            body, y_at, width, pad_l, pad_r, pad_t, plot_h, framework, label_ledger, show_labels=False,
+            _draw_killzone_time_bands(body, visible, x_at, slot, pad_t, plot_h, show_labels=False)
+        _draw_minimal_ict_chart(
+            body,
+            y_at,
+            pad_l,
+            width,
+            pad_r,
+            pad_t,
+            plot_h,
+            framework=framework,
+            label_ledger=label_ledger,
+            last_price=float(last["c"]),
+            is_context=is_context,
+            entry=entry,
+            stop=stop,
+            target=target or final_target or htf_target,
+            htf_target=htf_target,
+            reference_level=reference_level,
+            msb_level=msb_level,
+            visible=visible,
+            x_at=x_at,
+            slot=slot,
+            signal_index=signal_index,
         )
-        if is_context:
-            _draw_minimal_levels(
-                body, y_at, pad_l, width, pad_r,
-                [
-                    (htf_target, "#7c3aed", "6 4"),
-                    (reference_level, "#64748b", "4 4"),
-                ],
-            )
-        else:
-            plan_target = target or final_target or htf_target
-            _draw_minimal_levels(
-                body, y_at, pad_l, width, pad_r,
-                [
-                    (entry, "#f2d17b", ""),
-                    (stop, "#e05252", "5 4"),
-                    (plan_target, "#67a8ff", "6 4"),
-                ],
-            )
         _draw_volume(body, visible, x_at, candle_w, pad_t, plot_h)
         _draw_candles(body, visible, x_at, y_at, candle_w, signal_index)
         _draw_current_price(body, y_at, width, pad_l, pad_r, float(last["c"]))
@@ -676,6 +687,8 @@ def _draw_killzone_time_bands(
     slot: float,
     pad_t: float,
     plot_h: float,
+    *,
+    show_labels: bool = True,
 ) -> None:
     """Vertical London/NY killzone bands on intraday execution charts."""
     if len(candles) < 3:
@@ -704,30 +717,192 @@ def _draw_killzone_time_bands(
                     f'<rect x="{x1:.2f}" y="{pad_t}" width="{max(0.0, x2 - x1):.2f}" height="{plot_h}" '
                     f'fill="{color}" opacity="0.06"/>'
                 )
-                body.append(
-                    f'<text x="{x1 + 5:.2f}" y="{pad_t + 14:.2f}" fill="{color}" opacity="0.75" '
-                    f'font-family="Inter,system-ui,sans-serif" font-size="10" font-weight="800">{label}</text>'
-                )
+                if show_labels:
+                    body.append(
+                        f'<text x="{x1 + 5:.2f}" y="{pad_t + 14:.2f}" fill="{color}" opacity="0.75" '
+                        f'font-family="Inter,system-ui,sans-serif" font-size="10" font-weight="800">{label}</text>'
+                    )
                 run_start = None
 
 
-def _draw_minimal_levels(
+def _draw_ict_line(
     body: list[str],
     y_at,
     pad_l: float,
     width: int,
     pad_r: float,
-    levels: list[tuple[float | None, str, str]],
+    price: float | None,
+    label: str,
+    color: str,
+    label_ledger: _LabelLedger,
+    *,
+    dash: str = "",
+    weight: float = 1.35,
+    opacity: float = 0.88,
+    priority: int = 3,
 ) -> None:
-    """Thin plan lines only — prices live on the y-axis grid, no text tags."""
-    for price, color, dash in levels:
+    """ICT-style horizontal level: full-width line + short tag sitting on the line."""
+    if price is None or not label:
+        return
+    y = y_at(price)
+    placed = label_ledger.place(y, lane="ict", priority=priority, height=18)
+    if placed is None:
+        return
+    y = placed
+    dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
+    body.append(
+        f'<line x1="{pad_l:.2f}" y1="{y:.2f}" x2="{width - pad_r:.2f}" y2="{y:.2f}" '
+        f'stroke="{color}" stroke-width="{weight:.2f}"{dash_attr} opacity="{opacity:.2f}"/>'
+    )
+    tag_w = max(34, len(label) * 6.8 + 12)
+    body.append(
+        f'<rect x="{pad_l + 5:.2f}" y="{y - 9:.2f}" width="{tag_w:.2f}" height="18" rx="2" '
+        f'fill="{color}" opacity="0.9"/>'
+        f'<text x="{pad_l + 11:.2f}" y="{y + 4:.2f}" fill="#08090a" '
+        f'font-family="JetBrains Mono,ui-monospace,monospace" font-size="10" font-weight="800">'
+        f'{html.escape(label)}</text>'
+    )
+
+
+def _dedupe_ict_prices(levels: list[tuple[float | None, str, str, str, str, float, int]]) -> list[tuple[float, str, str, str, str, float, int]]:
+    plan_tags = {"ENTRY", "SL", "TP", "MSS", "C2", "KEY", "HTF"}
+    by_price: dict[float, tuple[float, str, str, str, str, float, int]] = {}
+    for price, label, color, dash, weight, opacity, priority in levels:
         if price is None:
             continue
-        y = y_at(price)
-        dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
-        body.append(
-            f'<line x1="{pad_l:.2f}" y1="{y:.2f}" x2="{width - pad_r:.2f}" y2="{y:.2f}" '
-            f'stroke="{color}" stroke-width="1.25"{dash_attr} opacity="0.78"/>'
+        key = round(price, 4)
+        existing = by_price.get(key)
+        if existing is None:
+            by_price[key] = (price, label, color, dash, weight, opacity, priority)
+            continue
+        # Same price: keep the trade-plan tag over a generic liquidity label.
+        if label in plan_tags and existing[1] not in plan_tags:
+            by_price[key] = (price, label, color, dash, weight, opacity, priority)
+        elif label in plan_tags and existing[1] in plan_tags and priority < existing[6]:
+            by_price[key] = (price, label, color, dash, weight, opacity, priority)
+    return list(by_price.values())
+
+
+def _draw_minimal_ict_chart(
+    body: list[str],
+    y_at,
+    pad_l: float,
+    width: int,
+    pad_r: float,
+    pad_t: float,
+    plot_h: float,
+    *,
+    framework: dict[str, Any],
+    label_ledger: _LabelLedger,
+    last_price: float,
+    is_context: bool,
+    entry: float | None,
+    stop: float | None,
+    target: float | None,
+    htf_target: float | None,
+    reference_level: float | None,
+    msb_level: float | None,
+    visible: list[dict[str, Any]],
+    x_at,
+    slot: float,
+    signal_index: int | None,
+) -> None:
+    """Desk chart: ICT lines on the plot, not a text panel below."""
+    _draw_framework_dealing_range(
+        body, y_at, width, pad_l, pad_r, pad_t, plot_h, framework, label_ledger, show_labels=False,
+    )
+    dr = framework.get("dealing_range") or {}
+    eq = _to_float(dr.get("eq"))
+    if eq is None:
+        high = _to_float(dr.get("high"))
+        low = _to_float(dr.get("low"))
+        if high is not None and low is not None:
+            eq = (high + low) / 2
+
+    lines: list[tuple[float | None, str, str, str, str, float, int]] = []
+
+    refs = framework.get("reference_levels") or {}
+    objective = _framework_objective_level(framework)
+    for name in ("PDH", "PDL", "PWH", "PWL"):
+        price = _to_float(refs.get(name))
+        if price is None:
+            continue
+        active = objective is not None and _near_price(price, objective)
+        lines.append((
+            price,
+            name,
+            THEME["liquidity"] if active else "#8b95a3",
+            "7 5" if name.startswith("PW") else "5 4",
+            "1.2",
+            0.72 if active else 0.48,
+            2 if active else 5,
+        ))
+
+    pools = (framework.get("liquidity_ranking") or framework.get("liquidity_map") or [])[:5]
+    pending = 0
+    for pool in pools:
+        level = _to_float(pool.get("level"))
+        if level is None:
+            continue
+        side = str(pool.get("side") or "")
+        if _pool_taken(side, level, last_price):
+            continue
+        if objective is not None and _near_price(level, objective):
+            continue
+        if pending >= 2:
+            break
+        pending += 1
+        short = _liquidity_short_label(str(pool.get("source") or "LIQ"))
+        lines.append((level, short, "#7390ad", "4 6", "1.1", 0.55, 4))
+
+    if objective is not None and not (target is not None and _near_price(objective, target)):
+        obj_label = _objective_label(framework)
+        if not any(_near_price(price, objective) for price, *_ in lines if price is not None):
+            lines.append((objective, obj_label, THEME["liquidity"], "6 4", "1.6", 0.9, 1))
+
+    fvg = _rank_framework_zones(framework.get("fvg") or [], objective, limit=1)
+    if fvg:
+        zone = fvg[0]
+        low = _to_float(zone.get("low"))
+        high = _to_float(zone.get("high"))
+        if low is not None and high is not None:
+            direction = str(zone.get("direction") or "")
+            color = "#2bbf8a" if direction == "bullish" else "#e05252"
+            zone_index = _find_zone_index(visible, min(low, high), max(low, high))
+            if zone_index is None:
+                zone_index = max(0, (signal_index if signal_index is not None else len(visible) - 1) - 12)
+            x1 = max(pad_l, x_at(zone_index) - slot * 0.4)
+            x2 = width - pad_r - 8
+            y1, y2 = y_at(max(low, high)), y_at(min(low, high))
+            body.append(
+                f'<rect x="{x1:.2f}" y="{y1:.2f}" width="{max(0, x2 - x1):.2f}" height="{max(3, y2 - y1):.2f}" '
+                f'rx="3" fill="{color}" opacity="0.1" stroke="{color}" stroke-width="1" stroke-dasharray="4 4"/>'
+            )
+
+    if is_context:
+        lines.extend([
+            (htf_target, "HTF", "#7c3aed", "6 4", "1.4", 0.82, 2),
+            (reference_level, "KEY", "#94a3b8", "4 4", "1.2", 0.65, 3),
+        ])
+    else:
+        lines.extend([
+            (entry, "ENTRY", "#f2d17b", "", "2.0", 0.95, 1),
+            (stop, "SL", "#e05252", "5 4", "1.5", 0.9, 1),
+            (target, "TP", "#67a8ff", "6 4", "1.6", 0.9, 1),
+            (reference_level, "C2", "#cbd5e1", "3 5", "1.2", 0.6, 3),
+            (msb_level, "MSS", "#f8fafc", "4 4", "1.3", 0.75, 2),
+        ])
+
+    if eq is not None:
+        lines.append((eq, "EQ", "#9aa4af", "2 6", "1.0", 0.6, 4))
+
+    for price, label, color, dash, weight, opacity, priority in sorted(
+        _dedupe_ict_prices(lines),
+        key=lambda item: (-item[6], item[0]),
+    ):
+        _draw_ict_line(
+            body, y_at, pad_l, width, pad_r, price, label, color, label_ledger,
+            dash=dash, weight=float(weight), opacity=opacity, priority=priority,
         )
 
 

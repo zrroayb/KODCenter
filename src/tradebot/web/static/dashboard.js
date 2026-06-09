@@ -2142,19 +2142,12 @@ function setupGradeHtml(fw, fallbackGrade = "") {
 }
 
 function deskChartMetaHtml(post) {
-  const fw = post?.framework || {};
-  const crt = fw.crt || {};
   const decision = normalizeTradeDecision(post);
-  const facts = [
-    crt.entry != null && crt.entry !== "" ? `E ${fmtNum(crt.entry)}` : "",
-    crt.stop != null && crt.stop !== "" ? `S ${fmtNum(crt.stop)}` : "",
-    crt.target != null && crt.target !== "" ? `T ${fmtNum(crt.target)}` : "",
-    crt.rr != null && crt.rr !== "" ? `${String(crt.rr).replace(/R$/i, "")}R` : "",
-  ].filter(Boolean).join(" · ");
+  const objective = primaryObjective(post);
   return `
     <div class="crt-chart-meta">
       <span class="desk-decision-pill ${escapeHtml(decision.type)}">${escapeHtml(decision.label)}</span>
-      ${facts ? `<span class="desk-plan-facts">${escapeHtml(facts)}</span>` : ""}
+      ${objective ? `<span class="desk-plan-facts">${escapeHtml(objective)}</span>` : ""}
     </div>`;
 }
 
