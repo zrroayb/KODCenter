@@ -88,7 +88,7 @@ def test_fvg_is_added_as_quality_confluence():
     assert any("FVG: A" in detail for detail in signals[0].details)
 
 
-def test_ifvg_is_added_as_quality_confluence():
+def test_ifvg_without_model1_or_mss_does_not_confirm():
     signals = _evaluate(
         _context_with_bullish_objective(),
         _bullish_ifvg_after_daily_raid(),
@@ -96,9 +96,7 @@ def test_ifvg_is_added_as_quality_confluence():
         params={"min_final_rr": 0.5},
     )
 
-    plan = signals[0].trade_plan or {}
-    assert plan.get("ifvg_trigger", {}).get("kind") == "ifvg"
-    assert any("iFVG: A" in detail for detail in signals[0].details)
+    assert signals == []
 
 
 def test_legacy_bearish_sweep_reclaim_does_not_alert_without_context_crt():
@@ -185,9 +183,9 @@ def test_swing_profile_uses_1h_msb_instead_of_20_bar_reclaim():
     assert signal.stage == "confirmed"
     assert signal.direction == "bullish"
     assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "msb"
+    assert signal.trade_plan.get("trigger_mode") == "mss"
     assert signal.trade_plan.get("msb_level") == 105
-    assert any("MSB" in detail for detail in signal.details)
+    assert any("MSS" in detail for detail in signal.details)
     assert not any("prior 20-bar" in detail for detail in signal.details)
 
 
@@ -209,11 +207,11 @@ def test_daily_raid_plus_1h_msb_confirms_when_required():
     signal = signals[0]
     assert signal.stage == "confirmed"
     assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "msb"
+    assert signal.trade_plan.get("trigger_mode") == "mss"
     assert signal.trade_plan.get("reference_level") is not None
     assert signal.trade_plan.get("sweep_extreme") is not None
     assert signal.trade_plan.get("context_crt", {}).get("level") is not None
-    assert any("Context CRT" in detail for detail in signal.details)
+    assert any("Turtle Soup" in detail for detail in signal.details)
 
 
 def test_confirmed_plan_includes_institutional_smc_context():
@@ -265,9 +263,9 @@ def test_intraday_profile_uses_same_htf_raid_model():
     assert signal.context_timeframe == "4h"
     assert signal.trigger_timeframe == "15m"
     assert signal.trade_plan is not None
-    assert signal.trade_plan.get("trigger_mode") == "msb"
+    assert signal.trade_plan.get("trigger_mode") == "mss"
     assert signal.trade_plan.get("context_crt", {}).get("level") is not None
-    assert any("Context CRT" in detail for detail in signal.details)
+    assert any("Turtle Soup" in detail for detail in signal.details)
 
 
 def test_1h_msb_without_daily_raid_does_not_alert_when_required():
@@ -427,7 +425,103 @@ def test_telegram_grade_threshold_is_stricter_for_forming():
     assert forming == []
 
 
-def _evaluate(context, trigger, params=None, profile=None):
+def test_pdf_framework_mss_signal_adds_canonical_payload_and_50_percent_target():
+    signals = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(),
+    )
+
+    assert len(signals) == 1
+    plan = signals[0].trade_plan or {}
+    assert plan["framework_version"] == "crt_secrets_pdf_v1"
+    assert plan["source_document"] == "CRT Secrets Series - Book"
+    assert plan["trigger_mode"] == "mss"
+    assert plan["mss_trigger"]["level"] == plan["msb_level"]
+    assert plan["smt_status"]["status"] == "pass"
+    assert plan["smt_status"]["state"] == "unavailable"
+    assert plan["session_gate"]["status"] == "pass"
+    assert plan["fvg_confluence"]["status"] == "pass"
+    assert plan["tp1"] == plan["target_50"]["level"]
+    assert plan["tp1"] == (plan["entry"] + plan["final_target"]) / 2
+    assert plan["plan_b"]["stand_down"]
+
+
+def test_pdf_framework_model1_confirms_as_candle3_trigger():
+    signals = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_model1_after_daily_raid(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(),
+    )
+
+    assert len(signals) == 1
+    plan = signals[0].trade_plan or {}
+    assert plan["trigger_mode"] == "model1"
+    assert plan["model1_trigger"]["label"] == "Model #1"
+    assert any("Model #1" in detail for detail in signals[0].details)
+
+
+def test_pdf_framework_blocks_opposite_htf_narrative_even_with_trigger():
+    signals = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(direction="bearish"),
+    )
+
+    assert signals == []
+
+
+def test_pdf_framework_blocks_without_fvg_confluence():
+    signals = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_mss_without_fvg(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(include_fvg=False),
+    )
+
+    assert signals == []
+
+
+def test_pdf_framework_blocks_opposing_smt_but_not_unavailable_smt():
+    unavailable = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(smt_status="unavailable (no intermarket feed)"),
+    )
+    opposed = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(smt_status={"status": "present", "direction": "bearish", "detail": "opposing SMT"}),
+    )
+
+    assert len(unavailable) == 1
+    assert opposed == []
+
+
+def test_pdf_framework_blocks_outside_session():
+    signals = _evaluate(
+        _context_with_bullish_objective_in_discount(),
+        _bullish_msb_break(),
+        profile=PROFILE_SWING,
+        params=_strict_gate_params(),
+        framework_context=_framework_context(killzone="Outside Killzone"),
+    )
+
+    assert signals == []
+
+
+def _evaluate(context, trigger, params=None, profile=None, framework_context=None):
     active_profile = profile or PROFILE
     setup_params = {
         "profiles": [active_profile],
@@ -443,7 +537,27 @@ def _evaluate(context, trigger, params=None, profile=None):
         type="kod_turtle_soup",
         params=setup_params,
     )
-    return KodTurtleSoupEvaluator().evaluate(setup, active_profile, context, trigger)
+    return KodTurtleSoupEvaluator().evaluate(setup, active_profile, context, trigger, framework_context=framework_context)
+
+
+def _framework_context(direction="bullish", include_fvg=True, smt_status="unavailable (no intermarket feed)", killzone="London Killzone"):
+    timeframes = {
+        tf: {"bias": direction, "structure": {"trend": direction}, "pd": {"zone": "discount" if direction == "bullish" else "premium"}}
+        for tf in ("1M", "1w", "1d", "4h")
+    }
+    return {
+        "macro_bias": f"Strong {direction.title()}",
+        "monthly_bias": direction,
+        "weekly_bias": direction,
+        "daily_bias": direction,
+        "4h_bias": direction,
+        "timeframes": timeframes,
+        "liquidity_map": [{"level": 110 if direction == "bullish" else 90, "side": "buy" if direction == "bullish" else "sell", "source": "Equal highs"}],
+        "fvg": ([{"direction": direction, "low": 101, "high": 103, "kind": "fvg"}] if include_fvg else []),
+        "smt_status": smt_status,
+        "session": "London" if "London" in killzone else "",
+        "killzone": killzone,
+    }
 
 
 def _strict_gate_params():
@@ -612,6 +726,21 @@ def _bullish_msb_break():
     candles = _bullish_msb_base()
     candles[-2] = _candle(38, 103.5, 104.4, 102.8, 104)
     candles[-1] = _candle(39, 104.2, 106.4, 103.9, 106)
+    return candles
+
+
+def _bullish_model1_after_daily_raid():
+    candles = _bullish_msb_base()
+    candles[-2] = _candle(38, 103.5, 104.4, 102.8, 104)
+    candles[-1] = _candle(39, 99.2, 106.4, 98.5, 106)
+    return candles
+
+
+def _bullish_mss_without_fvg():
+    candles = _bullish_msb_base()
+    candles[37] = _candle(37, 103, 105.5, 102.5, 103.8)
+    candles[-2] = _candle(38, 103.5, 105.2, 102.8, 104)
+    candles[-1] = _candle(39, 104.2, 106.4, 102.9, 106)
     return candles
 
 

@@ -527,10 +527,13 @@ def _direction_bucket(entry: dict[str, Any]) -> str:
 def _trigger_bucket(plan: dict[str, Any]) -> str:
     mode = str(plan.get("trigger_mode") or "").strip().lower()
     labels = {
-        "msb": "MSB",
+        "msb": "MSS",
+        "mss": "MSS",
+        "model1": "Model #1",
+        "model1_or_mss": "Model #1/MSS",
         "fvg": "FVG confluence",
-        "ifvg": "iFVG",
-        "raid_msb_or_fvg": "Context CRT+MSB/iFVG",
+        "ifvg": "iFVG confluence",
+        "raid_msb_or_fvg": "Turtle Soup+Model #1/MSS",
     }
     return labels.get(mode, mode.upper() if mode else "unknown")
 

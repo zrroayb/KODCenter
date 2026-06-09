@@ -177,8 +177,29 @@ def test_chart_svg_draws_trigger_imbalance_and_precise_prices():
     )
 
     assert "O 1.1600" in svg
-    assert "trigger FVG" in svg
-    assert "FVG break/hold up" in svg
+    assert "FVG confluence" in svg
+    assert "FVG supports long" in svg
+
+
+def test_chart_svg_normalizes_framework_objective_object():
+    candles = [
+        {"t": i * 60_000, "o": 100, "h": 104 + (i % 3), "l": 97, "c": 101}
+        for i in range(30)
+    ]
+
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        framework={
+            "liquidity_objective": {"direction": "bullish", "level": 110, "kind": "equal highs"},
+            "liquidity_map": [{"level": 110, "side": "buy", "source": "Equal highs"}],
+        },
+        title="ETH/USDT · 1h",
+    )
+
+    assert "TARGETING EQH" in svg
+    assert "{&#x27;direction&#x27;" not in svg
 
 
 def test_raid_forming_chart_draws_pending_msb_level():
@@ -252,6 +273,40 @@ def test_context_chart_marks_htf_raid_candle():
     )
 
     assert "important daily candle" in svg
+
+
+def test_far_framework_levels_do_not_squash_candles():
+    candles = [
+        {"t": i * 60_000, "o": 61_800, "h": 61_950, "l": 61_650, "c": 61_870}
+        for i in range(30)
+    ]
+
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        framework={
+            # PWH/PML far away from price must be dropped, not squash the domain.
+            "reference_levels": {"PWH": 89_000, "PML": 39_700, "PDH": 62_300, "PDL": 61_200},
+            "liquidity_map": [
+                {"level": 89_000, "side": "buy", "source": "PWH"},
+                {"level": 62_100, "side": "buy", "source": "Equal highs"},
+            ],
+        },
+        title="BTC/USDT · 15m",
+    )
+
+    assert "PWH" not in svg
+    assert "PML" not in svg
+    assert "PDH" in svg
+    assert "PDL" in svg
+
+    axis_prices = [
+        float(value.replace(",", ""))
+        for value in re.findall(r">([0-9][0-9,]{2,}\.[0-9]{2})<", svg)
+    ]
+    assert max(axis_prices) < 70_000
+    assert min(axis_prices) > 55_000
 
 
 def test_build_chart_svg_empty_message():

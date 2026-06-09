@@ -110,7 +110,7 @@ def build_chart_svg(
     stage = (stage or "").lower()
     trigger_mode = _normalize_trigger_mode(trigger_mode)
     is_context = role == "context"
-    clean_structure_mode = trigger_mode in {"raid_msb_or_fvg", "msb", "fvg", "ifvg"}
+    clean_structure_mode = trigger_mode in {"model1_or_mss", "raid_msb_or_fvg", "mss", "msb", "model1"}
     visible = _focus_candles(candles, signal_at_ms, role=role)
     if not visible:
         return _empty_svg(width, height, "No candle data")
@@ -171,15 +171,26 @@ def build_chart_svg(
         ]
     )
     prices.extend(value for value in extra_prices if value is not None)
-    prices.extend(_framework_prices(framework))
-    y_min = min(prices)
-    y_max = max(prices)
-    if y_max == y_min:
-        y_max += 1
-        y_min -= 1
+    # Candles own the y-domain. Plan levels may stretch it within reason, but
+    # far-away framework references (PWH/PML, distant liquidity pools) must not
+    # squash the candles into a flat line — they are simply not drawn.
+    candle_min = min(float(c["l"]) for c in visible)
+    candle_max = max(float(c["h"]) for c in visible)
+    candle_spread = max(candle_max - candle_min, abs(float(visible[-1]["c"])) * 0.0005, 1e-9)
+    domain_cap_min = candle_min - candle_spread * 2.5
+    domain_cap_max = candle_max + candle_spread * 2.5
+    prices.extend(
+        price for price in _framework_prices(framework)
+        if domain_cap_min <= price <= domain_cap_max
+    )
+    y_min = max(min(prices), domain_cap_min)
+    y_max = min(max(prices), domain_cap_max)
+    if y_max <= y_min:
+        y_min, y_max = candle_min, candle_max
     spread = y_max - y_min
     y_min -= spread * 0.12
     y_max += spread * 0.12
+    framework = _filter_framework_to_domain(framework, y_min, y_max)
 
     right_empty_slots = 5.5 if role == "trigger" else 4.5 if role == "context" else 5.0
     slot = plot_w / max(len(visible) + right_empty_slots, 1)
@@ -263,7 +274,7 @@ def build_chart_svg(
             pad_r=pad_r,
             width=width,
         )
-        if trigger_mode in {"raid_msb_or_fvg", "msb"} and msb_level is not None:
+        if trigger_mode in {"model1_or_mss", "raid_msb_or_fvg", "mss", "msb"} and msb_level is not None:
             _draw_pending_msb_level(
                 body,
                 visible,
@@ -300,7 +311,7 @@ def build_chart_svg(
     _draw_framework_events(body, visible, x_at, y_at, framework, pad_l, pad_r, width, label_ledger)
 
     if not is_context:
-        if trigger_mode == "raid_msb_or_fvg":
+        if trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}:
             _draw_taken_reference(
                 body,
                 visible,
@@ -537,19 +548,11 @@ def _draw_key_liquidity_levels(
 
 
 def _framework_prices(framework: dict[str, Any]) -> list[float]:
+    """All price levels the framework may want drawn (callers clamp to domain)."""
     if not framework:
         return []
     prices: list[float] = []
-    containers = [
-        framework.get("dealing_range") or {},
-        framework.get("reference_levels") or {},
-        framework.get("crt") or {},
-    ]
-    for container in containers:
-        for key in ("high", "low", "eq", "entry", "stop", "target"):
-            value = _to_float(container.get(key))
-            if value is not None:
-                prices.append(value)
+    for container in (framework.get("dealing_range") or {}, framework.get("reference_levels") or {}):
         for value in container.values():
             converted = _to_float(value)
             if converted is not None:
@@ -560,18 +563,47 @@ def _framework_prices(framework: dict[str, Any]) -> list[float]:
                 value = _to_float(item.get(key))
                 if value is not None:
                     prices.append(value)
-    for key in ("latest_sweep",):
-        item = framework.get(key) or {}
-        for field in ("level", "sweep_extreme"):
-            value = _to_float(item.get(field))
-            if value is not None:
-                prices.append(value)
-    structure = ((framework.get("timeframes") or {}).get("15m") or {}).get("structure") or {}
-    for key in ("swing_high", "swing_low", "prior_swing_high", "prior_swing_low"):
-        value = _to_float(structure.get(key))
-        if value is not None:
-            prices.append(value)
     return prices
+
+
+def _filter_framework_to_domain(framework: dict[str, Any], y_min: float, y_max: float) -> dict[str, Any]:
+    """Drop framework levels outside the visible price domain.
+
+    Reference levels and liquidity pools can sit very far from the current
+    price (e.g. PWH/PML). Drawing them would stack labels on the chart edge,
+    so anything outside the domain is removed before rendering.
+    """
+    if not framework:
+        return framework
+
+    def in_domain(value: Any) -> bool:
+        price = _to_float(value)
+        return price is not None and y_min <= price <= y_max
+
+    filtered = dict(framework)
+
+    refs = framework.get("reference_levels") or {}
+    if refs:
+        filtered["reference_levels"] = {name: level for name, level in refs.items() if in_domain(level)}
+
+    for collection_key in ("liquidity_map", "liquidity_ranking"):
+        pools = framework.get(collection_key)
+        if pools:
+            filtered[collection_key] = [pool for pool in pools if in_domain(pool.get("level"))]
+
+    for collection_key in ("fvg", "order_blocks", "breaker_blocks", "mitigation_blocks"):
+        zones = framework.get(collection_key)
+        if zones:
+            filtered[collection_key] = [
+                zone for zone in zones
+                if in_domain(zone.get("low")) or in_domain(zone.get("high")) or in_domain(zone.get("midpoint"))
+            ]
+
+    dealing = framework.get("dealing_range") or {}
+    if dealing and not (in_domain(dealing.get("high")) or in_domain(dealing.get("low")) or in_domain(dealing.get("eq"))):
+        filtered["dealing_range"] = {}
+
+    return filtered
 
 
 def _draw_framework_killzone(
@@ -1336,14 +1368,14 @@ def _draw_raid_footprint(
     x2 = min(width - pad_r, x_at(end_index))
     y = y_at(raid_level)
     color = "#7f1d1d"
-    label = "Context CRT low" if bullish else "Context CRT high"
+    label = "Turtle Soup low" if bullish else "Turtle Soup high"
     body.append(
         f'<line x1="{x1:.2f}" y1="{y:.2f}" x2="{x2:.2f}" y2="{y:.2f}" '
         f'stroke="{color}" stroke-width="1.8" stroke-dasharray="8 5" opacity="0.9"/>'
     )
     body.append(f'<circle cx="{x1:.2f}" cy="{y:.2f}" r="4" fill="#ffffff" stroke="{color}" stroke-width="1.5"/>')
     if compact:
-        _draw_inline_tag(body, min(width - pad_r - 90, x1 + 8), y + (18 if bullish else -18), "Context CRT", color)
+        _draw_inline_tag(body, min(width - pad_r - 90, x1 + 8), y + (18 if bullish else -18), "Turtle Soup", color)
     else:
         _draw_callout(body, min(width - pad_r - 140, max(pad_l + 140, (x1 + x2) / 2)), y + (30 if bullish else -24), label, color, "#ffffff")
     if raid_extreme is not None:
@@ -1381,7 +1413,7 @@ def _draw_htf_raid_candle(
         f'<rect x="{x - 12:.2f}" y="{y_high - 8:.2f}" width="24" height="{max(16, y_low - y_high + 16):.2f}" '
         f'rx="4" fill="none" stroke="#b91c1c" stroke-width="2.2" stroke-dasharray="5 4"/>'
     )
-    label = htf_raid_label or ("daily Context CRT candle" if direction else "Context CRT candle")
+    label = htf_raid_label or ("daily Turtle Soup candle" if direction else "Turtle Soup candle")
     _draw_callout(body, min(width - pad_r - 150, max(pad_l + 150, x + 110)), y_high - 18, label, "#7f1d1d", "#ffffff")
     if raid_level is not None:
         y = y_at(raid_level)
@@ -1457,8 +1489,9 @@ def _draw_taken_reference(
         return
     signal_index = len(candles) - 1 if signal_index is None else max(0, min(signal_index, len(candles) - 1))
     bullish = direction == "bullish"
-    is_msb = trigger_mode == "msb"
-    is_raid = trigger_mode == "raid_msb_or_fvg"
+    is_msb = trigger_mode in {"mss", "msb"}
+    is_raid = trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}
+    is_model1 = trigger_mode == "model1"
     is_fvg_trigger = trigger_mode in {"fvg", "ifvg"}
     field = "h" if bullish and is_msb else "l" if bullish else "l" if is_msb else "h"
     ref_index = _timestamp_index(candles, msb_at_ms) if is_msb and msb_at_ms is not None else None
@@ -1478,11 +1511,13 @@ def _draw_taken_reference(
     elif is_raid:
         color = "#7f1d1d"
     if is_raid:
-        label = "Context CRT low" if bullish else "Context CRT high"
+        label = "Turtle Soup low" if bullish else "Turtle Soup high"
+    elif is_model1:
+        label = "Model #1 level"
     elif is_fvg_trigger:
-        label = "iFVG trigger"
+        label = "FVG confluence"
     elif is_msb:
-        label = "MSB break level"
+        label = "MSS break level"
     else:
         label = "prior 20-bar low taken" if bullish else "prior 20-bar high taken"
     right_x = width - pad_r
@@ -1613,10 +1648,11 @@ def _draw_signal_annotation(
         points = f"{sx:.2f},{arrow_y - 24:.2f} {sx - 9:.2f},{arrow_y - 9:.2f} {sx + 9:.2f},{arrow_y - 9:.2f}"
     body.append(f'<polygon points="{points}" fill="{marker_color}"/>')
 
-    is_msb = trigger_mode == "msb"
-    is_raid = trigger_mode == "raid_msb_or_fvg"
+    is_msb = trigger_mode in {"mss", "msb"}
+    is_raid = trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}
+    is_model1 = trigger_mode == "model1"
     is_fvg_trigger = trigger_mode in {"fvg", "ifvg"}
-    if is_msb or is_raid or is_fvg_trigger:
+    if is_msb or is_raid or is_fvg_trigger or is_model1:
         return
 
     label = _clean_setup_label(setup_label, stage, direction)
@@ -1645,11 +1681,13 @@ def _draw_signal_annotation(
         reclaim_preferred = sx - 170 if sx > callout_max_x - 70 else sx + 100
         reclaim_x = min(callout_max_x, max(callout_min_x, reclaim_preferred))
         if is_raid:
-            label = "Context CRT level"
+            label = "Turtle Soup level"
+        elif is_model1:
+            label = "Model #1 trigger"
         elif is_fvg_trigger:
-            label = "iFVG trigger"
+            label = "FVG confluence"
         else:
-            label = f"MSB close {direction_word}" if is_msb else f"reclaim must close {direction_word}"
+            label = f"MSS close {direction_word}" if is_msb else f"reclaim must close {direction_word}"
         _draw_callout(body, reclaim_x, ry + 28, label, "#111827", "#ffffff")
 
     wait = "" if is_raid else _short_wait_text(wait_text, direction)
@@ -1854,20 +1892,20 @@ def _draw_trigger_panel(
     pad_l: float,
     pad_t: float,
 ) -> None:
-    if trigger_mode not in {"raid_msb_or_fvg", "msb", "fvg", "ifvg"}:
+    if trigger_mode not in {"model1_or_mss", "raid_msb_or_fvg", "mss", "msb", "model1", "fvg", "ifvg"}:
         return
     side = "LONG" if direction == "bullish" else "SHORT" if direction == "bearish" else "SETUP"
-    title = "CONFIRMATION MAP" if stage != "confirmed" else "CONFIRMED PLAN"
+    title = "CONFLUENCE MAP" if trigger_mode in {"fvg", "ifvg"} else "CONFIRMATION MAP" if stage != "confirmed" else "CONFIRMED PLAN"
     lines: list[tuple[str, str]] = []
-    effective_msb = msb_level if msb_level is not None else reference_level if trigger_mode == "msb" else None
+    effective_msb = msb_level if msb_level is not None else reference_level if trigger_mode in {"mss", "msb"} else None
     if effective_msb is not None:
         action = "close above" if direction == "bullish" else "close below"
-        lines.append(("MSB", f"{action} {_fmt_price(effective_msb)}"))
+        lines.append(("MSS", f"{action} {_fmt_price(effective_msb)}"))
     zone_labels = [_zone_label(zone) for zone in zones if zone.get("role") in {"trigger_zone", "fvg_zone", "ifvg_zone"}]
     if zone_labels:
         lines.append(("FVG", " / ".join(zone_labels[:2])))
     if reference_level is not None:
-        lines.append(("Context CRT", _fmt_price(reference_level)))
+        lines.append(("Turtle Soup", _fmt_price(reference_level)))
     if sweep_extreme is not None:
         lines.append(("Invalid", _fmt_price(sweep_extreme)))
     if not lines and wait_text:
@@ -1887,7 +1925,7 @@ def _draw_trigger_panel(
     )
     for index, (label, value) in enumerate(lines[:4]):
         y = panel_y + 46 + index * 24
-        color = "#93c5fd" if label == "MSB" else "#86efac" if label == "FVG" else "#fca5a5" if label == "Invalid" else "#d1d5db"
+        color = "#93c5fd" if label == "MSS" else "#86efac" if label == "FVG" else "#fca5a5" if label == "Invalid" else "#d1d5db"
         body.append(
             f'<text x="{panel_x + 14:.2f}" y="{y:.2f}" fill="{color}" '
             f'font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="900">{html.escape(label)}</text>'
@@ -2078,6 +2116,12 @@ def _clean_setup_label(setup_label: str, stage: str, direction: str) -> str:
 
 def _normalize_trigger_mode(trigger_mode: str) -> str:
     value = str(trigger_mode or "").strip().lower().replace("-", "_")
+    if "model1_or_mss" in value or ("model" in value and "mss" in value):
+        return "model1_or_mss"
+    if "model" in value:
+        return "model1"
+    if "mss" in value:
+        return "mss"
     if "raid" in value:
         return "raid_msb_or_fvg"
     if "ifvg" in value:
@@ -2154,7 +2198,7 @@ def _zone_label(zone: dict[str, Any]) -> str:
     direction = str(zone.get("direction") or "")
     side = "bullish" if direction == "bullish" else "bearish" if direction == "bearish" else ""
     if role == "trigger_zone":
-        return f"trigger {kind}"
+        return f"{kind} confluence"
     if role == "opposing_zone":
         return f"opposing {kind}"
     if side:
@@ -2171,9 +2215,9 @@ def _zone_edge_label(zone: dict[str, Any]) -> str:
     if role == "opposing_zone":
         return f"avoid {kind}"
     if direction == "bullish":
-        return f"{kind} break/hold up"
+        return f"{kind} supports long"
     if direction == "bearish":
-        return f"{kind} break/hold down"
+        return f"{kind} supports short"
     return f"{kind} zone"
 
 
@@ -2184,12 +2228,14 @@ def _context_setup_label(direction: str) -> str:
 
 
 def _reference_label(trigger_mode: str) -> str:
-    if trigger_mode == "msb":
-        return "MSB level"
-    if trigger_mode == "raid_msb_or_fvg":
-        return "Context CRT level"
+    if trigger_mode in {"mss", "msb"}:
+        return "MSS level"
+    if trigger_mode == "model1":
+        return "Model #1 level"
+    if trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}:
+        return "Turtle Soup level"
     if trigger_mode in {"fvg", "ifvg"}:
-        return "iFVG trigger"
+        return "FVG confluence"
     return "reference level"
 
 
@@ -2202,9 +2248,11 @@ def _short_wait_text(wait_text: str, direction: str) -> str:
             return "Need 20-bar high take + close back below"
         if "20-bar low" in text:
             return "Need 20-bar low take + close back above"
-        if "MSB level" in text or "market structure" in text:
+        if "MSS level" in text or "MSB level" in text or "market structure" in text:
             return text[:72]
-        if "FVG/iFVG" in text or "Context CRT" in text or "HTF raid" in text:
+        if "FVG/iFVG" in text:
+            return text.replace("FVG/iFVG", "FVG confluence")[:72]
+        if "Model #1" in text or "Turtle Soup" in text or "Context CRT" in text or "HTF raid" in text:
             return text[:72]
         if "close back through it" in text:
             side = "below it" if direction == "bearish" else "above it"
@@ -2225,7 +2273,12 @@ def _short_context_text(wait_text: str, direction: str, stage: str) -> str:
 
 
 def _framework_objective_level(framework: dict[str, Any]) -> float | None:
-    objective_text = str(framework.get("liquidity_objective") or "")
+    objective = framework.get("liquidity_objective")
+    if isinstance(objective, dict):
+        level = _to_float(objective.get("level"))
+        if level is not None:
+            return level
+    objective_text = str(objective or "")
     for pool in framework.get("liquidity_ranking") or framework.get("liquidity_map") or []:
         level = _to_float(pool.get("level"))
         source = str(pool.get("source") or "")
@@ -2240,10 +2293,14 @@ def _framework_objective_level(framework: dict[str, Any]) -> float | None:
 
 
 def _objective_label(framework: dict[str, Any]) -> str:
-    objective = str(framework.get("liquidity_objective") or "").strip()
-    if not objective or objective == "none":
+    objective = framework.get("liquidity_objective")
+    if isinstance(objective, dict):
+        label = str(objective.get("source") or objective.get("kind") or objective.get("side") or "").strip()
+        return _liquidity_short_label(label).upper() if label else "LIQUIDITY"
+    objective_text = str(objective or "").strip()
+    if not objective_text or objective_text == "none":
         return "LIQUIDITY"
-    label = objective.split("@", 1)[0].strip()
+    label = objective_text.split("@", 1)[0].strip()
     return _liquidity_short_label(label).upper()
 
 

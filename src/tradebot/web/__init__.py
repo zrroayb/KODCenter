@@ -321,12 +321,18 @@ def _zone_args() -> list[dict[str, Any]]:
 
 def _checklist_args() -> list[dict[str, str]]:
     labels = {
-        "bias": "HTF bias",
-        "draw": "HTF draw",
-        "location": "PD array",
-        "context_crt": "Context CRT",
-        "raid": "Context CRT",
-        "trigger": "MSB/iFVG",
+        "bias": "HTF narrative",
+        "htf_narrative": "HTF narrative",
+        "draw": "Key level",
+        "location": "Key level",
+        "key_level": "Key level",
+        "context_crt": "Candle 2 Turtle Soup",
+        "raid": "Candle 2 Turtle Soup",
+        "candle_2": "Candle 2 Turtle Soup",
+        "trigger": "Candle 3 Model #1/MSS",
+        "candle_3": "Candle 3 Model #1/MSS",
+        "fvg": "FVG",
+        "session": "Session",
         "risk": "Risk",
     }
     items: list[dict[str, str]] = []

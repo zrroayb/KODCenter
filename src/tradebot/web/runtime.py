@@ -570,6 +570,7 @@ class BotController:
         crt = analysis.get("crt_setup") or {}
         return {
             "macro_bias": analysis.get("macro_bias"),
+            "monthly_bias": analysis.get("monthly_bias") or (analysis.get("timeframes") or {}).get("1M", {}).get("bias"),
             "weekly_bias": analysis.get("weekly_bias"),
             "daily_bias": analysis.get("daily_bias"),
             "h4_bias": analysis.get("4h_bias"),
@@ -588,6 +589,8 @@ class BotController:
             "liquidity_ranking": analysis.get("liquidity_ranking") or analysis.get("liquidity_map") or [],
             "latest_sweep": analysis.get("latest_sweep"),
             "sweeps": analysis.get("sweeps") or [],
+            "smt_signal": analysis.get("smt_signal"),
+            "smt_status": analysis.get("smt_status", analysis.get("smt_signal")),
             "displacement": analysis.get("displacement") or {},
             "mss": analysis.get("mss"),
             "mss_detail": analysis.get("mss_detail") or {},
@@ -955,7 +958,7 @@ class BotController:
                     try:
                         context = _cached_desk_candles(cache, exchange, symbol, context_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
                         trigger = _cached_desk_candles(cache, exchange, symbol, trigger_tf, config.scanner.candle_limit, config.scanner.use_closed_candle)
-                        diagnostic = evaluator.diagnose(setup, profile, context, trigger)
+                        diagnostic = evaluator.diagnose(setup, profile, context, trigger, framework_context=framework_summary)
                         post = _desk_post(
                             symbol,
                             setup.name,
@@ -1062,7 +1065,7 @@ def _setup_summary(setup: SetupConfig) -> dict[str, Any]:
 
 def _setup_brief(setup: SetupConfig) -> str:
     if setup.type == "kod_turtle_soup":
-        return "YTL/HTF bias, Context CRT, fast trigger-timeframe MSB or iFVG confirmation, ATR risk, and structure-based target map."
+        return "CRT Secrets PDF framework: HTF narrative, key level, Candle 2 Turtle Soup, Candle 3 Model #1/MSS, FVG confluence, session, and risk."
     if setup.type == "conditions":
         return "Configured indicator stack on the latest closed candle."
     return "Configured strategy rules."
@@ -1251,9 +1254,9 @@ def _current_next_session(moment: datetime) -> tuple[str, str]:
 
 def _projection_trigger_text(direction: str) -> str:
     if direction == "bullish":
-        return "Wait for 15m bullish MSB or FVG/iFVG displacement."
+        return "Wait for 15m bullish Candle 3 Model #1 or MSS."
     if direction == "bearish":
-        return "Wait for 15m bearish MSB or FVG/iFVG displacement."
+        return "Wait for 15m bearish Candle 3 Model #1 or MSS."
     return "No entry. Wait for session high/low raid and reclaim first."
 
 
@@ -1344,7 +1347,7 @@ def _desk_post(
         reference_level=(raid or {}).get("level"),
         sweep_extreme=(raid or {}).get("sweep_extreme"),
         htf_raid_at_ms=(raid or {}).get("timestamp_ms"),
-        wait_text=f"HTF map: bias + Context CRT. Confirm on {trigger_tf} MSB/iFVG.",
+        wait_text=f"HTF map: narrative + key level + Turtle Soup. Confirm on {trigger_tf} Model #1/MSS.",
         setup_label=f"{symbol} HTF context",
         decision=decision,
     )
@@ -1372,6 +1375,21 @@ def _desk_post(
         "checklist": decision["checklist"],
         "objective": objective,
         "raid": raid,
+        "framework_version": direction.get("framework_version") or "",
+        "source_document": direction.get("source_document") or "",
+        "htf_narrative": direction.get("htf_narrative") or {},
+        "key_level": direction.get("key_level") or {},
+        "crt_phase": direction.get("crt_phase") or "",
+        "candle_1": direction.get("candle_1") or {},
+        "candle_2": direction.get("candle_2") or {},
+        "candle_3": direction.get("candle_3") or {},
+        "model1_trigger": direction.get("model1_trigger") or {},
+        "mss_trigger": direction.get("mss_trigger") or {},
+        "fvg_confluence": direction.get("fvg_confluence") or {},
+        "smt_status": direction.get("smt_status") or {},
+        "session_gate": direction.get("session_gate") or {},
+        "target_50": direction.get("target_50") or {},
+        "plan_b": direction.get("plan_b") or {},
         "msb_level": msb_level,
         "displacement": displacement,
         "reasons": reasons[:4],
@@ -1412,14 +1430,12 @@ def _desk_status(direction: dict[str, Any], diagnostic: dict[str, Any]) -> str:
         return "ready"
     if direction.get("status") == "block" or gate.get("status") == "blocked":
         return "blocked"
-    if direction.get("raid"):
-        return "armed"
     return "waiting"
 
 
 def _desk_high_potential(status: str, grade: Any) -> bool:
     normalized_grade = str(grade or "").upper().replace(" ", "")
-    return status in {"ready", "armed"} and normalized_grade in {"A", "A+"}
+    return status == "ready" and normalized_grade in {"A", "A+"}
 
 
 def _desk_priority_score(
@@ -1433,8 +1449,6 @@ def _desk_priority_score(
     score = 0
     if status == "ready":
         score += 70
-    elif status == "armed":
-        score += 52
     elif status == "waiting":
         score += 18
     normalized_grade = str(grade or "").upper().replace(" ", "")
@@ -1466,8 +1480,6 @@ def _desk_priority_score(
 def _desk_priority_label(score: int, status: str) -> str:
     if status == "ready" or score >= 78:
         return "Focus now"
-    if status == "armed" or score >= 58:
-        return "Close watch"
     if score >= 35:
         return "Build watch"
     return "Low priority"
@@ -1483,17 +1495,13 @@ def _desk_decision(
 ) -> dict[str, Any]:
     blocker_text = " | ".join(str(item) for item in blockers).lower()
     has_draw = objective.get("level") is not None
-    htf_blocked = (
-        "htf bias" in blocker_text
-        or "wrong htf location" in blocker_text
-        or "opposite" in blocker_text
-        or "no same-direction htf" in blocker_text
-    )
-    wrong_location = "wrong htf location" in blocker_text or "premium" in blocker_text and "discount" in blocker_text
-    missing_trigger = "missing" in blocker_text and "msb/ifvg" in blocker_text
-    weak_trigger = "weak displacement" in blocker_text or "weak trigger" in blocker_text or missing_trigger
-    no_raid = "missing context crt" in blocker_text or "no fresh htf raid" in blocker_text or "no fresh htf raid/reclaim" in blocker_text
-    risk_blocked = "risk" in blocker_text and ("wide" in blocker_text or "geniş" in blocker_text or "blocked" in blocker_text)
+    htf_blocked = "htf narrative" in blocker_text or "htf bias" in blocker_text or "opposing htf" in blocker_text
+    key_blocked = "key level" in blocker_text or "no same-direction htf" in blocker_text
+    candle2_blocked = "candle 2" in blocker_text or "missing context crt" in blocker_text or "turtle soup" in blocker_text
+    candle3_blocked = "candle 3" in blocker_text or "model #1/mss" in blocker_text or "msb/ifvg" in blocker_text
+    fvg_blocked = "fvg" in blocker_text and "missing" in blocker_text
+    session_blocked = "session" in blocker_text or "killzone" in blocker_text
+    risk_blocked = "risk:" in blocker_text or ("risk" in blocker_text and ("wide" in blocker_text or "geniş" in blocker_text or "blocked" in blocker_text))
 
     if status == "ready":
         label = "READY: PLAN VALID"
@@ -1509,21 +1517,31 @@ def _desk_decision(
         subtitle = wait_text
 
     checklist = [
-        {"key": "bias", "label": "HTF bias", "status": "block" if htf_blocked else "pass" if has_draw else "wait"},
+        {"key": "htf_narrative", "label": "HTF narrative", "status": "block" if htf_blocked else "pass" if has_draw else "wait"},
         {
-            "key": "location",
-            "label": "PD array",
-            "status": "block" if wrong_location else "pass" if has_draw else "wait",
+            "key": "key_level",
+            "label": "Key level",
+            "status": "block" if key_blocked else "pass" if has_draw else "wait",
         },
         {
-            "key": "context_crt",
-            "label": "Context CRT",
-            "status": "pass" if raid else "block" if no_raid and has_draw else "wait",
+            "key": "candle_2",
+            "label": "Candle 2 Turtle Soup",
+            "status": "pass" if raid else "block" if candle2_blocked and has_draw else "wait",
         },
         {
-            "key": "trigger",
-            "label": "MSB/iFVG",
-            "status": "pass" if status == "ready" else "block" if weak_trigger or raid else "wait",
+            "key": "candle_3",
+            "label": "Candle 3 Model #1/MSS",
+            "status": "pass" if status == "ready" else "block" if candle3_blocked or raid else "wait",
+        },
+        {
+            "key": "fvg",
+            "label": "FVG",
+            "status": "pass" if status == "ready" else "block" if fvg_blocked else "wait",
+        },
+        {
+            "key": "session",
+            "label": "Session",
+            "status": "pass" if status == "ready" else "block" if session_blocked else "wait",
         },
         {
             "key": "risk",
@@ -1552,9 +1570,9 @@ def _desk_context_summary(
     draw = objective.get("level")
     raid_level = (raid or {}).get("level")
     if draw is not None and raid:
-        read = f"{context_tf} bias and draw are mapped; Context CRT is on the chart."
+        read = f"{context_tf} key level and Candle 2 Turtle Soup are mapped; wait for Candle 3 confirmation."
     elif draw is not None:
-        read = f"{context_tf} draw exists; waiting for clean Context CRT."
+        read = f"{context_tf} key level exists; waiting for Candle 2 Turtle Soup."
     elif blockers:
         read = f"{context_tf} is blocked: {blockers[0]}"
     else:
@@ -1565,7 +1583,7 @@ def _desk_context_summary(
         "draw": _price_text(draw),
         "raid": _price_text(raid_level),
         "context_crt": _price_text(raid_level),
-        "trigger": f"Confirm on {trigger_tf}",
+        "trigger": f"Confirm Candle 3 on {trigger_tf}",
         "read": read,
     }
 
@@ -1576,12 +1594,12 @@ def _desk_wait_text(direction: dict[str, Any], diagnostic: dict[str, Any], trigg
     steps = diagnostic.get("next_steps") or []
     if steps:
         return str(steps[0])
-    return f"Wait for {trigger_tf} MSB or iFVG reclaim after Context CRT is clean."
+    return f"Wait for {trigger_tf} Candle 3 Model #1 or MSS after Turtle Soup is clean."
 
 
 def _desk_what_now(status: str, wait_text: str, blockers: list[str]) -> str:
     if status == "ready":
-        return "Plan is clean enough to monitor on the chart. Manual execution only."
+        return "CRT Secrets PDF gate is clean. Manual execution only."
     if blockers:
         return f"No trade. Main blocker: {blockers[0]}"
     return wait_text
@@ -1602,29 +1620,29 @@ def _desk_scenarios(
     if side == "bullish":
         primary = {
             "title": "Bullish case",
-            "text": f"Need sell-side Context CRT to hold, then {trigger_tf} close above MSB {msb_text} or reclaim iFVG. Target draw: {target_text}.",
+            "text": f"Need sell-side Turtle Soup to hold, then {trigger_tf} Candle 3 close above MSS {msb_text} or print Model #1. Target draw: {target_text}.",
         }
         opposite = {
             "title": "Bearish failure",
-            "text": f"If price loses the Context CRT level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF draw.",
+            "text": f"If price loses the Turtle Soup level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF narrative.",
         }
     elif side == "bearish":
         primary = {
             "title": "Bearish case",
-            "text": f"Need buy-side Context CRT to hold, then {trigger_tf} close below MSB {msb_text} or reclaim iFVG. Target draw: {target_text}.",
+            "text": f"Need buy-side Turtle Soup to hold, then {trigger_tf} Candle 3 close below MSS {msb_text} or print Model #1. Target draw: {target_text}.",
         }
         opposite = {
             "title": "Bullish failure",
-            "text": f"If price reclaims above the Context CRT level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF draw.",
+            "text": f"If price reclaims above the Turtle Soup level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF narrative.",
         }
     else:
         primary = {
             "title": "Bullish case",
-            "text": f"Wait for HTF draw above price, discount location, sell-side Context CRT, then {trigger_tf} bullish MSB/iFVG.",
+            "text": f"Wait for HTF narrative, key level, sell-side Turtle Soup, then {trigger_tf} bullish Model #1/MSS.",
         }
         opposite = {
             "title": "Bearish case",
-            "text": f"Wait for HTF draw below price, premium location, buy-side Context CRT, then {trigger_tf} bearish MSB/iFVG.",
+            "text": f"Wait for HTF narrative, key level, buy-side Turtle Soup, then {trigger_tf} bearish Model #1/MSS.",
         }
     neutral = {
         "title": "No trade rule",
@@ -1690,11 +1708,9 @@ def _desk_trigger_mode(role: str, reference_level: Any, msb_level: Any, fvg_zone
     if role != "trigger":
         return ""
     if reference_level not in (None, ""):
-        return "raid_msb_or_fvg"
+        return "model1_or_mss"
     if msb_level not in (None, ""):
-        return "msb"
-    if ifvg_zone:
-        return "ifvg"
+        return "mss"
     return ""
 
 

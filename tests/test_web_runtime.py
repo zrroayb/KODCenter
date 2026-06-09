@@ -11,6 +11,8 @@ from tradebot.web.runtime import (
     BotController,
     DashboardLogHandler,
     _desk_chart_url,
+    _desk_decision,
+    _desk_priority_score,
     _desk_session_projection,
     _projection_aligns_with_bias,
 )
@@ -147,11 +149,42 @@ def test_desk_chart_url_carries_structure_and_fvg_annotations():
 
     query = parse_qs(urlparse(url).query)
 
-    assert query["trigger_mode"] == ["raid_msb_or_fvg"]
+    assert query["trigger_mode"] == ["model1_or_mss"]
     assert query["msb_at_ms"] == ["1699990000000"]
     assert query["fvg_zone_low"] == ["101"]
     assert query["fvg_zone_high"] == ["103"]
     assert query["fvg_zone_direction"] == ["bullish"]
+
+
+def test_desk_pdf_framework_checklist_blocks_priority_until_full_gate_passes():
+    blockers = [
+        "HTF narrative: opposing HTF bias",
+        "Candle 3 Model #1/MSS: missing 1h confirmation",
+        "FVG: missing same-direction FVG confluence",
+        "Session: outside London/New York killzone",
+    ]
+    decision = _desk_decision(
+        "blocked",
+        "bullish",
+        {"level": 110, "distance_atr": 0.8},
+        {"level": 104},
+        blockers,
+        "wait",
+    )
+
+    labels = [item["label"] for item in decision["checklist"]]
+    assert labels == [
+        "HTF narrative",
+        "Key level",
+        "Candle 2 Turtle Soup",
+        "Candle 3 Model #1/MSS",
+        "FVG",
+        "Session",
+        "Risk",
+    ]
+    assert decision["label"] == "NO TRADE: BLOCKED"
+    score = _desk_priority_score("blocked", "A+", {"level": 110, "distance_atr": 0.8}, {"level": 104}, blockers, decision["checklist"])
+    assert score <= 24
 
 
 def test_journal_auto_skips_pending_entries_without_active_alert(tmp_path: Path):

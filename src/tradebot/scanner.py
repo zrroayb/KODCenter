@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from tradebot.analysis import ANALYSIS_TIMEFRAMES, analyze_symbol
 from tradebot.journal import make_alert_key
 from tradebot.kod import KodSignal, KodTurtleSoupEvaluator, signal_meets_telegram_grade
 from tradebot.models import Alert, Candle
@@ -128,6 +129,7 @@ class Scanner:
     def _scan_kod_setup(self, symbol: str, setup, candle_cache: dict[str, list[Candle]]) -> int:
         alert_count = 0
         profiles = setup.params.get("profiles", [])
+        framework_context = self._build_framework_context(symbol, candle_cache)
 
         for profile in profiles:
             profile_name = str(profile.get("name") or "profile")
@@ -142,18 +144,18 @@ class Scanner:
                 context_timeframe=context_timeframe,
                 trigger_timeframe=trigger_timeframe,
                 looking_for=[
-                    "YTL/HTF bias: trigger signal must agree with HTF liquidity direction.",
-                    "Nearby unclaimed HTF swing/equal liquidity objective.",
-                    f"Context CRT: important {context_timeframe} candle high/low must be raided and reclaimed first.",
-                    f"Trigger: fast {trigger_timeframe} MSB close or iFVG reclaim after Context CRT.",
-                    "Displacement guard: trigger candle must show real directional expansion, not a weak close.",
-                    "Session quality: London / New York killzone receives higher grade; outside session is marked weaker.",
+                    "HTF narrative: monthly/weekly/daily/4H must allow the trade direction.",
+                    "Key level: old/equal high-low or PDH/PDL/PWH/PWL/PMH/PML liquidity must anchor the setup.",
+                    f"Candle 2 Turtle Soup: important {context_timeframe} high/low must be raided and reclaimed.",
+                    f"Candle 3: {trigger_timeframe} Model #1 or true MSS/MSB must confirm.",
+                    "FVG: same-direction imbalance is confluence only; it is not an entry trigger.",
+                    "SMT: unavailable is visible and non-blocking; opposing SMT blocks when feed exists.",
+                    "Session: London / New York killzone is required for READY.",
                     _freshness_brief(setup.params, profile_name, trigger_timeframe),
                     "No-chase guard: hide setups already beyond the configured ATR/R distance from entry.",
-                    "Fresh FVG is confluence only; confirmation requires MSB or iFVG reclaim.",
-                    "Target guard: TP2 must be meaningful in R terms; weak target maps are blocked or downgraded.",
+                    "Target guard: TP1 is the 50% mission target; final target is the CRT objective.",
                 ],
-                confirmation=f"Wait for {context_timeframe} Context CRT first, then {trigger_timeframe} MSB or iFVG confirmation.",
+                confirmation=f"Wait for HTF narrative, key level, {context_timeframe} Turtle Soup, then {trigger_timeframe} Model #1/MSS.",
             )
             context_candles = self._fetch_symbol_candles(
                 symbol,
@@ -167,9 +169,9 @@ class Scanner:
 
             self._hide_missed_kod_alerts(symbol, setup, profile_name, trigger_timeframe, trigger_candles[-1].close)
             self._auto_invalidate_kod_alerts(symbol, setup, profile_name, trigger_timeframe, trigger_candles[-1].close)
-            signals = self.kod_evaluator.evaluate(setup, profile, context_candles, trigger_candles)
+            signals = self.kod_evaluator.evaluate(setup, profile, context_candles, trigger_candles, framework_context=framework_context)
             if not signals:
-                diagnostic = self.kod_evaluator.diagnose(setup, profile, context_candles, trigger_candles)
+                diagnostic = self.kod_evaluator.diagnose(setup, profile, context_candles, trigger_candles, framework_context=framework_context)
                 self._hide_inactive_kod_forming_alerts(symbol, setup, profile_name, trigger_timeframe)
                 logger.info(
                     "%s %s produced no KOD signals for %s/%s",
@@ -196,6 +198,21 @@ class Scanner:
                     alert_count += 1
 
         return alert_count
+
+    def _build_framework_context(self, symbol: str, candle_cache: dict[str, list[Candle]]) -> dict[str, Any] | None:
+        tf_candles: dict[str, list[Candle]] = {}
+        errors: list[str] = []
+        for timeframe in ANALYSIS_TIMEFRAMES:
+            candles = self._fetch_symbol_candles(symbol, timeframe, candle_cache)
+            if candles:
+                tf_candles[timeframe] = candles
+            else:
+                errors.append(timeframe)
+        if not tf_candles:
+            return None
+        analysis = analyze_symbol(symbol, tf_candles)
+        analysis.setdefault("meta", {})["framework_timeframe_errors"] = errors
+        return analysis
 
     def _hide_missed_kod_alerts(
         self,
@@ -475,7 +492,7 @@ def _freshness_brief(params: dict[str, Any], profile_name: str, trigger_timefram
             bars = int(params.get("htf_raid_confirmation_bars", 8))
         except (TypeError, ValueError):
             bars = 8
-    return f"Freshness: confirmation must happen within {max(1, bars)} {trigger_timeframe} bars after Context CRT."
+    return f"Freshness: Candle 3 confirmation must happen within {max(1, bars)} {trigger_timeframe} bars after Turtle Soup."
 
 
 def _condition_names(node: Any) -> list[str]:

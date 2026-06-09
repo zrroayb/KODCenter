@@ -4313,8 +4313,10 @@ body.view-desk .shell {
   }
 
   .terminal-chrome {
-    position: static;
+    position: relative;
+    z-index: 300;
     margin-bottom: 12px;
+    overflow: visible;
     backdrop-filter: none;
     background: var(--surface);
   }

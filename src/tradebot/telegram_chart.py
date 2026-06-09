@@ -84,14 +84,16 @@ def build_alert_chart_png(alert: Alert, candles: list[Candle], *, limit: int = 1
     trigger_mode = str(plan.get("trigger_mode") or "msb").lower()
     ref = _num(plan.get("msb_level")) or _num(plan.get("reference_level"))
     if ref is not None:
-        if trigger_mode == "raid_msb_or_fvg":
-            label = "Context CRT low" if bullish else "Context CRT high"
+        if trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}:
+            label = "Turtle Soup low" if bullish else "Turtle Soup high"
+        elif trigger_mode == "model1":
+            label = "Model #1 level"
         elif trigger_mode in {"fvg", "ifvg"}:
-            label = "iFVG trigger level"
+            label = "FVG confluence"
         else:
-            label = "MSB high: wait close above" if bullish else "MSB low: wait close below"
-        if alert.stage == "confirmed" and trigger_mode == "msb":
-            label = "MSB high broken" if bullish else "MSB low broken"
+            label = "MSS high: wait close above" if bullish else "MSS low: wait close below"
+        if alert.stage == "confirmed" and trigger_mode in {"mss", "msb"}:
+            label = "MSS high broken" if bullish else "MSS low broken"
         _level(draw, y_at, width, pad_l, pad_r, ref, "#111827", label, font=tiny)
 
     for key, label, color in [
@@ -113,12 +115,14 @@ def build_alert_chart_png(alert: Alert, candles: list[Candle], *, limit: int = 1
 
     status = _next_action(alert)
     _callout(draw, pad_l + 16, pad_t + 16, status, "#111827", small)
-    if trigger_mode == "raid_msb_or_fvg":
-        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: wait MSB or iFVG", "#334155", tiny)
+    if trigger_mode in {"model1_or_mss", "raid_msb_or_fvg"}:
+        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: wait Model #1 or MSS", "#334155", tiny)
     elif trigger_mode in {"fvg", "ifvg"}:
-        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: iFVG reclaim", "#334155", tiny)
-    elif trigger_mode == "msb":
-        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: market structure break", "#334155", tiny)
+        _callout(draw, pad_l + 16, pad_t + 52, "FVG: confluence only", "#334155", tiny)
+    elif trigger_mode in {"mss", "msb"}:
+        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: market structure shift", "#334155", tiny)
+    elif trigger_mode == "model1":
+        _callout(draw, pad_l + 16, pad_t + 52, "Trigger: Model #1", "#334155", tiny)
 
     return _png_bytes(image)
 
@@ -127,9 +131,9 @@ def _next_action(alert: Alert) -> str:
     if alert.stage == "forming":
         tf = alert.trigger_timeframe or alert.timeframe
         mode = str((alert.trade_plan or {}).get("trigger_mode") or "")
-        if mode == "raid_msb_or_fvg":
-            return f"Wait: {tf} MSB or iFVG"
-        side = "above MSB high" if alert.direction == "bullish" else "below MSB low"
+        if mode in {"model1_or_mss", "raid_msb_or_fvg"}:
+            return f"Wait: {tf} Model #1/MSS"
+        side = "above MSS high" if alert.direction == "bullish" else "below MSS low"
         return f"Wait: {tf} close {side}"
     if alert.stage == "confirmed":
         return "Confirmed: use plan levels, no auto order"

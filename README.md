@@ -138,26 +138,26 @@ scripts/uninstall_launch_agent.sh
 
 Live mode uses `.env` for `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Keep using `--dry-run` until the watchlist, risk settings, and alert wording look right.
 
-## KOD Turtle Soup Reclaim
+## CRT Secrets Live Framework
 
-The bundled strategy is `kod_turtle_soup`. In the shipped config it watches the same raid model across all profiles: HTF direction first, important HTF candle high/low raid second, then fast trigger-timeframe MSB or FVG/iFVG confirmation.
+The bundled strategy is `kod_turtle_soup`, but live decisions now use the canonical CRT Secrets PDF framework recorded in `docs/trade-style-backup-and-crt-master.md`. The previous Context CRT + MSB/iFVG style is kept there as a historical backup only.
 
 Core logic:
 
-- Bullish context exists when an unclaimed swing/equal high is near on the HTF chart.
-- Bearish context exists when an unclaimed swing/equal low is near on the HTF chart.
+- HTF narrative comes first: monthly/weekly/daily/4H must allow the trade direction.
+- A key level must anchor the idea: old/equal high-low, PDH/PDL/PWH/PWL/PMH/PML, or strong liquidity pool.
+- Candle 1 maps the CRT range/objective.
+- Candle 2 is the Turtle Soup manipulation/raid and is never a trade by itself.
+- Candle 3 is the only tradable confirmation candle.
 - Active profiles: `4h -> 15m` and `1d -> 1h`.
-- Bullish confirmation requires price to raid below an important HTF candle low, reclaim it, then print a fast trigger-timeframe MSB close or bullish FVG/iFVG displacement.
-- Bearish confirmation requires price to raid above an important HTF candle high, reclaim it, then print a fast trigger-timeframe MSB close or bearish FVG/iFVG displacement.
-- Trigger confirmation must happen within the configured freshness window after the raid, so late/chased setups are not treated as clean entries.
+- Bullish confirmation requires sell-side Turtle Soup, then Candle 3 Model #1 or true MSS/MSB.
+- Bearish confirmation requires buy-side Turtle Soup, then Candle 3 Model #1 or true MSS/MSB.
+- FVG/iFVG is confluence and target context only; it is not an entry trigger.
+- SMT is shown as unavailable until an intermarket feed exists; opposing SMT blocks once feed data is available.
+- London/New York killzone is required for Desk `READY`.
+- TP1 is the 50% mission target between entry and the final CRT objective.
 - Confirmed alerts require displacement quality: directional body, expansion versus ATR, and a close in the correct part of the candle.
-- Session quality is scored: London and New York windows grade better; outside-session alerts are downgraded.
-- Target quality is guarded: TP2 must make sense in R terms and final HTF draw must offer enough room.
-- The old 20-bar logic remains in the evaluator for compatibility, but the shipped config does not use it.
-- YTL/HTF alignment is enforced before trade-grade signals: a confirmed alert must agree with the HTF liquidity direction.
-- If an early HTF candle sweep has no same-direction HTF objective, it is marked `WATCH ONLY` instead of trade-ready.
-- FVG and iFVG are treated as confluence and target mapping, not standalone entry triggers.
-- TP1 is always `1R`; TP2 is selected from the nearest valid internal liquidity, opposing FVG/iFVG midpoint, range edge, or fallback midpoint toward the HTF draw.
+- Target quality is guarded: final CRT draw must offer enough room.
 - Missed/chased setups are hidden: if price has already moved too far from the planned entry, the bot will not show it as actionable.
 
 Example:
@@ -213,8 +213,8 @@ setups:
 
 Alert stages:
 
-- `forming`: HTF candle raid happened, but trigger-timeframe MSB/FVG confirmation is still pending.
-- `confirmed`: HTF candle raid plus trigger-timeframe MSB or FVG/iFVG confirmation is complete.
+- `forming`: reserved for compatibility; live PDF gate does not promote Candle 2 alone.
+- `confirmed`: HTF narrative, key level, Turtle Soup, Candle 3 Model #1/MSS, FVG confluence, session, and risk gates passed.
 - `invalidated`: sweep occurred, but confirmation failed before the stop zone was protected.
 
 Each alert includes entry, stop, TP1, TP2, final HTF objective, risk width, and the rule explanation.

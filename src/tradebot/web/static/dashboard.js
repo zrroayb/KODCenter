@@ -584,14 +584,16 @@ function chartAnnotationsFromAlert(alert, role) {
     plan.trigger_mode ||
     (String(alert?.profile_name || "").toLowerCase() === "swing" ||
     (String(alert?.context_timeframe || "").toLowerCase() === "1d" && String(alert?.trigger_timeframe || "").toLowerCase() === "1h")
-      ? "msb"
+      ? "mss"
       : "");
-  const isMsb = triggerMode === "msb";
-  const isRaid = triggerMode === "raid_msb_or_fvg";
+  const isMsb = triggerMode === "mss" || triggerMode === "msb";
+  const isModel1 = triggerMode === "model1";
+  const isRaid = triggerMode === "model1_or_mss" || triggerMode === "raid_msb_or_fvg";
   const isFvgTrigger = triggerMode === "fvg" || triggerMode === "ifvg";
   const referenceFromDetails = detailPrice(details, [
     /^Reference level:\s*([0-9.,]+)/i,
     /^Trigger reference:.*?prior\s+\d+-bar\s+(?:low|high)\s+([0-9.,]+)/i,
+    /^MSS level:.*?([0-9][0-9.,]*)/i,
     /^MSB level:.*?([0-9][0-9.,]*)/i,
   ]);
   const sweepFromDetails = detailPrice(details, [/Wick extreme:\s*([0-9.,]+)/i, /Structure stop base:\s*([0-9.,]+)/i]);
@@ -624,7 +626,7 @@ function chartAnnotationsFromAlert(alert, role) {
       sweep_extreme: null,
       htf_target: firstNumeric(plan.final_target, htfTargetFromDetails),
       ...raidMeta,
-      wait_text: `HTF only: Context CRT + draw. Confirm on ${triggerTf} MSB/iFVG.`,
+      wait_text: `HTF only: narrative + key level + Turtle Soup. Confirm on ${triggerTf} Model #1/MSS.`,
       setup_label: `HTF CONTEXT: ${contextTf || "HTF"} ${side} draw ${targetSide}`,
       trigger_mode: triggerMode,
     };
@@ -633,15 +635,19 @@ function chartAnnotationsFromAlert(alert, role) {
   const setupLabel =
     stage === "forming"
       ? isRaid
-        ? `${triggerTf} CONFIRMATION: wait MSB/iFVG`
+        ? `${triggerTf} CONFIRMATION: wait Model #1/MSS`
+        : isModel1
+        ? `${triggerTf} CONFIRMATION: wait Model #1`
         : isMsb
-        ? `${triggerTf} CONFIRMATION: wait MSB`
+        ? `${triggerTf} CONFIRMATION: wait MSS`
         : `${triggerTf} CONFIRMATION: wait ${refSide} reclaim`
       : stage === "confirmed"
         ? isFvgTrigger
-          ? `${triggerTf} CONFIRMATION: iFVG confirmed`
+          ? `${triggerTf} FVG confluence`
+          : isModel1
+          ? `${triggerTf} CONFIRMATION: Model #1 confirmed`
           : isMsb
-          ? `${triggerTf} CONFIRMATION: MSB confirmed`
+          ? `${triggerTf} CONFIRMATION: MSS confirmed`
           : `${triggerTf} CONFIRMATION: reclaim confirmed`
         : stage === "invalidated"
           ? `INVALIDATED: ${side}`
@@ -650,14 +656,18 @@ function chartAnnotationsFromAlert(alert, role) {
   const triggerWait =
     stage === "confirmed"
       ? isFvgTrigger
-        ? `On ${triggerTf}: iFVG reclaim confirmed.`
+        ? `On ${triggerTf}: FVG confluence present.`
+        : isModel1
+        ? `On ${triggerTf}: Model #1 confirmed.`
         : isMsb
-        ? `On ${triggerTf}: MSB close confirmed.`
+        ? `On ${triggerTf}: MSS close confirmed.`
         : `On ${triggerTf}: reclaim confirmed.`
       : isRaid
-        ? `On ${triggerTf}: wait MSB close or iFVG reclaim.`
+        ? `On ${triggerTf}: wait Candle 3 Model #1 or MSS.`
+        : isModel1
+        ? `On ${triggerTf}: wait Model #1 close.`
         : isMsb
-        ? `On ${triggerTf}: wait close ${reclaimSide} MSB level.`
+        ? `On ${triggerTf}: wait close ${reclaimSide} MSS level.`
         : `On ${triggerTf}: wait ${refSide} take and close back ${reclaimSide}.`;
 
   const triggerReference = isRaid
@@ -1340,7 +1350,7 @@ function buildAlertStoryHtml(alert) {
   const triggerItems = alert.stage === "forming"
     ? [
         `No entry yet.`,
-        `Wait for closed ${triggerTf || "trigger"} MSB or iFVG reclaim.`,
+        `Wait for closed ${triggerTf || "trigger"} Candle 3 Model #1 or MSS.`,
       ]
     : alert.stage === "confirmed"
       ? [`Confirmed. Use the plan levels, no auto order.`]
@@ -1406,12 +1416,12 @@ function stripDetailLabel(line) {
 function cleanTraderSummary(text, alert = {}) {
   let cleaned = String(text || "");
   cleaned = cleaned
-    .replace("HTF raid happened. No entry yet; wait for", "Context CRT done. Waiting for")
-    .replace("Context CRT happened. No entry yet; wait for", "Context CRT done. Waiting for")
+    .replace("HTF raid happened. No entry yet; wait for", "Candle 2 Turtle Soup done. Waiting for")
+    .replace("Context CRT happened. No entry yet; wait for", "Candle 2 Turtle Soup done. Waiting for")
     .replace("Setup confirmed.", "Setup confirmed.")
     .replace("the bot still does not place orders.", "Manual execution only.")
     .replace("YTL", "HTF");
-  if (!cleaned && alert.stage === "forming") return "Context CRT done. Waiting for clean trigger.";
+  if (!cleaned && alert.stage === "forming") return "Candle 2 Turtle Soup done. Waiting for Candle 3.";
   if (!cleaned && alert.stage === "confirmed") return "Plan ready. Manage the levels.";
   return cleaned || "Setup";
 }
@@ -2038,12 +2048,19 @@ function shortTacticalText(text) {
 
 function primaryObjective(post) {
   const fw = post?.framework || {};
-  const text = fw.liquidity_objective && fw.liquidity_objective !== "none"
-    ? fw.liquidity_objective
-    : post?.objective?.source && post?.objective?.level != null
-    ? `${post.objective.source} @ ${fmtNum(post.objective.level)}`
-    : "No clean draw";
-  return text;
+  const objective = fw.liquidity_objective;
+  if (objective && objective !== "none") {
+    if (typeof objective === "object") {
+      const label = objective.source || objective.kind || objective.side || "Liquidity";
+      const level = objective.level != null ? ` @ ${fmtNum(objective.level)}` : "";
+      return `${label}${level}`;
+    }
+    return String(objective);
+  }
+  if (post?.objective?.source && post?.objective?.level != null) {
+    return `${post.objective.source} @ ${fmtNum(post.objective.level)}`;
+  }
+  return "No clean draw";
 }
 
 function liquidityLabel(source) {
@@ -2686,7 +2703,7 @@ function renderDeskChecklist(items) {
   if (!items?.length) return "";
   return `
     <div class="desk-checklist">
-      ${items.slice(0, 5).map((item) => {
+      ${items.map((item) => {
         const status = item.status || "wait";
         return `
           <span class="desk-check ${escapeHtml(status)}">
@@ -2749,11 +2766,12 @@ function compactTriggerText(alert) {
   const { trigger } = resolveAlertTimeframes(alert || {});
   const mode = String(alert?.trade_plan?.trigger_mode || "").toLowerCase();
   if ((alert?.stage || "") === "confirmed") {
-    if (mode.includes("ifvg")) return `${trigger} iFVG confirmed`;
-    if (mode.includes("msb")) return `${trigger} MSB confirmed`;
+    if (mode.includes("ifvg") || mode === "fvg") return `${trigger} FVG confluence only`;
+    if (mode.includes("model1")) return `${trigger} Model #1 confirmed`;
+    if (mode.includes("mss") || mode.includes("msb")) return `${trigger} MSS confirmed`;
     return `${trigger} trigger confirmed`;
   }
-  return `Wait ${trigger} MSB or iFVG`;
+  return `Wait ${trigger} Model #1/MSS`;
 }
 
 function biasChipText(alert) {
@@ -2785,7 +2803,7 @@ function tradeLevelItems(alert) {
     ].filter(([, value]) => value != null);
   }
   return [
-    ["Context CRT", plan.reference_level],
+    ["Turtle Soup", plan.reference_level],
     ["Sweep", plan.sweep_extreme],
     ["HTF draw", target],
     ["Window", freshness],
@@ -2834,7 +2852,7 @@ function tradeRoadmapHtml(alert) {
   const triggerDone = stage === "confirmed";
   const stopped = stage === "invalidated";
   const steps = [
-    ["Context CRT", firstDone ? "done" : "idle"],
+    ["Turtle Soup", firstDone ? "done" : "idle"],
     [triggerDone ? "Trigger confirmed" : "Trigger pending", triggerDone ? "done" : stopped ? "dead" : "pending"],
     [triggerDone ? "Manage plan" : "No entry", triggerDone ? "live" : stopped ? "dead" : "idle"],
   ];

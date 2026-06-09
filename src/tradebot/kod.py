@@ -18,6 +18,9 @@ GRADE_ML = "ML"
 VISIBLE_SETUP_GRADES = {TOP_SETUP_GRADE, GRADE_A, GRADE_CB, GRADE_ML}
 LEGACY_GRADE_MAP = {"B": GRADE_A, "C": GRADE_CB, "D": GRADE_ML}
 GRADE_ORDER = {GRADE_ML: 0, GRADE_CB: 1, GRADE_A: 2, TOP_SETUP_GRADE: 3}
+CRT_FRAMEWORK_VERSION = "crt_secrets_pdf_v1"
+CRT_SOURCE_DOCUMENT = "CRT Secrets Series - Book"
+CRT_SOURCE_SHA256 = "e0f62372112170ada2f78ba79f3954ddd11eda68a8889b5964a0bde47e1c4ae6"
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,7 @@ class KodTurtleSoupEvaluator:
         profile: dict[str, Any],
         context_candles: list[Candle],
         trigger_candles: list[Candle],
+        framework_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         settings = _settings(setup.params)
         profile_name = str(profile.get("name") or f"{profile.get('context_timeframe')}-{profile.get('trigger_timeframe')}")
@@ -208,21 +212,15 @@ class KodTurtleSoupEvaluator:
                     context_atr,
                     settings,
                 )
-            msb_signal = _msb_signal(trigger_candles, objective.direction, trigger_atr, settings)
-            ifvg_trigger = (
-                _ifvg_raid_confirmation(
-                    trigger_candles,
-                    objective.direction,
-                    raid.trigger_index,
-                    trigger_atr,
-                    settings,
-                    freshness_bars=_freshness_bars_for_profile(profile_name, settings),
-                )
+            model1_signal = (
+                _model1_signal(trigger_candles, objective.direction, raid.trigger_index, trigger_atr, settings)
                 if raid is not None
                 else None
             )
-            trigger_confirmed = msb_signal is not None or ifvg_trigger is not None
-            msb = msb_signal or _next_msb_level(trigger_candles, objective.direction, settings)
+            mss_signal = _msb_signal(trigger_candles, objective.direction, trigger_atr, settings)
+            trigger_signal = model1_signal or mss_signal
+            trigger_confirmed = trigger_signal is not None
+            msb = mss_signal or _next_msb_level(trigger_candles, objective.direction, settings)
             displacement = _displacement_result(trigger_candles[-1], objective.direction, trigger_atr, settings)
             quality = _assess_setup_quality(
                 STAGE_CONFIRMED if trigger_confirmed else STAGE_FORMING,
@@ -235,22 +233,56 @@ class KodTurtleSoupEvaluator:
             zones = _fvg_zones(trigger_candles, settings["fvg_lookback"])
             supportive_fvg = _nearest_zone(zones, objective.direction, trigger_candles[-1].close, kind="fvg")
             supportive_ifvg = _nearest_zone(zones, objective.direction, trigger_candles[-1].close, kind="ifvg")
+            diagnostic_trade_plan = _build_trade_plan(
+                float((trigger_signal or {}).get("entry") or trigger_candles[-1].close),
+                _stop_level(
+                    objective.direction,
+                    float(raid.sweep_extreme if raid is not None else trigger_candles[-1].low if objective.direction == "bullish" else trigger_candles[-1].high),
+                    trigger_atr,
+                    settings["stop_buffer_atr"],
+                ),
+                final_target=objective.level,
+            )
+            framework_gate = _pdf_framework_gate(
+                objective.direction,
+                objective,
+                raid,
+                trigger_signal,
+                diagnostic_trade_plan,
+                framework_context,
+                context_timeframe,
+                trigger_timeframe,
+                trigger_candles,
+                supportive_fvg=supportive_fvg,
+                supportive_ifvg=supportive_ifvg,
+            )
+            diagnostic_gate = _diagnostic_gate(
+                STAGE_FORMING,
+                alignment,
+                raid,
+                displacement,
+                quality,
+                settings,
+                trigger_confirmed=trigger_confirmed,
+                trigger_timeframe=trigger_timeframe,
+                framework_gate=framework_gate,
+            )
 
             if not alignment.passed:
                 next_step = "HTF bias is not clean enough."
                 status = "block"
             elif raid is None:
-                next_step = f"Waiting for {context_timeframe} Context CRT raid and reclaim."
+                next_step = f"Waiting for {context_timeframe} Candle 2 Turtle Soup raid and reclaim."
                 status = "block"
             elif trigger_confirmed:
-                next_step = f"{trigger_timeframe} MSB/iFVG confirmed after Context CRT."
-                status = "pass"
+                next_step = f"{trigger_timeframe} Candle 3 {str(trigger_signal.get('trigger_mode')).upper()} confirmed after Turtle Soup."
+                status = "pass" if not diagnostic_gate["blockers"] else "block"
             elif msb is not None:
                 close_side = "above" if objective.direction == "bullish" else "below"
-                next_step = f"Need closed {trigger_timeframe} candle {close_side} MSB level {_fmt(float(msb['level']))} or iFVG reclaim."
+                next_step = f"Need Candle 3 close {close_side} MSS level {_fmt(float(msb['level']))} or Model #1 trigger."
                 status = "wait"
             else:
-                next_step = f"Waiting for {trigger_timeframe} MSB or iFVG reclaim after Context CRT."
+                next_step = f"Waiting for {trigger_timeframe} Candle 3 Model #1 or MSS after Turtle Soup."
                 status = "wait"
 
             directions.append(
@@ -267,8 +299,23 @@ class KodTurtleSoupEvaluator:
                     "context_crt": _diagnostic_raid(raid),
                     "msb_level": float(msb["level"]) if msb is not None else None,
                     "msb_timestamp_ms": int(msb["level_timestamp_ms"]) if msb is not None else None,
-                    "trigger_mode": "msb" if msb_signal is not None else "ifvg" if ifvg_trigger is not None else "",
+                    "trigger_mode": str((trigger_signal or {}).get("trigger_mode") or ""),
                     "trigger_confirmed": trigger_confirmed,
+                    "framework_version": CRT_FRAMEWORK_VERSION,
+                    "source_document": CRT_SOURCE_DOCUMENT,
+                    "htf_narrative": framework_gate.get("htf_narrative"),
+                    "key_level": framework_gate.get("key_level"),
+                    "crt_phase": framework_gate.get("crt_phase"),
+                    "candle_1": framework_gate.get("candle_1"),
+                    "candle_2": framework_gate.get("candle_2"),
+                    "candle_3": framework_gate.get("candle_3"),
+                    "model1_trigger": framework_gate.get("model1_trigger"),
+                    "mss_trigger": framework_gate.get("mss_trigger"),
+                    "fvg_confluence": framework_gate.get("fvg_confluence"),
+                    "smt_status": framework_gate.get("smt_status"),
+                    "session_gate": framework_gate.get("session_gate"),
+                    "target_50": framework_gate.get("target_50"),
+                    "plan_b": framework_gate.get("plan_b"),
                     "displacement": {
                         "passed": bool(displacement["passed"]),
                         "body_ratio": round(float(displacement["body_ratio"]), 2),
@@ -282,16 +329,7 @@ class KodTurtleSoupEvaluator:
                         "max_score": quality.max_score,
                         "warnings": list(quality.weak_points or []),
                     },
-                    "gate": _diagnostic_gate(
-                        STAGE_FORMING,
-                        alignment,
-                        raid,
-                        displacement,
-                        quality,
-                        settings,
-                        trigger_confirmed=trigger_confirmed,
-                        trigger_timeframe=trigger_timeframe,
-                    ),
+                    "gate": diagnostic_gate,
                     "fvg": _diagnostic_zone(supportive_fvg),
                     "ifvg": _diagnostic_zone(supportive_ifvg),
                     "next_step": next_step,
@@ -310,6 +348,7 @@ class KodTurtleSoupEvaluator:
         profile: dict[str, Any],
         context_candles: list[Candle],
         trigger_candles: list[Candle],
+        framework_context: dict[str, Any] | None = None,
     ) -> list[KodSignal]:
         settings = _settings(setup.params)
         if len(context_candles) < settings["minimum_context_candles"]:
@@ -354,6 +393,7 @@ class KodTurtleSoupEvaluator:
                 objective,
                 objectives,
                 settings,
+                framework_context,
             )
             if signal is not None and signal.stage in settings["alert_stages"]:
                 finalized = _finalize_kod_signal(signal, settings)
@@ -476,7 +516,7 @@ class KodTurtleSoupEvaluator:
             f"Trigger state: latest {trigger_timeframe} close {_fmt(latest_trigger.close)} is {'back through' if trigger_ok else 'not back through'} the reference level. Location only; not confirmation.",
             (
                 f"Confirmation needed: on {trigger_timeframe}, candle must close "
-                f"{'above' if direction == 'bullish' else 'below'} the recent MSB level."
+                f"{'above' if direction == 'bullish' else 'below'} the recent MSS level."
                 if _uses_msb_trigger(profile_name, context_timeframe, trigger_timeframe, settings)
                 else f"Confirmation needed: on {trigger_timeframe}, price must take the prior {settings['lookback']}-bar {'low' if direction == 'bullish' else 'high'} and close back through it."
             ),
@@ -562,6 +602,7 @@ class KodTurtleSoupEvaluator:
         objective: LiquidityObjective,
         objectives: list[LiquidityObjective],
         settings: dict[str, Any],
+        framework_context: dict[str, Any] | None,
     ) -> KodSignal | None:
         current = trigger_candles[-1]
         alignment = _htf_alignment(objective.direction, context_candles, objectives, settings)
@@ -579,6 +620,7 @@ class KodTurtleSoupEvaluator:
             objective,
             alignment,
             settings,
+            framework_context,
         )
 
     def _evaluate_msb_direction(
@@ -594,9 +636,9 @@ class KodTurtleSoupEvaluator:
         objective: LiquidityObjective,
         alignment: HtfAlignment,
         settings: dict[str, Any],
+        framework_context: dict[str, Any] | None,
     ) -> KodSignal | None:
         current = trigger_candles[-1]
-        msb = _msb_signal(trigger_candles, objective.direction, trigger_atr, settings)
         if not alignment.passed:
             return None
         raid = _find_htf_raid(
@@ -611,20 +653,17 @@ class KodTurtleSoupEvaluator:
         if raid is None:
             return None
 
-        ifvg_trigger = _ifvg_raid_confirmation(
-            trigger_candles,
-            objective.direction,
-            raid.trigger_index,
-            trigger_atr,
-            settings,
-            freshness_bars=_freshness_bars_for_profile(profile_name, settings),
-        )
+        model1 = _model1_signal(trigger_candles, objective.direction, raid.trigger_index, trigger_atr, settings)
+        mss = _msb_signal(trigger_candles, objective.direction, trigger_atr, settings)
+        zones = _fvg_zones(trigger_candles, settings["fvg_lookback"])
+        supportive_fvg = _nearest_zone(zones, objective.direction, current.close, kind="fvg")
+        supportive_ifvg = _nearest_zone(zones, objective.direction, current.close, kind="ifvg")
 
-        if msb is not None or ifvg_trigger is not None:
-            trigger = msb if msb is not None else ifvg_trigger
+        if model1 is not None or mss is not None:
+            trigger = model1 if model1 is not None else mss
             assert trigger is not None
             entry = float(trigger["entry"])
-            stop_base = float(raid.sweep_extreme if raid is not None else trigger["stop_base"])
+            stop_base = float(raid.sweep_extreme)
             stop = _stop_level(objective.direction, stop_base, trigger_atr, settings["stop_buffer_atr"])
             target_plan = _setup_targets(
                 objective.direction,
@@ -646,17 +685,13 @@ class KodTurtleSoupEvaluator:
             _apply_target_plan(trade_plan, target_plan)
             trigger_mode = str(trigger.get("trigger_mode") or "msb")
             trade_plan["trigger_mode"] = trigger_mode
-            if trigger_mode == "msb":
+            if trigger_mode == "model1":
+                trade_plan["model1_trigger"] = _model1_plan(trigger)
+            if trigger_mode == "mss":
+                trade_plan["mss_trigger"] = _mss_plan(trigger)
                 trade_plan["msb_level"] = float(trigger["level"])
                 if trigger.get("level_timestamp_ms") is not None:
                     trade_plan["msb_timestamp_ms"] = int(trigger["level_timestamp_ms"])
-            else:
-                trade_plan["fvg_trigger"] = trigger.get("zone")
-                if trigger_mode == "ifvg":
-                    trade_plan["ifvg_trigger"] = trigger.get("zone")
-                trade_plan["msb_level"] = float(trigger["level"])
-                if trigger.get("level_timestamp_ms") is not None:
-                    trade_plan["trigger_level_timestamp_ms"] = int(trigger["level_timestamp_ms"])
             trade_plan["structure_stop"] = stop_base
             trade_plan["trigger_atr"] = trigger_atr
             trade_plan["context_atr"] = context_atr
@@ -666,6 +701,22 @@ class KodTurtleSoupEvaluator:
             _apply_context_crt_to_trade_plan(trade_plan, raid)
             _apply_raid_lifecycle(trade_plan, raid)
             _apply_alignment_to_trade_plan(trade_plan, alignment)
+            framework_gate = _pdf_framework_gate(
+                objective.direction,
+                objective,
+                raid,
+                trigger,
+                trade_plan,
+                framework_context,
+                context_timeframe,
+                trigger_timeframe,
+                trigger_candles,
+                supportive_fvg=supportive_fvg,
+                supportive_ifvg=supportive_ifvg,
+            )
+            _apply_pdf_framework_to_trade_plan(trade_plan, framework_gate)
+            if framework_gate["blockers"]:
+                return None
             missed_reason = _missed_setup_reason(
                 objective.direction,
                 current.close,
@@ -746,15 +797,15 @@ class KodTurtleSoupEvaluator:
         close_side = "above" if objective.direction == "bullish" else "below"
         level_side = "low" if objective.direction == "bullish" else "high"
         return [
-            f"Summary: Context CRT happened. No entry yet; wait for {trigger_timeframe} MSB or iFVG confirmation.",
+            f"Summary: Candle 2 Turtle Soup happened. No entry yet; wait for {trigger_timeframe} Candle 3 Model #1 or MSS confirmation.",
             f"Side: {_direction_text(objective.direction)}",
             f"Profile: {profile_name} ({context_timeframe} context -> {trigger_timeframe} trigger)",
-            f"Why watch?: HTF direction is {_direction_word(objective.direction)} and price printed Context CRT on the important {context_timeframe} candle {level_side}.",
+            f"Why watch?: HTF direction is {_direction_word(objective.direction)} and price printed Turtle Soup on the important {context_timeframe} candle {level_side}.",
             *_htf_alignment_details(alignment),
-            f"Context CRT: {raid.candle_label} {level_side} {_fmt(raid.level)} was taken and reclaimed; sweep extreme {_fmt(raid.sweep_extreme)}.",
+            f"Candle 2 Turtle Soup: {raid.candle_label} {level_side} {_fmt(raid.level)} was taken and reclaimed; sweep extreme {_fmt(raid.sweep_extreme)}.",
             f"HTF target: {_liquidity_kind_text(objective.kind)} — {_fmt(objective.level)} ({objective.distance_atr:.2f} ATR away)",
-            f"Confirmation needed: closed {trigger_timeframe} MSB {close_side} structure OR {trigger_timeframe} iFVG reclaim.",
-            f"Freshness: confirmation must happen within {_freshness_bars_for_profile(profile_name, settings)} {trigger_timeframe} bars after Context CRT; current age {raid.bars_since_raid} bars.",
+            f"Confirmation needed: closed {trigger_timeframe} Candle 3 Model #1 or MSS {close_side} structure.",
+            f"Freshness: confirmation must happen within {_freshness_bars_for_profile(profile_name, settings)} {trigger_timeframe} bars after Turtle Soup; current age {raid.bars_since_raid} bars.",
             f"Volatility: {context_timeframe} ATR {_fmt(context_atr)} · {trigger_timeframe} ATR {_fmt(trigger_atr)}",
             *quality.lines,
         ]
@@ -783,8 +834,8 @@ class KodTurtleSoupEvaluator:
             f"Why watch?: {context_timeframe} has {_liquidity_kind_text(objective.kind)} at {_fmt(objective.level)}; {trigger_timeframe} must confirm with market structure.",
             *_htf_alignment_details(alignment),
             f"HTF target: {_liquidity_kind_text(objective.kind)} — {_fmt(objective.level)} ({objective.distance_atr:.2f} ATR away)",
-            f"MSB level: recent {trigger_timeframe} structure {side} {_fmt(float(forming['level']))}",
-            f"Confirmation needed: {trigger_timeframe} candle close {close_side} the MSB level",
+            f"MSS level: recent {trigger_timeframe} structure {side} {_fmt(float(forming['level']))}",
+            f"Confirmation needed: {trigger_timeframe} candle close {close_side} the MSS level",
             f"Current close: {_fmt(latest.close)} · {trigger_timeframe} ATR {_fmt(trigger_atr)} · {context_timeframe} ATR {_fmt(context_atr)}",
             *quality.lines,
         ]
@@ -819,20 +870,21 @@ class KodTurtleSoupEvaluator:
         side = "high" if objective.direction == "bullish" else "low"
         close_side = "above" if objective.direction == "bullish" else "below"
         trigger_mode = str(trigger.get("trigger_mode") or "msb")
-        trigger_text = "MSB" if trigger_mode == "msb" else str(trigger.get("label") or "iFVG")
+        trigger_text = "Model #1" if trigger_mode == "model1" else "MSS" if trigger_mode == "mss" else str(trigger.get("label") or trigger_mode)
         displacement = trigger.get("displacement") or {}
         target_notes = list(trade_plan.get("target_notes") or [])
         fvg_notes = _fvg_plan_details(trade_plan)
         details = [
-            f"Summary: Setup confirmed. {context_timeframe} Context CRT + {trigger_timeframe} {trigger_text} are aligned; the bot still does not place orders.",
+            f"Summary: Setup confirmed by {CRT_SOURCE_DOCUMENT}. {context_timeframe} Turtle Soup + {trigger_timeframe} Candle 3 {trigger_text} are aligned; the bot still does not place orders.",
             f"Side: {_direction_text(objective.direction)}",
             f"Profile: {profile_name} ({context_timeframe} context -> {trigger_timeframe} trigger)",
-            f"Why {_direction_text(objective.direction).split()[0]}?: HTF draw is {_liquidity_kind_text(objective.kind)} at {_fmt(objective.level)}; {trigger_timeframe} confirmed with {trigger_text}.",
+            f"Why {_direction_text(objective.direction).split()[0]}?: HTF narrative and key level point to {_liquidity_kind_text(objective.kind)} at {_fmt(objective.level)}; Candle 3 confirmed with {trigger_text}.",
             *_htf_alignment_details(alignment),
+            *_pdf_framework_detail_lines(trade_plan),
             *(
                 [
-                    f"Context CRT: {raid.candle_label} {'low' if objective.direction == 'bullish' else 'high'} {_fmt(raid.level)} was taken and reclaimed; sweep extreme {_fmt(raid.sweep_extreme)}.",
-                    f"Freshness: {trigger_text} came {raid.bars_since_raid} {trigger_timeframe} bars after Context CRT.",
+                    f"Candle 2 Turtle Soup: {raid.candle_label} {'low' if objective.direction == 'bullish' else 'high'} {_fmt(raid.level)} was taken and reclaimed; sweep extreme {_fmt(raid.sweep_extreme)}.",
+                    f"Freshness: {trigger_text} came {raid.bars_since_raid} {trigger_timeframe} bars after Turtle Soup.",
                 ]
                 if raid is not None
                 else []
@@ -847,8 +899,8 @@ class KodTurtleSoupEvaluator:
             ),
             f"HTF target: {_liquidity_kind_text(objective.kind)} — {_fmt(objective.level)} ({objective.distance_atr:.2f} ATR away)",
             f"Entry: {_fmt(entry)}",
-            f"Stop: {_fmt(stop)} — beyond the Context CRT extreme plus ATR buffer",
-            f"TP1: {_fmt(tp1)} (1R)",
+            f"Stop: {_fmt(stop)} — beyond the Turtle Soup extreme plus ATR buffer",
+            f"TP1: {_fmt(tp1)} ({trade_plan.get('tp1_reason', '1R')})",
             f"TP2: {_fmt(tp2)} — {trade_plan.get('tp2_reason', 'next internal target')}",
             f"Final target: {_fmt(objective.level)}",
             *target_notes,
@@ -1162,12 +1214,12 @@ def _diagnostic_check(label: str, status: str, detail: str) -> dict[str, str]:
 
 def _diagnostic_headline(directions: list[dict[str, Any]]) -> str:
     if not directions:
-        return "Waiting for a clean KOD setup."
+        return "Waiting for a clean CRT Secrets PDF setup."
     if any(item.get("status") == "block" for item in directions):
-        return "HTF bias is blocking at least one side."
+        return "CRT framework gate is blocking at least one side."
     if any(item.get("raid") for item in directions):
-        return "Context CRT is active; waiting for trigger confirmation."
-    return "HTF draw exists; waiting for Context CRT and trigger."
+        return "Candle 2 Turtle Soup is active; waiting for Candle 3 confirmation."
+    return "HTF narrative/key level exists; waiting for Turtle Soup and Candle 3."
 
 
 def _diagnostic_raid(raid: HtfRaid | None) -> dict[str, Any] | None:
@@ -1193,18 +1245,20 @@ def _diagnostic_gate(
     *,
     trigger_confirmed: bool = False,
     trigger_timeframe: str = "",
+    framework_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     blockers: list[str] = list(alignment.blockers)
     if not alignment.passed and not blockers:
         blockers.append("HTF bias is not aligned")
     if raid is None:
-        blockers.append("missing Context CRT")
+        blockers.append("Candle 2 Turtle Soup: missing")
     elif not trigger_confirmed:
         tf = trigger_timeframe or "trigger timeframe"
-        blockers.append(f"missing {tf} MSB/iFVG confirmation")
+        blockers.append(f"Candle 3 Model #1/MSS: missing {tf} confirmation")
     if settings["require_displacement_confirmation"] and not displacement.get("passed"):
         reason = "; ".join(str(item) for item in displacement.get("reasons") or []) or "weak displacement"
         blockers.append(f"weak displacement: {reason}")
+    blockers.extend(str(item) for item in (framework_gate or {}).get("blockers") or [])
     blockers.extend(_hard_quality_blockers(quality))
     minimum = settings["min_alert_grade_by_stage"].get(stage)
     if minimum and not grade_meets_minimum(quality.grade, minimum):
@@ -1225,6 +1279,269 @@ def _diagnostic_zone(zone: FvgZone | None) -> dict[str, Any] | None:
         "low": zone.low,
         "high": zone.high,
         "midpoint": zone.midpoint,
+    }
+
+
+def _pdf_framework_gate(
+    direction: str,
+    objective: LiquidityObjective,
+    raid: HtfRaid | None,
+    trigger: dict[str, Any] | None,
+    trade_plan: dict[str, Any],
+    framework_context: dict[str, Any] | None,
+    context_timeframe: str,
+    trigger_timeframe: str,
+    trigger_candles: list[Candle],
+    *,
+    supportive_fvg: FvgZone | None,
+    supportive_ifvg: FvgZone | None,
+) -> dict[str, Any]:
+    htf = _framework_htf_narrative(direction, framework_context)
+    key_level = _framework_key_level(objective, framework_context)
+    candle_1 = {
+        "status": "mapped",
+        "context_timeframe": context_timeframe,
+        "range_high": objective.level if direction == "bearish" else None,
+        "range_low": objective.level if direction == "bullish" else None,
+        "note": "CRT range/objective is mapped from the context liquidity objective.",
+    }
+    candle_2 = {
+        "status": "pass" if raid is not None else "block",
+        "type": "turtle_soup",
+        "level": raid.level if raid is not None else None,
+        "sweep_extreme": raid.sweep_extreme if raid is not None else None,
+        "timestamp_ms": raid.candle.timestamp_ms if raid is not None else None,
+        "label": raid.candle_label if raid is not None else "",
+    }
+    trigger_mode = str((trigger or {}).get("trigger_mode") or "")
+    candle_3 = {
+        "status": "pass" if trigger_mode in {"model1", "mss"} else "block",
+        "trigger_mode": trigger_mode,
+        "trigger_timeframe": trigger_timeframe,
+        "level": (trigger or {}).get("level"),
+        "entry": (trigger or {}).get("entry"),
+    }
+    fvg = _framework_fvg_confluence(direction, framework_context, supportive_fvg, supportive_ifvg)
+    smt = _framework_smt_status(direction, framework_context)
+    session_gate = _framework_session_gate(framework_context, trigger_candles[-1] if trigger_candles else None)
+    risk = _framework_risk_gate(trade_plan)
+    target_50 = (
+        _apply_target_50_to_plan(trade_plan)
+        if framework_context is not None
+        else {"level": trade_plan.get("tp1"), "detail": "Framework context not attached; legacy TP1 left unchanged."}
+    )
+    plan_b = _framework_plan_b(direction, trade_plan, objective, raid, trigger_timeframe)
+
+    blockers: list[str] = []
+    if framework_context is not None:
+        for label, item in (
+            ("HTF narrative", htf),
+            ("Key level", key_level),
+            ("Candle 2 Turtle Soup", candle_2),
+            ("Candle 3 Model #1/MSS", candle_3),
+            ("FVG", fvg),
+            ("Session", session_gate),
+            ("Risk", risk),
+        ):
+            if item.get("status") == "block":
+                blockers.append(f"{label}: {item.get('detail') or item.get('note') or 'missing'}")
+    if smt.get("status") == "block":
+        blockers.append(f"SMT: {smt.get('detail')}")
+
+    return {
+        "framework_version": CRT_FRAMEWORK_VERSION,
+        "source_document": CRT_SOURCE_DOCUMENT,
+        "source_sha256": CRT_SOURCE_SHA256,
+        "status": "blocked" if blockers else "passed",
+        "blockers": blockers,
+        "htf_narrative": htf,
+        "key_level": key_level,
+        "crt_phase": "candle_3" if candle_3["status"] == "pass" else "waiting_for_candle_3",
+        "candle_1": candle_1,
+        "candle_2": candle_2,
+        "candle_3": candle_3,
+        "model1_trigger": _model1_plan(trigger) if trigger_mode == "model1" and trigger is not None else {},
+        "mss_trigger": _mss_plan(trigger) if trigger_mode == "mss" and trigger is not None else {},
+        "fvg_confluence": fvg,
+        "smt_status": smt,
+        "session_gate": session_gate,
+        "target_50": target_50,
+        "plan_b": plan_b,
+    }
+
+
+def _apply_pdf_framework_to_trade_plan(trade_plan: dict[str, Any], framework_gate: dict[str, Any]) -> None:
+    for key in (
+        "framework_version",
+        "source_document",
+        "htf_narrative",
+        "key_level",
+        "crt_phase",
+        "candle_1",
+        "candle_2",
+        "candle_3",
+        "model1_trigger",
+        "mss_trigger",
+        "fvg_confluence",
+        "smt_status",
+        "session_gate",
+        "target_50",
+        "plan_b",
+    ):
+        trade_plan[key] = framework_gate.get(key)
+    trade_plan["framework_source_sha256"] = framework_gate.get("source_sha256")
+    if framework_gate.get("blockers"):
+        _apply_gate_to_trade_plan(trade_plan, list(framework_gate["blockers"]))
+
+
+def _framework_htf_narrative(direction: str, framework_context: dict[str, Any] | None) -> dict[str, Any]:
+    if framework_context is None:
+        return {"status": "pass", "direction": direction, "detail": "Framework context not attached in this evaluator call."}
+    biases = {tf: _framework_bias(framework_context, tf) for tf in ("1M", "1w", "1d", "4h")}
+    available = {tf: bias for tf, bias in biases.items() if bias in {"bullish", "bearish", "neutral"}}
+    if len(available) < 3 or "1w" not in available or "4h" not in available:
+        return {"status": "block", "direction": direction, "biases": biases, "detail": "missing HTF narrative"}
+    opposing = {tf: bias for tf, bias in available.items() if bias == _opposite_direction(direction)}
+    aligned = {tf: bias for tf, bias in available.items() if bias == direction}
+    if opposing:
+        return {"status": "block", "direction": direction, "biases": biases, "detail": f"opposing HTF bias {opposing}"}
+    if not aligned:
+        return {"status": "block", "direction": direction, "biases": biases, "detail": "no aligned HTF bias"}
+    return {"status": "pass", "direction": direction, "biases": biases, "detail": "monthly/weekly/daily/4H narrative allows this side"}
+
+
+def _framework_bias(framework_context: dict[str, Any], timeframe: str) -> str:
+    timeframes = framework_context.get("timeframes") if isinstance(framework_context, dict) else {}
+    if isinstance(timeframes, dict):
+        item = timeframes.get(timeframe) or timeframes.get(timeframe.lower())
+        if isinstance(item, dict) and item.get("bias"):
+            return str(item["bias"]).lower()
+    aliases = {
+        "1M": ("monthly_bias", "month_bias"),
+        "1w": ("weekly_bias",),
+        "1d": ("daily_bias",),
+        "4h": ("4h_bias", "h4_bias"),
+    }
+    for key in aliases.get(timeframe, ()):
+        if framework_context.get(key):
+            value = str(framework_context[key]).lower()
+            if "bull" in value:
+                return "bullish"
+            if "bear" in value:
+                return "bearish"
+            if "neutral" in value:
+                return "neutral"
+    return "unavailable"
+
+
+def _framework_key_level(objective: LiquidityObjective, framework_context: dict[str, Any] | None) -> dict[str, Any]:
+    level = objective.level
+    kind = objective.kind
+    if framework_context is None:
+        return {"status": "pass", "level": level, "kind": kind, "detail": "Context liquidity objective mapped."}
+    if "swing" in kind or "equal" in kind:
+        return {"status": "pass", "level": level, "kind": kind, "detail": "old/equal high-low key level"}
+    for pool in framework_context.get("liquidity_map") or framework_context.get("liquidity_ranking") or []:
+        if not isinstance(pool, dict) or pool.get("level") is None:
+            continue
+        try:
+            if abs(float(pool["level"]) - float(level)) <= max(abs(float(level)) * 0.001, 1e-9):
+                return {"status": "pass", "level": level, "kind": pool.get("source") or kind, "detail": "framework liquidity pool"}
+        except (TypeError, ValueError):
+            continue
+    return {"status": "block", "level": level, "kind": kind, "detail": "missing key level"}
+
+
+def _framework_fvg_confluence(
+    direction: str,
+    framework_context: dict[str, Any] | None,
+    supportive_fvg: FvgZone | None,
+    supportive_ifvg: FvgZone | None,
+) -> dict[str, Any]:
+    zone = supportive_fvg or supportive_ifvg
+    if zone is not None:
+        return {"status": "pass", "zone": _zone_plan(zone), "detail": f"{zone.kind} supports {direction}"}
+    if framework_context is None:
+        return {"status": "pass", "zone": None, "detail": "Framework FVG context not attached in this evaluator call."}
+    for item in framework_context.get("fvg") or []:
+        if isinstance(item, dict) and str(item.get("direction", "")).lower() == direction:
+            return {"status": "pass", "zone": item, "detail": "framework FVG supports direction"}
+    return {"status": "block", "zone": None, "detail": "missing same-direction FVG confluence"}
+
+
+def _framework_smt_status(direction: str, framework_context: dict[str, Any] | None) -> dict[str, Any]:
+    if framework_context is None:
+        return {"status": "pass", "state": "unavailable", "detail": "SMT context not attached."}
+    raw = framework_context.get("smt_status", framework_context.get("smt_signal", "unavailable"))
+    if isinstance(raw, dict):
+        state = str(raw.get("status") or raw.get("state") or "").lower()
+        smt_direction = str(raw.get("direction") or "").lower()
+        detail = str(raw.get("detail") or raw)
+    else:
+        state = str(raw).lower()
+        smt_direction = "bullish" if "bull" in state else "bearish" if "bear" in state else ""
+        detail = str(raw)
+    if "unavailable" in state or "no intermarket" in state or not state:
+        return {"status": "pass", "state": "unavailable", "detail": "SMT unavailable"}
+    if smt_direction and smt_direction != direction:
+        return {"status": "block", "state": state, "direction": smt_direction, "detail": "opposing SMT"}
+    return {"status": "pass", "state": state, "direction": smt_direction or direction, "detail": detail}
+
+
+def _framework_session_gate(framework_context: dict[str, Any] | None, candle: Candle | None) -> dict[str, Any]:
+    if framework_context is None:
+        return {"status": "pass", "session": "", "killzone": "", "detail": "Framework session context not attached in this evaluator call."}
+    explicit = framework_context.get("session_gate")
+    if isinstance(explicit, dict):
+        status = str(explicit.get("status") or "").lower()
+        if status in {"pass", "block"}:
+            return {**explicit, "status": status}
+    killzone = str(framework_context.get("killzone") or framework_context.get("current_killzone") or "")
+    session = str(framework_context.get("session") or framework_context.get("current_session") or "")
+    if not killzone and candle is not None:
+        killzone = _session_name(candle.timestamp_ms)
+    text = f"{session} {killzone}".lower()
+    if "london" in text or "new york" in text or "ny " in text:
+        return {"status": "pass", "session": session, "killzone": killzone, "detail": "London/New York session"}
+    return {"status": "block", "session": session, "killzone": killzone, "detail": "outside London/New York killzone"}
+
+
+def _framework_risk_gate(trade_plan: dict[str, Any]) -> dict[str, Any]:
+    if trade_plan.get("target_blocker"):
+        return {"status": "block", "detail": str(trade_plan["target_blocker"])}
+    if trade_plan.get("entry") is None or trade_plan.get("stop") is None or trade_plan.get("final_target") is None:
+        return {"status": "block", "detail": "entry, stop or final target missing"}
+    return {"status": "pass", "detail": "stop and target map present"}
+
+
+def _apply_target_50_to_plan(trade_plan: dict[str, Any]) -> dict[str, Any]:
+    entry = _float_or_none(trade_plan.get("entry"))
+    stop = _float_or_none(trade_plan.get("stop"))
+    final_target = _float_or_none(trade_plan.get("final_target"))
+    if entry is None or final_target is None:
+        return {"level": None, "detail": "target unavailable"}
+    target_50 = (entry + final_target) / 2
+    trade_plan["target_50"] = target_50
+    trade_plan["tp1"] = target_50
+    trade_plan["tp1_reason"] = "50% mission target between entry and final CRT objective"
+    trade_plan["rr_tp1"] = _rr_ratio(entry, stop, target_50) if stop is not None else None
+    return {"level": target_50, "detail": "50% mission target"}
+
+
+def _framework_plan_b(
+    direction: str,
+    trade_plan: dict[str, Any],
+    objective: LiquidityObjective,
+    raid: HtfRaid | None,
+    trigger_timeframe: str,
+) -> dict[str, Any]:
+    invalidation = trade_plan.get("stop")
+    raid_level = raid.level if raid is not None else trade_plan.get("reference_level")
+    opposite = _opposite_direction(direction)
+    return {
+        "primary": f"{direction} Candle 3 continues toward CRT objective {_fmt(objective.level)}.",
+        "alternate": f"If price invalidates through {_fmt(float(invalidation)) if invalidation is not None else 'stop'}, stand down and reassess {opposite}.",
+        "stand_down": f"Lose the turtle soup reclaim level {_fmt(float(raid_level)) if raid_level is not None else 'n/a'} or fail to hold {trigger_timeframe} structure.",
     }
 
 
@@ -1541,6 +1858,71 @@ def _find_htf_raid(
     return None
 
 
+def _model1_signal(
+    candles: list[Candle],
+    direction: str,
+    raid_index: int,
+    trigger_atr: float,
+    settings: dict[str, Any],
+) -> dict[str, Any] | None:
+    if len(candles) < max(settings["lookback"] + 1, 3):
+        return None
+    if len(candles) - 1 - raid_index > settings["htf_raid_confirmation_bars"]:
+        return None
+
+    current_ref = _reference_level(candles, direction, settings["lookback"], 0)
+    if current_ref is None or current_ref.age < settings["min_level_age"]:
+        return None
+    current = candles[-1]
+    displacement = _displacement_result(current, direction, trigger_atr, settings)
+    if settings["require_displacement_confirmation"] and not displacement["passed"]:
+        return None
+
+    if direction == "bullish":
+        swept = current.low < current_ref.level
+        reclaimed = current.close > current_ref.level
+        if not (swept and reclaimed):
+            return None
+        sweep_extreme = current.low
+    else:
+        swept = current.high > current_ref.level
+        reclaimed = current.close < current_ref.level
+        if not (swept and reclaimed):
+            return None
+        sweep_extreme = current.high
+
+    return {
+        "trigger_mode": "model1",
+        "label": "Model #1",
+        "level": current_ref.level,
+        "level_timestamp_ms": candles[len(candles) - 1 - current_ref.age].timestamp_ms,
+        "entry": current.close,
+        "stop_base": sweep_extreme,
+        "sweep_extreme": sweep_extreme,
+        "reference": current_ref,
+        "displacement": displacement,
+    }
+
+
+def _model1_plan(trigger: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "level": trigger.get("level"),
+        "entry": trigger.get("entry"),
+        "sweep_extreme": trigger.get("sweep_extreme") or trigger.get("stop_base"),
+        "timestamp_ms": trigger.get("level_timestamp_ms"),
+        "label": trigger.get("label") or "Model #1",
+    }
+
+
+def _mss_plan(trigger: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "level": trigger.get("level"),
+        "entry": trigger.get("entry"),
+        "timestamp_ms": trigger.get("level_timestamp_ms"),
+        "label": trigger.get("label") or "MSS",
+    }
+
+
 def _important_context_candles(
     candles: list[Candle],
     direction: str,
@@ -1725,7 +2107,8 @@ def _msb_signal(candles: list[Candle], direction: str, trigger_atr: float, setti
     if stop_base is None:
         return None
     return {
-        "trigger_mode": "msb",
+        "trigger_mode": "mss",
+        "label": "MSS",
         "level": structure_level,
         "level_index": structure_index,
         "level_timestamp_ms": candles[structure_index].timestamp_ms,
@@ -2484,6 +2867,30 @@ def _institutional_detail_lines(trade_plan: dict[str, Any]) -> list[str]:
             )
     for note in trade_plan.get("data_limitations") or []:
         lines.append(f"Data note: {note}")
+    return lines
+
+
+def _pdf_framework_detail_lines(trade_plan: dict[str, Any]) -> list[str]:
+    if trade_plan.get("framework_version") != CRT_FRAMEWORK_VERSION:
+        return []
+    lines = [f"Framework: {CRT_FRAMEWORK_VERSION} from {CRT_SOURCE_DOCUMENT}."]
+    htf = trade_plan.get("htf_narrative")
+    if isinstance(htf, dict):
+        lines.append(f"HTF narrative: {htf.get('status')} - {htf.get('detail')}")
+    key_level = trade_plan.get("key_level")
+    if isinstance(key_level, dict):
+        level = key_level.get("level")
+        level_text = _fmt(float(level)) if level is not None else "n/a"
+        lines.append(f"Key level: {key_level.get('status')} - {level_text} ({key_level.get('kind')}).")
+    fvg = trade_plan.get("fvg_confluence")
+    if isinstance(fvg, dict):
+        lines.append(f"FVG confluence: {fvg.get('status')} - {fvg.get('detail')}")
+    smt = trade_plan.get("smt_status")
+    if isinstance(smt, dict):
+        lines.append(f"SMT: {smt.get('status')} - {smt.get('detail')}")
+    session_gate = trade_plan.get("session_gate")
+    if isinstance(session_gate, dict):
+        lines.append(f"Session: {session_gate.get('status')} - {session_gate.get('detail')}")
     return lines
 
 
