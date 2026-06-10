@@ -101,6 +101,7 @@ def build_chart_svg(
     decision_label: str = "",
     decision_subtitle: str = "",
     checklist: list[dict[str, Any]] | None = None,
+    model_statuses: list[dict[str, Any]] | None = None,
     framework: dict[str, Any] | None = None,
     minimal: bool = False,
 ) -> str:
@@ -118,6 +119,7 @@ def build_chart_svg(
 
     levels = levels or {}
     framework = framework or {}
+    model_statuses = _normalise_model_statuses(model_statuses)
     entry = None if is_context else _to_float(levels.get("entry"))
     stop = None if is_context else _to_float(levels.get("stop"))
     tp1 = None if is_context else _to_float(levels.get("tp1"))
@@ -272,6 +274,7 @@ def build_chart_svg(
         _draw_volume(body, visible, x_at, candle_w, pad_t, plot_h)
         _draw_candles(body, visible, x_at, y_at, candle_w, signal_index)
         _draw_current_price(body, y_at, width, pad_l, pad_r, float(last["c"]))
+        _draw_model_status_panel(body, model_statuses, pad_l=pad_l, pad_t=pad_t, width=width, pad_r=pad_r)
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
             f'viewBox="0 0 {width} {height}" shape-rendering="geometricPrecision" '
@@ -457,6 +460,7 @@ def build_chart_svg(
         width=width,
         pad_r=pad_r,
     )
+    _draw_model_status_panel(body, model_statuses, pad_l=pad_l, pad_t=pad_t, width=width, pad_r=pad_r)
     if is_context:
         _draw_context_annotation(
             body,
@@ -2054,6 +2058,97 @@ def _draw_context_annotation(
     note = _short_context_text(wait_text, direction, stage)
     if note:
         _draw_callout(body, x, pad_t + 60, note, "#0f172a", "#ffffff")
+
+
+def _normalise_model_statuses(model_statuses: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for item in model_statuses or []:
+        if not isinstance(item, dict):
+            continue
+        name = " ".join(str(item.get("name") or "").split())
+        if not name:
+            continue
+        items.append(
+            {
+                "name": name,
+                "status": " ".join(str(item.get("status") or "waiting").split()).lower(),
+                "detail": " ".join(str(item.get("detail") or "").split()),
+                "trigger": " ".join(str(item.get("trigger") or item.get("timeframe") or "").split()),
+            }
+        )
+    return items[:6]
+
+
+def _draw_model_status_panel(
+    body: list[str],
+    model_statuses: list[dict[str, str]],
+    *,
+    pad_l: float,
+    pad_t: float,
+    width: int,
+    pad_r: float,
+) -> None:
+    if not model_statuses:
+        return
+    panel_w = 392
+    row_h = 25
+    panel_h = 40 + row_h * len(model_statuses)
+    panel_x = max(pad_l + 12, width - pad_r - panel_w - 14)
+    panel_y = pad_t + 12
+    body.append(
+        f'<rect x="{panel_x:.2f}" y="{panel_y:.2f}" width="{panel_w}" height="{panel_h}" rx="9" '
+        f'fill="#090d12" opacity="0.88"/>'
+        f'<rect x="{panel_x:.2f}" y="{panel_y:.2f}" width="{panel_w}" height="32" rx="9" '
+        f'fill="#111827" opacity="0.92"/>'
+        f'<text x="{panel_x + 14:.2f}" y="{panel_y + 21:.2f}" fill="#f8fafc" '
+        f'font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="950">MODELS / WHAT IS NEEDED</text>'
+    )
+    for index, item in enumerate(model_statuses):
+        status = item["status"]
+        label, color = _model_status_label(status)
+        y = panel_y + 51 + index * row_h
+        detail = _short_model_detail(item["detail"])
+        trigger = item["trigger"]
+        name = _truncate(item["name"], 19)
+        if trigger:
+            name = _truncate(f"{name} · {trigger}", 24)
+        body.append(
+            f'<text x="{panel_x + 14:.2f}" y="{y:.2f}" fill="#f8fafc" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="11" font-weight="900">{html.escape(name)}</text>'
+            f'<rect x="{panel_x + 132:.2f}" y="{y - 15:.2f}" width="54" height="19" rx="10" '
+            f'fill="{color}" opacity="0.95"/>'
+            f'<text x="{panel_x + 159:.2f}" y="{y - 2:.2f}" fill="#ffffff" text-anchor="middle" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="9" font-weight="950">{label}</text>'
+            f'<text x="{panel_x + 197:.2f}" y="{y:.2f}" fill="#cbd5e1" '
+            f'font-family="Inter,system-ui,sans-serif" font-size="10" font-weight="750">{html.escape(detail)}</text>'
+        )
+
+
+def _model_status_label(status: str) -> tuple[str, str]:
+    if status == "ready":
+        return "TRADE", "#16a34a"
+    if status == "armed":
+        return "CLOSE", "#d97706"
+    if status in {"blocked", "block", "fail"}:
+        return "NO", "#dc2626"
+    if status == "unavailable":
+        return "N/A", "#475569"
+    return "WAIT", "#64748b"
+
+
+def _short_model_detail(text: str) -> str:
+    clean = text
+    for prefix in ("LONG:", "SHORT:", "NO SIDE:"):
+        if clean.upper().startswith(prefix):
+            clean = clean[len(prefix):].strip()
+            break
+    return _truncate(clean or "Waiting for clean sequence.", 42)
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "..."
 
 
 def _draw_decision_panel(

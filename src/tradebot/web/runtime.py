@@ -489,6 +489,7 @@ class BotController:
             decision_label=str(annotations.get("decision_label") or ""),
             decision_subtitle=str(annotations.get("decision_subtitle") or ""),
             checklist=annotations.get("checklist") or None,
+            model_statuses=annotations.get("model_statuses") or None,
             framework=self._framework_summary(self._cached_analysis(symbol)),
             minimal=bool(annotations.get("minimal")),
         )
@@ -1329,6 +1330,7 @@ def _desk_post(
         wait_text=wait_text,
         setup_label=f"{symbol} {profile_name}: {side or 'neutral'} scenario",
         decision=decision,
+        model_statuses=setup_candidates,
     )
     context_chart_url = _desk_chart_url(
         symbol,
@@ -1343,6 +1345,7 @@ def _desk_post(
         wait_text=f"HTF map: narrative + key level + Turtle Soup. Confirm on {trigger_tf} Model #1/MSS.",
         setup_label=f"{symbol} HTF context",
         decision=decision,
+        model_statuses=setup_candidates,
     )
     timeframe_charts = _desk_timeframe_charts(
         symbol,
@@ -1358,6 +1361,7 @@ def _desk_post(
         fvg_zone=direction.get("fvg"),
         ifvg_zone=direction.get("ifvg"),
         active_setup=active_setup,
+        setup_candidates=setup_candidates,
         wait_text=wait_text,
     )
     scenarios = _desk_scenarios(side, objective, msb_level, raid, trigger_tf, latest_close)
@@ -1585,9 +1589,11 @@ def _desk_timeframe_charts(
     fvg_zone: Any = None,
     ifvg_zone: Any = None,
     active_setup: dict[str, Any] | None = None,
+    setup_candidates: list[dict[str, Any]] | None = None,
     wait_text: str = "",
 ) -> list[dict[str, Any]]:
     active_setup = active_setup or {}
+    setup_candidates = setup_candidates or []
     frames = [
         ("1M", "Monthly"),
         ("1w", "Weekly"),
@@ -1623,6 +1629,7 @@ def _desk_timeframe_charts(
                     wait_text=wait_text,
                     setup_label=f"{symbol} {label}: {active_setup.get('name') or 'CRT map'}",
                     decision=decision,
+                    model_statuses=setup_candidates,
                     limit=_desk_chart_limit(timeframe),
                 ),
             }
@@ -1976,6 +1983,7 @@ def _desk_chart_url(
     wait_text: str = "",
     setup_label: str = "",
     decision: dict[str, Any] | None = None,
+    model_statuses: list[dict[str, Any]] | None = None,
     limit: int = 140,
 ) -> str:
     decision = decision or {}
@@ -2009,6 +2017,7 @@ def _desk_chart_url(
     _add_zone_query_params(params, "fvg_zone", fvg_zone)
     _add_zone_query_params(params, "ifvg_zone", ifvg_zone)
     _add_zone_query_params(params, "opposing_zone", opposing_zone)
+    _add_model_query_params(params, model_statuses)
     return f"/api/chart/png?{urlencode(params)}"
 
 
@@ -2045,6 +2054,23 @@ def _add_zone_query_params(params: dict[str, Any], prefix: str, zone: Any) -> No
     params[f"{prefix}_high"] = high
     params[f"{prefix}_kind"] = zone.get("kind") or ""
     params[f"{prefix}_direction"] = zone.get("direction") or ""
+
+
+def _add_model_query_params(params: dict[str, Any], model_statuses: list[dict[str, Any]] | None) -> None:
+    if not model_statuses:
+        return
+    rank = {"ready": 5, "armed": 4, "waiting": 3, "blocked": 2, "unavailable": 1}
+    visible = sorted(
+        model_statuses,
+        key=lambda item: (rank.get(str(item.get("status") or ""), 0), bool(item.get("trade"))),
+        reverse=True,
+    )[:6]
+    for index, item in enumerate(visible):
+        prefix = f"model_{index}"
+        params[f"{prefix}_name"] = str(item.get("name") or "Model")[:42]
+        params[f"{prefix}_status"] = str(item.get("status") or "waiting")[:16]
+        params[f"{prefix}_trigger"] = str(item.get("trigger") or item.get("timeframe") or "")[:16]
+        params[f"{prefix}_detail"] = str(item.get("detail") or "")[:118]
 
 
 def _price_text(value: Any) -> str:

@@ -136,6 +136,7 @@ def create_app(controller: BotController) -> Flask:
             "decision_label": request.args.get("decision_label", ""),
             "decision_subtitle": request.args.get("decision_subtitle", ""),
             "checklist": _checklist_args(),
+            "model_statuses": _model_status_args(),
             "minimal": request.args.get("minimal") in {"1", "true", "yes"},
         }
         svg = controller.chart_png(
@@ -342,6 +343,23 @@ def _checklist_args() -> list[dict[str, str]]:
         if not status:
             continue
         items.append({"key": key, "label": label, "status": status})
+    return items
+
+
+def _model_status_args() -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for index in range(8):
+        name = request.args.get(f"model_{index}_name", "")
+        if not name:
+            continue
+        items.append(
+            {
+                "name": name,
+                "status": request.args.get(f"model_{index}_status", ""),
+                "detail": request.args.get(f"model_{index}_detail", ""),
+                "trigger": request.args.get(f"model_{index}_trigger", ""),
+            }
+        )
     return items
 
 

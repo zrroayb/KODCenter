@@ -394,6 +394,31 @@ def test_minimal_desk_chart_has_no_label_clutter():
     assert THEME["bull"] in svg or THEME["bear"] in svg
 
 
+def test_minimal_desk_chart_draws_model_status_overlay():
+    candles = [
+        {"t": i * 900_000, "o": 100, "h": 102, "l": 99, "c": 101, "v": 100 + i}
+        for i in range(30)
+    ]
+    svg = build_chart_svg(
+        candles,
+        direction="bullish",
+        role="trigger",
+        minimal=True,
+        model_statuses=[
+            {"name": "Model #1", "status": "armed", "trigger": "15m", "detail": "LONG: wait Candle 3 close."},
+            {"name": "MSS Entry", "status": "waiting", "trigger": "15m", "detail": "Wait clean structure shift."},
+            {"name": "SMT + KOD", "status": "unavailable", "trigger": "pair feed", "detail": "SMT feed is not connected."},
+        ],
+        title="BTC/USDT · 15m",
+    )
+
+    assert "MODELS / WHAT IS NEEDED" in svg
+    assert "Model #1" in svg
+    assert "CLOSE" in svg
+    assert "wait Candle 3 close" in svg
+    assert "SMT + KOD" in svg
+
+
 def test_build_chart_svg_empty_message():
     svg = build_chart_svg([], message="Baglanti hatasi")
     assert "Baglanti hatasi" in svg

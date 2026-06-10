@@ -149,6 +149,10 @@ def test_desk_chart_url_carries_structure_and_fvg_annotations():
         msb_level=108,
         msb_at_ms=1_699_990_000_000,
         fvg_zone={"low": 101, "high": 103, "kind": "fvg", "direction": "bullish"},
+        model_statuses=[
+            {"name": "Model #1", "status": "armed", "trigger": "15m", "detail": "Wait Candle 3 close."},
+            {"name": "MSS Entry", "status": "waiting", "trigger": "15m", "detail": "Wait structure shift."},
+        ],
     )
 
     query = parse_qs(urlparse(url).query)
@@ -158,6 +162,9 @@ def test_desk_chart_url_carries_structure_and_fvg_annotations():
     assert query["fvg_zone_low"] == ["101"]
     assert query["fvg_zone_high"] == ["103"]
     assert query["fvg_zone_direction"] == ["bullish"]
+    assert query["model_0_name"] == ["Model #1"]
+    assert query["model_0_status"] == ["armed"]
+    assert query["model_1_name"] == ["MSS Entry"]
 
 
 def test_desk_setup_candidates_promote_matching_pdf_model():
@@ -217,6 +224,9 @@ def test_desk_timeframe_charts_include_full_mtf_stack():
         sweep_extreme=98,
         msb_level=110,
         active_setup={"name": "Model #1"},
+        setup_candidates=[
+            {"name": "Model #1", "status": "armed", "trigger": "15m", "detail": "Wait Candle 3 close."},
+        ],
     )
 
     assert [item["timeframe"] for item in charts] == ["1M", "1w", "1d", "4h", "1h", "15m"]
@@ -224,6 +234,7 @@ def test_desk_timeframe_charts_include_full_mtf_stack():
     trigger_query = parse_qs(urlparse(charts[-1]["url"]).query)
     assert trigger_query["timeframe"] == ["15m"]
     assert trigger_query["trigger_mode"] == ["model1_or_mss"]
+    assert trigger_query["model_0_name"] == ["Model #1"]
 
 
 def test_desk_pdf_framework_checklist_blocks_priority_until_full_gate_passes():
@@ -516,12 +527,15 @@ def test_web_chart_png_endpoint(tmp_path: Path, monkeypatch):
 
     response = client.get(
         "/api/chart/png?symbol=BTC/USDT&timeframe=15m&at=1700000000000&direction=bearish&entry=100&stop=105"
+        "&model_0_name=Model%20%231&model_0_status=armed&model_0_trigger=15m&model_0_detail=Wait%20Candle%203"
     )
 
     assert response.status_code == 200
     assert response.mimetype == "image/svg+xml"
     assert b"<svg" in response.data
     assert b"BTC/USDT" in response.data
+    assert b"MODELS / WHAT IS NEEDED" in response.data
+    assert b"Model #1" in response.data
 
 
 def test_web_chart_png_snapshot_stops_at_signal_candle(tmp_path: Path, monkeypatch):
