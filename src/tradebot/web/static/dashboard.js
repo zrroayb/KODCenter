@@ -1942,6 +1942,38 @@ function normalizeBias(value) {
   return text || "neutral";
 }
 
+function directionSide(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("bull") || text === "long") return "bullish";
+  if (text.includes("bear") || text === "short") return "bearish";
+  return "";
+}
+
+function frameworkBiasSide(fw) {
+  const macro = directionSide(fw?.macro_bias);
+  if (macro) return macro;
+  const frames = ["monthly_bias", "weekly_bias", "daily_bias", "h4_bias"];
+  const votes = frames.map((key) => directionSide(fw?.[key])).filter(Boolean);
+  const bullish = votes.filter((side) => side === "bullish").length;
+  const bearish = votes.filter((side) => side === "bearish").length;
+  if (bullish >= 3 && bullish > bearish) return "bullish";
+  if (bearish >= 3 && bearish > bullish) return "bearish";
+  return "";
+}
+
+function isCounterBiasAlert(alert) {
+  const fwSide = frameworkBiasSide(alert?.framework || {});
+  const alertSide = directionSide(alert?.direction);
+  return Boolean(fwSide && alertSide && fwSide !== alertSide);
+}
+
+function biasConflictText(alert) {
+  const fw = alert?.framework || {};
+  const bias = fw.macro_bias || titleCase(frameworkBiasSide(fw) || "HTF bias");
+  const side = directionLabel(alert?.direction).toLowerCase();
+  return `${bias} blocks ${side}. Wait for bias flip.`;
+}
+
 function biasClass(value) {
   const bias = normalizeBias(value);
   if (bias.includes("bullish")) return "bullish";
@@ -2025,6 +2057,11 @@ function marketBiasBarHtml(post) {
 
 function normalizeTradeDecision(post) {
   const fw = post?.framework || {};
+  const fwSide = frameworkBiasSide(fw);
+  const postSide = directionSide(post?.bias);
+  if (fwSide && postSide && fwSide !== postSide) {
+    return { type: "no-trade", label: "NO TRADE", subtitle: shortTacticalText(`${fw.macro_bias || titleCase(fwSide)} blocks ${directionLabel(post?.bias).toLowerCase()}`) };
+  }
   const raw = String(fw.decision || post?.decision?.label || post?.status || "WAIT").toUpperCase();
   const subtitle = post?.decision?.subtitle || post?.what_now || "";
   if (raw.includes("NO TRADE") || post?.status === "blocked") {
@@ -2265,6 +2302,7 @@ function setupBreakdownHtml(post) {
 }
 
 function alertPreviewLine(alert) {
+  if (isCounterBiasAlert(alert)) return biasConflictText(alert);
   const details = normalizeDetailLines(alert?.details || [], alert || {});
   const setup = details.find((l) => String(l).startsWith("Setup:") || String(l).startsWith("Setup notu:"));
   if (alert?.stage === "forming") {
@@ -2315,6 +2353,7 @@ function nextScanLabel(status) {
 }
 
 function alertActionText(alert, gradeInfo) {
+  if (isCounterBiasAlert(alert)) return "Bias conflict";
   const stage = alert?.stage || "forming";
   if (stage === "confirmed") return "Plan active";
   if (stage === "invalidated") return "Dead setup";
@@ -2333,6 +2372,7 @@ function riskLabel(alert) {
 }
 
 function actionClass(gradeInfo, stage) {
+  if (gradeInfo?.counterBias) return "action-dead";
   if (stage === "confirmed") return "action-confirmed";
   if (stage === "invalidated") return "action-dead";
   const grade = gradeInfo?.grade || "";
@@ -2492,14 +2532,18 @@ function renderDesk(payload) {
     state.deskSymbol = focusPost?.symbol || symbols[0] || "";
   }
   renderDeskMarkets(posts, symbols);
-  const visiblePosts = state.deskSymbol
+  const symbolPosts = state.deskSymbol
     ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
     : sortedDeskPosts(posts);
+  const visiblePosts = symbolPosts.slice(0, 1);
   if (els.deskSummary) {
     const cacheAge = Math.round(Number(payload.cache_age_seconds || 0));
     const cacheText = payload.cached ? ` · cache ${cacheAge}s` : "";
+    const primary = visiblePosts[0] || {};
+    const setup = primary.active_setup_model?.name || primary.profile || "No clean setup";
     const marketText = state.deskSymbol ? `${marketDisplay(state.deskSymbol)} · ` : "";
-    els.deskSummary.textContent = `${marketText}${visiblePosts.length} profiles · ${fmtTime(payload.generated_at)}${cacheText}`;
+    const extra = symbolPosts.length > 1 ? ` · ${symbolPosts.length - 1} quiet` : "";
+    els.deskSummary.textContent = `${marketText}${setup}${extra} · ${fmtTime(payload.generated_at)}${cacheText}`;
   }
   if (els.deskEmpty) els.deskEmpty.classList.toggle("hidden", visiblePosts.length > 0);
   els.deskFeed.innerHTML = visiblePosts.length
@@ -2523,9 +2567,18 @@ function setupRadarHtml(post) {
   const candidates = post?.setup_candidates || [];
   const activeKey = post?.active_setup_model?.key || "";
   if (!candidates.length) return "";
+  const rank = { ready: 5, armed: 4, waiting: 3, blocked: 2, unavailable: 1 };
+  const visible = [...candidates]
+    .filter((item) => item.status !== "unavailable")
+    .sort((a, b) => {
+      const activeDiff = Number(b.key === activeKey) - Number(a.key === activeKey);
+      if (activeDiff) return activeDiff;
+      return (rank[b.status] || 0) - (rank[a.status] || 0);
+    })
+    .slice(0, 3);
   return `
     <div class="setup-radar" aria-label="CRT setup radar">
-      ${candidates.map((item) => {
+      ${visible.map((item) => {
         const status = item.status || "waiting";
         const active = item.key && item.key === activeKey ? "active" : "";
         return `
@@ -2800,6 +2853,7 @@ function freshnessLabel(alert) {
 }
 
 function compactTriggerText(alert) {
+  if (isCounterBiasAlert(alert)) return "Counter-bias blocked";
   const { trigger } = resolveAlertTimeframes(alert || {});
   const mode = String(alert?.trade_plan?.trigger_mode || "").toLowerCase();
   if ((alert?.stage || "") === "confirmed") {
@@ -2812,6 +2866,7 @@ function compactTriggerText(alert) {
 }
 
 function biasChipText(alert) {
+  if (isCounterBiasAlert(alert)) return "Bias conflict";
   const plan = alert?.trade_plan || {};
   if (plan.htf_bias === "bullish") return "HTF bullish";
   if (plan.htf_bias === "bearish") return "HTF bearish";
@@ -2819,6 +2874,7 @@ function biasChipText(alert) {
 }
 
 function tradeCardStateLabel(alert) {
+  if (isCounterBiasAlert(alert)) return "No Trade";
   const stage = alert?.stage || "forming";
   if (stage === "confirmed") return "Active Plan";
   if (stage === "invalidated") return "Invalidated";
@@ -2905,16 +2961,20 @@ function renderBlotterRow(alert) {
   const preview = alertPreviewLine(alert);
   const stage = alert.stage || "forming";
   const gradeInfo = setupGradeFromAlert(alert);
+  const counterBias = isCounterBiasAlert(alert);
+  const actionInfo = counterBias ? { ...(gradeInfo || {}), counterBias: true } : gradeInfo;
   const fw = alert.framework;
   const gradeCell = fw
     ? frameworkGradeBadge(fw)
     : gradeInfo?.grade
     ? `<span class="grade-badge ${gradeClass(gradeInfo.grade)}" title="${escapeHtml(gradeInfo.action || "")}">${escapeHtml(gradeInfo.grade)}</span>`
     : `<span class="muted">—</span>`;
-  const action = alertActionText(alert, gradeInfo);
+  const action = alertActionText(alert, actionInfo);
   const confirmedPin = stage === "confirmed" ? `<span class="pin-label">Live Plan</span>` : "";
+  const directionText = counterBias ? "NO TRADE" : directionLabel(alert.direction);
+  const directionCls = counterBias ? "dir-no-trade" : directionClass(alert.direction);
   return `
-    <div class="signal-card ${selected} ${escapeHtml(stage)}" data-alert-key="${escapeHtml(key)}" data-select="1" title="Open">
+    <div class="signal-card ${selected} ${escapeHtml(stage)} ${counterBias ? "counter-bias" : ""}" data-alert-key="${escapeHtml(key)}" data-select="1" title="Open">
       <div class="trade-card-kicker">
         <span>${escapeHtml(tradeCardStateLabel(alert))}</span>
         <span class="mono">${escapeHtml(compactTriggerText(alert))}</span>
@@ -2931,7 +2991,7 @@ function renderBlotterRow(alert) {
         </div>
       </div>
       <div class="signal-midline">
-        <span class="${directionClass(alert.direction)}">${escapeHtml(directionLabel(alert.direction))}</span>
+        <span class="${escapeHtml(directionCls)}">${escapeHtml(directionText)}</span>
         <span>${escapeHtml(profileLabel(alert))}</span>
         <span>${escapeHtml(biasChipText(alert))}</span>
         <span>${escapeHtml(riskLabel(alert))}</span>
@@ -2941,7 +3001,7 @@ function renderBlotterRow(alert) {
       ${tradeLevelsHtml(alert)}
       ${tradeRoadmapHtml(alert)}
       <div class="signal-footer">
-        <span class="next-action ${actionClass(gradeInfo, stage)}">${escapeHtml(action)}</span>
+        <span class="next-action ${actionClass(actionInfo, stage)}">${escapeHtml(action)}</span>
         <div class="cell-actions" data-alert-key="${escapeHtml(key)}">
           <button type="button" class="icon-btn journal-mark ${alert.journal_status === "taken" ? "on" : ""}" data-status="taken" title="Taken">✓</button>
           <button type="button" class="icon-btn journal-mark ${alert.journal_status === "skipped" ? "off" : ""}" data-status="skipped" title="Skip">✕</button>

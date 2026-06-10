@@ -639,6 +639,11 @@ body.cloud-readonly .terminal-status {
   border-color: var(--border);
 }
 
+.signal-card.counter-bias {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(45, 16, 19, 0.16);
+}
+
 .signal-card::before,
 .journal-card::before {
   content: "";
@@ -655,6 +660,7 @@ body.cloud-readonly .terminal-status {
 .journal-card.status-pending::before { background: var(--amber); }
 .signal-card.invalidated::before,
 .journal-card.status-skipped::before { background: var(--red); }
+.signal-card.counter-bias::before { background: var(--red); }
 
 .journal-card.archived {
   border-color: rgba(148, 163, 184, 0.14);
@@ -1384,6 +1390,7 @@ section[data-view="journal"] .table td:nth-child(7) { grid-area: actions; justif
 
 .dir-long { color: var(--green); font-weight: 700; }
 .dir-short { color: var(--red); font-weight: 700; }
+.dir-no-trade { color: #fca5a5; font-weight: 800; }
 
 .pill {
   display: inline-block;

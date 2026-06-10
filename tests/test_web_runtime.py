@@ -12,6 +12,8 @@ from tradebot.web.runtime import (
     DashboardLogHandler,
     _desk_chart_url,
     _desk_decision,
+    _desk_direction,
+    _desk_preferred_side,
     _desk_setup_candidates,
     _desk_timeframe_charts,
     _desk_priority_score,
@@ -178,6 +180,29 @@ def test_desk_setup_candidates_promote_matching_pdf_model():
     assert by_key["model1"]["trade"] is True
     assert by_key["kod"]["status"] == "ready"
     assert by_key["smt_kod"]["status"] == "unavailable"
+
+
+def test_desk_direction_prefers_framework_bias_side():
+    directions = [
+        {
+            "direction": "bearish",
+            "status": "wait",
+            "gate": {"status": "blocked"},
+            "quality": {"score": 92},
+            "objective": {"distance_atr": 0.2},
+        },
+        {
+            "direction": "bullish",
+            "status": "block",
+            "gate": {"status": "blocked"},
+            "quality": {"score": 10},
+            "objective": {"distance_atr": 2.4},
+        },
+    ]
+
+    assert _desk_preferred_side({"macro_bias": "Strong Bullish"}) == "bullish"
+    assert _desk_direction(directions)["direction"] == "bearish"
+    assert _desk_direction(directions, preferred_side="bullish")["direction"] == "bullish"
 
 
 def test_desk_timeframe_charts_include_full_mtf_stack():

@@ -957,6 +957,7 @@ class BotController:
                             context,
                             trigger,
                             diagnostic,
+                            framework_context=framework_summary,
                         )
                         if framework_summary:
                             post["framework"] = framework_summary
@@ -1285,8 +1286,12 @@ def _desk_post(
     trigger: list[Any],
     diagnostic: dict[str, Any],
     session_projection: dict[str, Any] | None = None,
+    framework_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    direction = _desk_direction(diagnostic.get("directions") or [])
+    preferred_side = _desk_preferred_side(framework_context)
+    direction = _desk_direction(diagnostic.get("directions") or [], preferred_side=preferred_side)
+    if preferred_side and direction.get("direction") not in {"", preferred_side}:
+        direction = _desk_counter_bias_block(preferred_side, direction, trigger_tf)
     latest = trigger[-1] if trigger else None
     latest_close = getattr(latest, "close", None)
     at_ms = getattr(latest, "timestamp_ms", None)
@@ -1368,6 +1373,7 @@ def _desk_post(
         "headline": diagnostic.get("headline") or "Waiting for clean ICT context.",
         "status": status,
         "bias": side or "neutral",
+        "preferred_bias": preferred_side or "",
         "grade": grade,
         "high_potential": _desk_high_potential(status, grade),
         "priority_score": priority_score,
@@ -1624,7 +1630,7 @@ def _desk_timeframe_charts(
     return charts
 
 
-def _desk_direction(directions: list[dict[str, Any]]) -> dict[str, Any]:
+def _desk_direction(directions: list[dict[str, Any]], preferred_side: str = "") -> dict[str, Any]:
     if not directions:
         return {}
     rank = {"pass": 4, "wait": 3, "block": 2, "blocked": 1}
@@ -1640,7 +1646,86 @@ def _desk_direction(directions: list[dict[str, Any]]) -> dict[str, Any]:
             float(quality.get("score") or 0) - float(objective.get("distance_atr") or 9),
         )
 
+    if preferred_side in {"bullish", "bearish"}:
+        aligned = [item for item in directions if item.get("direction") == preferred_side]
+        if aligned:
+            return sorted(aligned, key=score, reverse=True)[0]
     return sorted(directions, key=score, reverse=True)[0]
+
+
+def _desk_preferred_side(framework_context: dict[str, Any] | None) -> str:
+    if not isinstance(framework_context, dict):
+        return ""
+    macro = _direction_from_text(framework_context.get("macro_bias"))
+    if macro in {"bullish", "bearish"}:
+        return macro
+    votes: list[str] = []
+    timeframes = framework_context.get("timeframes") or {}
+    for timeframe in ("1M", "1w", "1d", "4h"):
+        item = timeframes.get(timeframe) or timeframes.get(timeframe.lower()) if isinstance(timeframes, dict) else None
+        if isinstance(item, dict):
+            side = _direction_from_text(item.get("bias"))
+            if side:
+                votes.append(side)
+    for key in ("monthly_bias", "weekly_bias", "daily_bias", "h4_bias"):
+        side = _direction_from_text(framework_context.get(key))
+        if side:
+            votes.append(side)
+    bullish = votes.count("bullish")
+    bearish = votes.count("bearish")
+    if bullish >= 3 and bullish > bearish:
+        return "bullish"
+    if bearish >= 3 and bearish > bullish:
+        return "bearish"
+    return ""
+
+
+def _direction_from_text(value: Any) -> str:
+    text = str(value or "").lower()
+    if "bull" in text:
+        return "bullish"
+    if "bear" in text:
+        return "bearish"
+    return ""
+
+
+def _desk_counter_bias_block(preferred_side: str, selected: dict[str, Any], trigger_tf: str) -> dict[str, Any]:
+    side_label = "bullish" if preferred_side == "bullish" else "bearish"
+    blocked_side = selected.get("direction") or "opposite"
+    return {
+        "direction": preferred_side,
+        "status": "block",
+        "objective": {},
+        "alignment": "blocked",
+        "raid": {},
+        "context_crt": {},
+        "msb_level": None,
+        "msb_timestamp_ms": None,
+        "trigger_mode": "",
+        "trigger_confirmed": False,
+        "htf_narrative": {
+            "status": "block",
+            "direction": preferred_side,
+            "detail": f"framework bias is {side_label}; counter-bias {blocked_side} idea is suppressed",
+        },
+        "key_level": {"status": "block", "detail": "wait for same-bias key level"},
+        "candle_2": {"status": "block", "detail": "wait for same-bias Turtle Soup"},
+        "candle_3": {"status": "block", "detail": f"wait for {trigger_tf} same-bias Model #1/MSS"},
+        "smt_status": {"status": "unavailable", "state": "unavailable", "detail": "SMT feed is not connected."},
+        "session_gate": {"status": "wait", "detail": "session is not a trade by itself"},
+        "displacement": {"passed": False, "body_ratio": 0, "range_atr": 0, "reasons": []},
+        "quality": {"grade": "NO TRADE", "action": "Bias conflict", "score": 0, "max_score": 100, "warnings": []},
+        "gate": {
+            "status": "blocked",
+            "blockers": [f"Framework bias is {side_label}; ignore counter-bias {blocked_side} setups."],
+            "min_grade": "",
+        },
+        "fvg": None,
+        "ifvg": None,
+        "next_step": f"Wait for {trigger_tf} {side_label} Candle 3 Model #1/MSS. Do not flip against HTF bias.",
+        "blockers": [f"Framework bias is {side_label}; ignore counter-bias {blocked_side} setups."],
+        "reasons": [],
+    }
 
 
 def _desk_status(direction: dict[str, Any], diagnostic: dict[str, Any]) -> str:
@@ -1840,30 +1925,30 @@ def _desk_scenarios(
     raid_level = _price_text((raid or {}).get("level"))
     if side == "bullish":
         primary = {
-            "title": "Bullish case",
+            "title": "Long plan",
             "text": f"Need sell-side Turtle Soup to hold, then {trigger_tf} Candle 3 close above MSS {msb_text} or print Model #1. Target draw: {target_text}.",
         }
         opposite = {
-            "title": "Bearish failure",
-            "text": f"If price loses the Turtle Soup level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF narrative.",
+            "title": "Invalidation",
+            "text": f"If price loses the Turtle Soup level {raid_level} or cannot reclaim structure, stand down. Do not flip short until HTF bias flips.",
         }
     elif side == "bearish":
         primary = {
-            "title": "Bearish case",
+            "title": "Short plan",
             "text": f"Need buy-side Turtle Soup to hold, then {trigger_tf} Candle 3 close below MSS {msb_text} or print Model #1. Target draw: {target_text}.",
         }
         opposite = {
-            "title": "Bullish failure",
-            "text": f"If price reclaims above the Turtle Soup level {raid_level} or cannot reclaim structure, stand down and wait for a fresh HTF narrative.",
+            "title": "Invalidation",
+            "text": f"If price reclaims above the Turtle Soup level {raid_level} or cannot reclaim structure, stand down. Do not flip long until HTF bias flips.",
         }
     else:
         primary = {
-            "title": "Bullish case",
-            "text": f"Wait for HTF narrative, key level, sell-side Turtle Soup, then {trigger_tf} bullish Model #1/MSS.",
+            "title": "No directional plan",
+            "text": "Wait for monthly/weekly/daily/4H narrative to point the same way.",
         }
         opposite = {
-            "title": "Bearish case",
-            "text": f"Wait for HTF narrative, key level, buy-side Turtle Soup, then {trigger_tf} bearish Model #1/MSS.",
+            "title": "Trigger rule",
+            "text": f"No entry until {trigger_tf} Candle 3 Model #1/MSS confirms with the HTF narrative.",
         }
     neutral = {
         "title": "No trade rule",
