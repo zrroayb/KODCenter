@@ -2527,11 +2527,11 @@ function renderDesk(payload) {
   state.deskCache = posts;
   state.deskPayload = payload;
   const symbols = [...new Set(posts.map((post) => post.symbol).filter(Boolean))];
-  if (!symbols.includes(state.deskSymbol)) {
-    const focusPost = sortedDeskPosts(posts).find((post) => Number(post.priority_score || 0) >= 35) || sortedDeskPosts(posts)[0];
-    state.deskSymbol = focusPost?.symbol || symbols[0] || "";
+  const marketItems = deskMarketItems(posts, symbols);
+  if (!marketItems.some((item) => item.symbol === state.deskSymbol)) {
+    state.deskSymbol = marketItems[0]?.symbol || symbols[0] || "";
   }
-  renderDeskMarkets(posts, symbols);
+  renderDeskMarkets(posts, marketItems);
   const symbolPosts = state.deskSymbol
     ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
     : sortedDeskPosts(posts);
@@ -2561,6 +2561,117 @@ function setupStatusLabel(status) {
     unavailable: "N/A",
   };
   return labels[status] || String(status || "WAIT").toUpperCase();
+}
+
+function deskShortLine(text, max = 108) {
+  const clean = String(text || "")
+    .replace(/^NO TRADE:\s*/i, "")
+    .replace(/^WAIT:\s*/i, "")
+    .replace(/^READY:\s*/i, "")
+    .replace(/^Manual execution only\.\s*/i, "")
+    .trim();
+  if (!clean) return "";
+  return clean.length > max ? `${clean.slice(0, max - 3).trim()}...` : clean;
+}
+
+function deskChecklistItems(post) {
+  const decision = post?.decision || {};
+  return (post?.checklist || decision.checklist || []).filter((item) => item.key !== "session");
+}
+
+function deskCheckStatus(post, key) {
+  return deskChecklistItems(post).find((item) => item.key === key)?.status || "";
+}
+
+function deskTriage(post) {
+  const decision = normalizeTradeDecision(post || {});
+  const items = deskChecklistItems(post);
+  const passCount = items.filter((item) => item.status === "pass").length;
+  const waitCount = items.filter((item) => item.status === "wait").length;
+  const blockCount = items.filter((item) => item.status === "block").length;
+  const nextItem = items.find((item) => item.status !== "pass");
+  const htfPass = deskCheckStatus(post, "htf_narrative") === "pass";
+  const keyPass = deskCheckStatus(post, "key_level") === "pass";
+  const candle2Pass = deskCheckStatus(post, "candle_2") === "pass";
+  const candle3Pass = deskCheckStatus(post, "candle_3") === "pass";
+  const blockers = (post?.blockers || []).join(" | ").toLowerCase();
+  const biasConflict = blockers.includes("framework bias") || blockers.includes("counter-bias");
+  const activeSetup = post?.active_setup_model?.name || "CRT";
+  let type = "wait";
+  let label = "WAIT";
+  let headline = "Need HTF draw";
+  let detail = deskShortLine(post?.what_now || post?.decision?.subtitle || post?.headline || "Waiting for cleaner conditions.");
+  let score = Number(post?.priority_score || 0);
+
+  if (decision.type === "long" || decision.type === "short" || post?.status === "ready") {
+    type = "ready";
+    label = "TRADE";
+    headline = decision.type === "short" ? "Short plan ready" : "Long plan ready";
+    detail = "Entry, invalidation and target are mapped. Manual execution only.";
+    score += 100;
+  } else if (biasConflict) {
+    type = "no-trade";
+    label = "NO";
+    headline = "Bias conflict";
+    detail = deskShortLine(post?.what_now || "Ignore counter-bias setups until HTF bias flips.");
+    score = Math.max(score, 6);
+  } else if (candle2Pass && !candle3Pass) {
+    type = "close";
+    label = "CLOSE";
+    headline = "Need Candle 3";
+    detail = deskShortLine(post?.what_now || `Wait for ${post?.trigger_timeframe || "trigger"} Model #1/MSS.`);
+    score += 70;
+  } else if (htfPass && keyPass) {
+    type = "watch";
+    label = "WATCH";
+    headline = "Need Turtle Soup";
+    detail = deskShortLine(post?.what_now || "Wait for liquidity sweep and reclaim.");
+    score += 48;
+  } else if (htfPass) {
+    type = "watch";
+    label = "WATCH";
+    headline = "Need key level";
+    detail = deskShortLine(post?.what_now || "Wait for old high/low or liquidity pool.");
+    score += 34;
+  } else if (post?.objective?.level != null) {
+    type = "watch";
+    label = "WATCH";
+    headline = "HTF draw mapped";
+    detail = deskShortLine(post?.what_now || "Wait for same-bias setup sequence.");
+    score += 24;
+  } else {
+    headline = nextItem?.label ? `Need ${nextItem.label}` : "Need clean setup";
+    score += passCount * 8 + waitCount * 3 - blockCount * 4;
+  }
+
+  const progress = Math.max(4, Math.min(100, Math.round((passCount / Math.max(items.length, 1)) * 100)));
+  return {
+    type,
+    label,
+    headline,
+    detail,
+    score: Math.max(0, Math.round(score)),
+    progress,
+    activeSetup,
+    decision,
+    nextItem,
+  };
+}
+
+function bestDeskPostForSymbol(posts) {
+  return sortedDeskPosts(posts)[0] || {};
+}
+
+function deskMarketItems(posts, symbols) {
+  return symbols.map((symbol) => {
+    const symbolPosts = posts.filter((post) => post.symbol === symbol);
+    const bestPost = bestDeskPostForSymbol(symbolPosts);
+    return { symbol, posts: symbolPosts, bestPost, triage: deskTriage(bestPost) };
+  }).sort((a, b) => {
+    const scoreDiff = b.triage.score - a.triage.score;
+    if (scoreDiff) return scoreDiff;
+    return marketDisplay(a.symbol).localeCompare(marketDisplay(b.symbol));
+  });
 }
 
 function setupRadarHtml(post) {
@@ -2613,19 +2724,23 @@ function timeframeChartsHtml(post) {
     </div>`).join("");
 }
 
-function renderDeskMarkets(posts, symbols) {
+function renderDeskMarkets(posts, marketItems) {
   if (!els.deskMarketTabs) return;
-  els.deskMarketTabs.innerHTML = symbols.length
-    ? symbols.map((symbol) => {
-      const symbolPosts = posts.filter((post) => post.symbol === symbol);
-      const bestPost = sortedDeskPosts(symbolPosts)[0] || {};
+  els.deskMarketTabs.innerHTML = marketItems.length
+    ? marketItems.map(({ symbol, posts: symbolPosts, bestPost, triage }) => {
       const isActive = symbol === state.deskSymbol;
       const isHot = symbolPosts.some((post) => post.high_potential);
-      const profiles = symbolPosts.map((post) => `${post.context_timeframe}→${post.trigger_timeframe}`).join(" / ");
+      const bias = bestPost.framework?.macro_bias || titleCase(bestPost.bias || "Neutral");
       return `
-        <button type="button" class="desk-market-btn ${isActive ? "active" : ""} ${isHot ? "hot" : ""}" data-desk-symbol="${escapeHtml(symbol)}">
-          <strong>${escapeHtml(marketDisplay(symbol))}</strong>
-          <small>${escapeHtml(profiles || symbol)}</small>
+        <button type="button" class="desk-market-btn triage-${escapeHtml(triage.type)} ${isActive ? "active" : ""} ${isHot ? "hot" : ""}" data-desk-symbol="${escapeHtml(symbol)}">
+          <div class="desk-market-main">
+            <strong>${escapeHtml(marketDisplay(symbol))}</strong>
+            <span class="desk-market-state">${escapeHtml(triage.label)}</span>
+          </div>
+          <span class="desk-market-bias ${escapeHtml(biasClass(bias))}">${escapeHtml(bias)}</span>
+          <small>${escapeHtml(triage.headline)}</small>
+          <span class="desk-market-next">${escapeHtml(triage.activeSetup)}</span>
+          <span class="desk-progress" style="--progress:${triage.progress}%"><i></i></span>
         </button>`;
     }).join("")
     : "";
@@ -2633,6 +2748,8 @@ function renderDeskMarkets(posts, symbols) {
 
 function sortedDeskPosts(posts) {
   return [...(posts || [])].sort((a, b) => {
+    const triageDiff = deskTriage(b).score - deskTriage(a).score;
+    if (triageDiff) return triageDiff;
     const scoreDiff = Number(b.priority_score || 0) - Number(a.priority_score || 0);
     if (scoreDiff) return scoreDiff;
     const rank = { ready: 4, armed: 3, waiting: 2, blocked: 1 };
@@ -2732,59 +2849,96 @@ function projectionStatusLabel(status) {
   return "Neutral / wait";
 }
 
+function deskLevelReadoutHtml(post) {
+  const levels = [
+    ["Price", post?.price],
+    ["Draw", post?.objective?.level],
+    ["Raid", post?.raid?.level],
+    ["MSS", post?.msb_level],
+  ].filter(([, value]) => value != null && value !== "");
+  if (!levels.length) {
+    return `<div class="simple-level-empty">No active level yet</div>`;
+  }
+  return levels.map(([label, value]) => `
+    <span>
+      <b>${escapeHtml(label)}</b>
+      <strong>${escapeHtml(fmtNum(value))}</strong>
+    </span>`).join("");
+}
+
+function simpleChecklistHtml(post) {
+  const items = deskChecklistItems(post);
+  if (!items.length) return "";
+  return `
+    <div class="simple-check-row">
+      ${items.map((item) => {
+        const status = item.status || "wait";
+        const label = String(item.label || item.key || "Check")
+          .replace("HTF narrative", "HTF")
+          .replace("Key level", "Key")
+          .replace("Candle 2 Turtle Soup", "C2 sweep")
+          .replace("Candle 3 Model #1/MSS", "C3 trigger");
+        return `
+          <span class="${escapeHtml(status)}">
+            <b>${escapeHtml(status === "pass" ? "OK" : status === "block" ? "NO" : "WAIT")}</b>
+            ${escapeHtml(label)}
+          </span>`;
+      }).join("")}
+    </div>`;
+}
+
 function renderDeskPost(post) {
   const status = post.status || "waiting";
-  const decision = post.decision || {};
-  const checklist = post.checklist || decision.checklist || [];
-  const context = post.context_summary || {};
-  const checklistHtml = renderDeskChecklist(checklist);
+  const triage = deskTriage(post);
   const tradeDecision = normalizeTradeDecision(post);
+  const bias = post.framework?.macro_bias || titleCase(post.bias || "Neutral");
+  const nextLabel = triage.nextItem?.label || "Trigger";
+  const context = post.context_summary || {};
   return `
-    <article class="desk-post crt-terminal desk-${escapeHtml(status)} decision-${escapeHtml(tradeDecision.type)}">
-      ${marketBiasBarHtml(post)}
-      <div class="crt-terminal-head">
+    <article class="desk-post simple-desk-post desk-${escapeHtml(status)} triage-${escapeHtml(triage.type)} decision-${escapeHtml(tradeDecision.type)}">
+      <header class="simple-desk-head">
         <div>
           <span class="terminal-kicker">${escapeHtml(post.profile || "CRT")}</span>
-          <h3>${escapeHtml(marketDisplay(post.symbol))} · ${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)}</h3>
+          <h3>${escapeHtml(marketDisplay(post.symbol))}</h3>
+          <p>${escapeHtml(post.context_timeframe)}→${escapeHtml(post.trigger_timeframe)} · ${escapeHtml(triage.activeSetup)}</p>
         </div>
-        <div class="terminal-priority">
-          ${setupGradeHtml(post.framework || {}, post.grade)}
-          <span class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</span>
+        <div class="simple-desk-result">
+          <span class="simple-status ${escapeHtml(triage.type)}">${escapeHtml(triage.label)}</span>
+          <strong class="${escapeHtml(biasClass(bias))}">${escapeHtml(bias)}</strong>
+        </div>
+      </header>
+      <section class="simple-next-panel">
+        <span>What matters now</span>
+        <strong>${escapeHtml(triage.headline)}</strong>
+        <p>${escapeHtml(triage.detail || context.read || post.headline || "Wait.")}</p>
+      </section>
+      <div class="simple-desk-grid">
+        <div class="simple-readout">
+          <span>Closest setup</span>
+          <strong>${escapeHtml(triage.activeSetup)}</strong>
+          <p>${escapeHtml(nextLabel)} ${triage.nextItem ? "is not clean yet" : "is clean"}</p>
+        </div>
+        <div class="simple-readout">
+          <span>Decision</span>
+          <strong>${escapeHtml(tradeDecision.label)}</strong>
+          <p>${escapeHtml(tradeDecision.subtitle || "No manual action yet.")}</p>
+        </div>
+        <div class="simple-readout">
+          <span>Levels</span>
+          <div class="simple-levels">${deskLevelReadoutHtml(post)}</div>
         </div>
       </div>
+      ${simpleChecklistHtml(post)}
       ${setupRadarHtml(post)}
-      <div class="crt-stage-grid">
-        <section class="crt-chart-shell">
-          <div class="crt-chart-toolbar">
-            <span>MTF chart stack</span>
-            ${deskChartMetaHtml(post)}
-            <em>${escapeHtml(post.active_setup_model?.name || "CRT map")}</em>
-          </div>
-          ${mobileTradeStripHtml(post)}
-          <div class="crt-chart-stage">
-            <div class="desk-mtf-chart-grid">
-              ${timeframeChartsHtml(post)}
-            </div>
-          </div>
-          ${eventTimelineHtml(post)}
-        </section>
-        ${liquidityRoadmapHtml(post)}
-      </div>
-      <div class="crt-context-strip">
-        ${po3LifecycleHtml(post.framework || {})}
-        ${marketNarrativeChainHtml(post)}
-      </div>
-      <div class="crt-secondary-read">
-        <div class="desk-context-card">
-          <div class="desk-context-read">
-            <span>Context</span>
-            <strong>${escapeHtml(context.bias || directionLabel(post.bias))}</strong>
-            <p>${escapeHtml(context.read || post.headline || "Waiting for context")}</p>
-          </div>
+      <details class="simple-chart-details" open>
+        <summary>
+          <span>Charts</span>
+          <strong>${escapeHtml(post.context_timeframe)} / ${escapeHtml(post.trigger_timeframe)}</strong>
+        </summary>
+        <div class="desk-mtf-chart-grid simple-chart-grid">
+          ${timeframeChartsHtml(post)}
         </div>
-        ${checklistHtml}
-        ${setupBreakdownHtml(post)}
-      </div>
+      </details>
     </article>`;
 }
 
