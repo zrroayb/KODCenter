@@ -927,8 +927,6 @@ class BotController:
         evaluator = KodTurtleSoupEvaluator()
         posts: list[dict[str, Any]] = []
         errors: list[dict[str, str]] = []
-        session_projections: list[dict[str, Any]] = []
-        session_projection_by_symbol: dict[str, dict[str, Any]] = {}
 
         for symbol in config.scanner.symbols:
             cache: dict[str, list[Any]] = {}
@@ -937,16 +935,6 @@ class BotController:
             except Exception:
                 logger.exception("framework analysis failed for %s", symbol)
                 framework_summary = None
-            if _session_projection_enabled(symbol):
-                try:
-                    projection_candles = _cached_desk_candles(cache, exchange, symbol, "15m", 220, config.scanner.use_closed_candle)
-                    projection = _desk_session_projection(symbol, projection_candles)
-                    if projection:
-                        session_projections.append(projection)
-                        session_projection_by_symbol[symbol] = projection
-                except Exception as exc:
-                    logger.exception("desk session projection failed for %s", symbol)
-                    errors.append({"symbol": symbol, "profile": "session_projection", "message": str(exc)})
             for setup in config.setups:
                 if not setup.enabled or setup.type != "kod_turtle_soup":
                     continue
@@ -969,7 +957,6 @@ class BotController:
                             context,
                             trigger,
                             diagnostic,
-                            session_projection=session_projection_by_symbol.get(symbol),
                         )
                         if framework_summary:
                             post["framework"] = framework_summary
@@ -982,7 +969,7 @@ class BotController:
             "ok": True,
             "generated_at": _now(),
             "posts": posts,
-            "session_projection": session_projections,
+            "session_projection": [],
             "errors": errors,
             "message": f"{len(posts)} desk thread(s) generated.",
             "cached": False,
@@ -1319,8 +1306,8 @@ def _desk_post(
     wait_text = _desk_wait_text(direction, diagnostic, trigger_tf)
     decision = _desk_decision(status, side, objective, raid, blockers, wait_text)
     priority_score = _desk_priority_score(status, grade, objective, raid, blockers, decision["checklist"])
-    if _projection_aligns_with_bias(session_projection, side):
-        priority_score = min(100, priority_score + 10)
+    setup_candidates = _desk_setup_candidates(direction, status, context_tf, trigger_tf, blockers, wait_text)
+    active_setup = _desk_active_setup(setup_candidates)
     context_summary = _desk_context_summary(context_tf, trigger_tf, side, objective, raid, blockers)
     chart_url = _desk_chart_url(
         symbol,
@@ -1352,6 +1339,22 @@ def _desk_post(
         setup_label=f"{symbol} HTF context",
         decision=decision,
     )
+    timeframe_charts = _desk_timeframe_charts(
+        symbol,
+        side,
+        context_tf,
+        trigger_tf,
+        decision,
+        htf_target=htf_target,
+        reference_level=(raid or {}).get("level"),
+        sweep_extreme=(raid or {}).get("sweep_extreme"),
+        msb_level=msb_level,
+        msb_at_ms=msb_at_ms,
+        fvg_zone=direction.get("fvg"),
+        ifvg_zone=direction.get("ifvg"),
+        active_setup=active_setup,
+        wait_text=wait_text,
+    )
     scenarios = _desk_scenarios(side, objective, msb_level, raid, trigger_tf, latest_close)
     return {
         "id": f"{symbol}|{profile_name}|{context_tf}|{trigger_tf}",
@@ -1369,9 +1372,11 @@ def _desk_post(
         "high_potential": _desk_high_potential(status, grade),
         "priority_score": priority_score,
         "priority_label": _desk_priority_label(priority_score, status),
-        "session_projection_alignment": _projection_aligns_with_bias(session_projection, side),
+        "session_projection_alignment": False,
         "quality_action": quality.get("action") or "",
         "decision": decision,
+        "active_setup_model": active_setup,
+        "setup_candidates": setup_candidates,
         "context_summary": context_summary,
         "checklist": decision["checklist"],
         "objective": objective,
@@ -1399,9 +1404,224 @@ def _desk_post(
         "scenarios": scenarios,
         "chart_url": chart_url,
         "context_chart_url": context_chart_url,
+        "timeframe_charts": timeframe_charts,
         "checks": diagnostic.get("checks") or [],
         "data_note": "Local chart uses exchange candles. No TradingView screenshot or macro/sentiment feed is connected.",
     }
+
+
+def _desk_setup_candidates(
+    direction: dict[str, Any],
+    desk_status: str,
+    context_tf: str,
+    trigger_tf: str,
+    blockers: list[str],
+    wait_text: str,
+) -> list[dict[str, Any]]:
+    side = str(direction.get("direction") or "")
+    objective = direction.get("objective") or {}
+    raid = direction.get("raid") or {}
+    key_level = direction.get("key_level") or {}
+    candle_3 = direction.get("candle_3") or {}
+    smt = direction.get("smt_status") or {}
+    trigger_mode = str(direction.get("trigger_mode") or candle_3.get("trigger_mode") or "")
+    has_draw = objective.get("level") is not None
+    has_key = key_level.get("status") == "pass" or has_draw
+    has_raid = bool(raid)
+    trigger_confirmed = bool(direction.get("trigger_confirmed")) or candle_3.get("status") == "pass"
+    has_mss_level = direction.get("msb_level") not in (None, "")
+    model1_ready = trigger_mode == "model1" and trigger_confirmed
+    mss_ready = trigger_mode in {"mss", "msb"} and trigger_confirmed
+    full_ready = desk_status == "ready"
+
+    def candidate(
+        key: str,
+        name: str,
+        status: str,
+        trigger: str,
+        detail: str,
+        *,
+        trade: bool = False,
+        source: str = "CRT Secrets PDF",
+    ) -> dict[str, Any]:
+        return {
+            "key": key,
+            "name": name,
+            "status": status,
+            "side": side or "neutral",
+            "trigger": trigger,
+            "detail": detail,
+            "timeframe": trigger_tf,
+            "trade": trade,
+            "source": source,
+            "blockers": blockers[:3],
+        }
+
+    if not direction:
+        return [
+            candidate("model1", "Model #1", "waiting", trigger_tf, "Waiting for HTF draw and old high/low stab."),
+            candidate("kod", "Kiss of Death", "waiting", context_tf, "Waiting for Turtle Soup fuel before target."),
+            candidate("candle3", "Candle 3", "waiting", trigger_tf, "Waiting for Candle 2 to finish before distribution."),
+            candidate("mss", "MSS Entry", "waiting", trigger_tf, "Waiting for a clean structure shift."),
+            candidate("key_level", "Key Level Bounce", "waiting", context_tf, "Waiting for a strong old high/low or liquidity pool."),
+            candidate("smt_kod", "SMT + KOD", "unavailable", "pair feed", "SMT feed is not connected.", source="Requires intermarket feed"),
+        ]
+
+    model1_status = (
+        "ready" if full_ready and model1_ready else
+        "armed" if model1_ready or has_raid else
+        "waiting" if has_draw else
+        "blocked"
+    )
+    mss_status = (
+        "ready" if full_ready and mss_ready else
+        "armed" if mss_ready or (has_raid and has_mss_level) else
+        "waiting" if has_raid else
+        "blocked" if not has_draw else
+        "waiting"
+    )
+    candle3_status = (
+        "ready" if full_ready and trigger_confirmed else
+        "armed" if has_raid and (has_mss_level or trigger_confirmed) else
+        "waiting" if has_raid else
+        "blocked" if not has_draw else
+        "waiting"
+    )
+    kod_status = (
+        "ready" if full_ready and has_raid and trigger_confirmed else
+        "armed" if has_raid else
+        "waiting" if has_draw else
+        "blocked"
+    )
+    key_status = (
+        "ready" if full_ready and has_key and trigger_confirmed else
+        "armed" if has_key and has_raid else
+        "waiting" if has_key else
+        "blocked"
+    )
+    smt_state = str(smt.get("state") or smt.get("status") or "").lower()
+    smt_status = "unavailable" if "unavailable" in smt_state or not smt_state else "blocked" if smt.get("status") == "block" else "armed"
+
+    side_text = "LONG" if side == "bullish" else "SHORT" if side == "bearish" else "NO SIDE"
+    return [
+        candidate(
+            "model1",
+            "Model #1",
+            model1_status,
+            trigger_tf,
+            f"{side_text}: old high/low stab must close back through the trigger candle.",
+            trade=full_ready and model1_ready,
+        ),
+        candidate(
+            "kod",
+            "Kiss of Death",
+            kod_status,
+            context_tf,
+            f"{side_text}: final Turtle Soup before objective; Candle 3 must confirm.",
+            trade=full_ready and has_raid and trigger_confirmed,
+        ),
+        candidate(
+            "candle3",
+            "Candle 3 Distribution",
+            candle3_status,
+            trigger_tf,
+            f"{side_text}: trade only after Candle 2 manipulation is complete.",
+            trade=full_ready and trigger_confirmed,
+        ),
+        candidate(
+            "mss",
+            "MSS Entry",
+            mss_status,
+            trigger_tf,
+            f"{side_text}: close through structure level before treating it as an entry model.",
+            trade=full_ready and mss_ready,
+        ),
+        candidate(
+            "key_level",
+            "Key Level Bounce",
+            key_status,
+            context_tf,
+            f"{side_text}: old/equal high-low or liquidity pool is the launch level.",
+            trade=full_ready and has_key and trigger_confirmed,
+        ),
+        candidate(
+            "smt_kod",
+            "SMT + KOD",
+            smt_status,
+            "pair feed",
+            smt.get("detail") or "SMT feed is not connected.",
+            trade=False,
+            source="Requires intermarket feed",
+        ),
+    ]
+
+
+def _desk_active_setup(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    rank = {"ready": 5, "armed": 4, "waiting": 3, "blocked": 2, "unavailable": 1}
+    tradable = [item for item in candidates if item.get("status") != "unavailable"]
+    if not tradable:
+        return {}
+    return sorted(tradable, key=lambda item: (rank.get(str(item.get("status")), 0), bool(item.get("trade"))), reverse=True)[0]
+
+
+def _desk_timeframe_charts(
+    symbol: str,
+    direction: str,
+    context_tf: str,
+    trigger_tf: str,
+    decision: dict[str, Any],
+    *,
+    htf_target: Any = None,
+    reference_level: Any = None,
+    sweep_extreme: Any = None,
+    msb_level: Any = None,
+    msb_at_ms: Any = None,
+    fvg_zone: Any = None,
+    ifvg_zone: Any = None,
+    active_setup: dict[str, Any] | None = None,
+    wait_text: str = "",
+) -> list[dict[str, Any]]:
+    active_setup = active_setup or {}
+    frames = [
+        ("1M", "Monthly"),
+        ("1w", "Weekly"),
+        ("1d", "Daily"),
+        ("4h", "4H"),
+        ("1h", "1H"),
+        ("15m", "15M"),
+    ]
+    charts: list[dict[str, Any]] = []
+    for timeframe, label in frames:
+        role = "trigger" if timeframe == trigger_tf or timeframe in {"1h", "15m"} else "context"
+        if timeframe == context_tf and timeframe not in {"1h", "15m"}:
+            role = "context"
+        charts.append(
+            {
+                "timeframe": timeframe,
+                "label": label,
+                "role": role,
+                "active": timeframe in {context_tf, trigger_tf},
+                "url": _desk_chart_url(
+                    symbol,
+                    timeframe,
+                    None,
+                    direction,
+                    role=role,
+                    htf_target=htf_target,
+                    reference_level=reference_level if role == "trigger" else None,
+                    sweep_extreme=sweep_extreme if role == "trigger" else None,
+                    msb_level=msb_level if role == "trigger" else None,
+                    msb_at_ms=msb_at_ms if role == "trigger" else None,
+                    fvg_zone=fvg_zone if role == "trigger" else None,
+                    ifvg_zone=ifvg_zone if role == "trigger" else None,
+                    wait_text=wait_text,
+                    setup_label=f"{symbol} {label}: {active_setup.get('name') or 'CRT map'}",
+                    decision=decision,
+                    limit=_desk_chart_limit(timeframe),
+                ),
+            }
+        )
+    return charts
 
 
 def _desk_direction(directions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1671,12 +1891,13 @@ def _desk_chart_url(
     wait_text: str = "",
     setup_label: str = "",
     decision: dict[str, Any] | None = None,
+    limit: int = 140,
 ) -> str:
     decision = decision or {}
     params: dict[str, Any] = {
         "symbol": symbol,
         "timeframe": timeframe,
-        "limit": 140,
+        "limit": max(12, min(int(limit or 140), 220)),
         "role": role,
         "stage": "forming",
         "direction": direction,
@@ -1714,6 +1935,18 @@ def _desk_trigger_mode(role: str, reference_level: Any, msb_level: Any, fvg_zone
     if msb_level not in (None, ""):
         return "mss"
     return ""
+
+
+def _desk_chart_limit(timeframe: str) -> int:
+    limits = {
+        "1M": 36,
+        "1w": 64,
+        "1d": 110,
+        "4h": 140,
+        "1h": 150,
+        "15m": 160,
+    }
+    return limits.get(timeframe, 140)
 
 
 def _add_zone_query_params(params: dict[str, Any], prefix: str, zone: Any) -> None:

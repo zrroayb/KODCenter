@@ -12,6 +12,8 @@ from tradebot.web.runtime import (
     DashboardLogHandler,
     _desk_chart_url,
     _desk_decision,
+    _desk_setup_candidates,
+    _desk_timeframe_charts,
     _desk_priority_score,
     _desk_session_projection,
     _projection_aligns_with_bias,
@@ -154,6 +156,49 @@ def test_desk_chart_url_carries_structure_and_fvg_annotations():
     assert query["fvg_zone_low"] == ["101"]
     assert query["fvg_zone_high"] == ["103"]
     assert query["fvg_zone_direction"] == ["bullish"]
+
+
+def test_desk_setup_candidates_promote_matching_pdf_model():
+    direction = {
+        "direction": "bullish",
+        "objective": {"level": 120},
+        "raid": {"level": 100, "sweep_extreme": 98},
+        "key_level": {"status": "pass"},
+        "candle_3": {"status": "pass", "trigger_mode": "model1"},
+        "trigger_mode": "model1",
+        "trigger_confirmed": True,
+        "msb_level": 110,
+        "smt_status": {"status": "pass", "state": "unavailable", "detail": "SMT unavailable"},
+    }
+
+    candidates = _desk_setup_candidates(direction, "ready", "4h", "15m", [], "wait")
+
+    by_key = {item["key"]: item for item in candidates}
+    assert by_key["model1"]["status"] == "ready"
+    assert by_key["model1"]["trade"] is True
+    assert by_key["kod"]["status"] == "ready"
+    assert by_key["smt_kod"]["status"] == "unavailable"
+
+
+def test_desk_timeframe_charts_include_full_mtf_stack():
+    charts = _desk_timeframe_charts(
+        "BTC/USDT",
+        "bullish",
+        "4h",
+        "15m",
+        {"status": "waiting"},
+        htf_target=120,
+        reference_level=100,
+        sweep_extreme=98,
+        msb_level=110,
+        active_setup={"name": "Model #1"},
+    )
+
+    assert [item["timeframe"] for item in charts] == ["1M", "1w", "1d", "4h", "1h", "15m"]
+    assert [item["active"] for item in charts] == [False, False, False, True, False, True]
+    trigger_query = parse_qs(urlparse(charts[-1]["url"]).query)
+    assert trigger_query["timeframe"] == ["15m"]
+    assert trigger_query["trigger_mode"] == ["model1_or_mss"]
 
 
 def test_desk_pdf_framework_checklist_blocks_priority_until_full_gate_passes():

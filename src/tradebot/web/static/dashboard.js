@@ -1990,6 +1990,8 @@ function shortStructureLabel(item) {
 
 function mtfStructureChipsHtml(fw) {
   const frames = [
+    ["M", "1M"],
+    ["W", "1w"],
     ["D1", "1d"],
     ["H4", "4h"],
     ["H1", "1h"],
@@ -2165,8 +2167,10 @@ function mobileTradeStripHtml(post) {
   const crt = fw.crt || {};
   const decision = normalizeTradeDecision(post);
   const bias = fw.macro_bias || post?.bias || "Neutral";
+  const activeSetup = post?.active_setup_model?.name || "Wait";
   const rows = [
     ["Bias", bias],
+    ["Setup", activeSetup],
     ["Objective", primaryObjective(post)],
     ["Decision", decision.label],
     ["Entry", crt.entry || "Wait"],
@@ -2247,7 +2251,6 @@ function setupBreakdownHtml(post) {
     ["OB", Boolean((fw.order_blocks || []).length)],
     ["PO3", fw.po3_phase && fw.po3_phase !== "unknown"],
     ["CRT", Boolean(fw.crt?.type)],
-    ["Killzone", fw.killzone && fw.killzone !== "Outside Killzone"],
   ];
   return `
     <details class="setup-breakdown">
@@ -2488,7 +2491,6 @@ function renderDesk(payload) {
     const focusPost = sortedDeskPosts(posts).find((post) => Number(post.priority_score || 0) >= 35) || sortedDeskPosts(posts)[0];
     state.deskSymbol = focusPost?.symbol || symbols[0] || "";
   }
-  renderDeskSessions(payload.session_projection || []);
   renderDeskMarkets(posts, symbols);
   const visiblePosts = state.deskSymbol
     ? sortedDeskPosts(posts.filter((post) => post.symbol === state.deskSymbol))
@@ -2504,6 +2506,58 @@ function renderDesk(payload) {
     ? visiblePosts.map(renderDeskPost).join("")
     : "";
   void loadDeskCharts();
+}
+
+function setupStatusLabel(status) {
+  const labels = {
+    ready: "TRADE",
+    armed: "ARMED",
+    waiting: "WAIT",
+    blocked: "NO",
+    unavailable: "N/A",
+  };
+  return labels[status] || String(status || "WAIT").toUpperCase();
+}
+
+function setupRadarHtml(post) {
+  const candidates = post?.setup_candidates || [];
+  const activeKey = post?.active_setup_model?.key || "";
+  if (!candidates.length) return "";
+  return `
+    <div class="setup-radar" aria-label="CRT setup radar">
+      ${candidates.map((item) => {
+        const status = item.status || "waiting";
+        const active = item.key && item.key === activeKey ? "active" : "";
+        return `
+          <article class="setup-radar-card ${escapeHtml(status)} ${active}">
+            <header>
+              <strong>${escapeHtml(item.name || "Setup")}</strong>
+              <span>${escapeHtml(setupStatusLabel(status))}</span>
+            </header>
+            <p>${escapeHtml(item.detail || "")}</p>
+            <small>${escapeHtml(item.trigger || item.timeframe || "")}</small>
+          </article>`;
+      }).join("")}
+    </div>`;
+}
+
+function timeframeChartsHtml(post) {
+  const charts = post?.timeframe_charts || [];
+  if (!charts.length) {
+    return `
+      <div class="desk-mtf-chart-card active">
+        <div class="desk-mtf-chart-head"><strong>${escapeHtml(post?.trigger_timeframe || "Chart")}</strong><span>Trigger</span></div>
+        <div class="tv-chart-canvas desk-chart desk-mtf-chart expandable-chart" data-chart-url="${escapeHtml(post?.chart_url || "")}" data-chart-label="${escapeHtml(`${post?.symbol || ""} trigger chart`)}"></div>
+      </div>`;
+  }
+  return charts.map((chart) => `
+    <div class="desk-mtf-chart-card ${chart.active ? "active" : ""} role-${escapeHtml(chart.role || "context")}">
+      <div class="desk-mtf-chart-head">
+        <strong>${escapeHtml(chart.label || chart.timeframe || "")}</strong>
+        <span>${escapeHtml(chart.role === "trigger" ? "Trigger" : "Context")}</span>
+      </div>
+      <div class="tv-chart-canvas desk-chart desk-mtf-chart expandable-chart" data-chart-url="${escapeHtml(chart.url || "")}" data-chart-label="${escapeHtml(`${post?.symbol || ""} ${chart.timeframe || ""}`)}"></div>
+    </div>`).join("");
 }
 
 function renderDeskMarkets(posts, symbols) {
@@ -2632,7 +2686,6 @@ function renderDeskPost(post) {
   const context = post.context_summary || {};
   const checklistHtml = renderDeskChecklist(checklist);
   const tradeDecision = normalizeTradeDecision(post);
-  const chartLabel = `${post.symbol} ${post.trigger_timeframe} CRT terminal`;
   return `
     <article class="desk-post crt-terminal desk-${escapeHtml(status)} decision-${escapeHtml(tradeDecision.type)}">
       ${marketBiasBarHtml(post)}
@@ -2646,16 +2699,19 @@ function renderDeskPost(post) {
           <span class="desk-status ${escapeHtml(status)}">${escapeHtml(deskStatusLabel(status))}</span>
         </div>
       </div>
+      ${setupRadarHtml(post)}
       <div class="crt-stage-grid">
         <section class="crt-chart-shell">
           <div class="crt-chart-toolbar">
-            <span>${escapeHtml(post.trigger_timeframe)} chart</span>
+            <span>MTF chart stack</span>
             ${deskChartMetaHtml(post)}
-            <em>${escapeHtml(post.framework?.killzone || "Outside Killzone")}</em>
+            <em>${escapeHtml(post.active_setup_model?.name || "CRT map")}</em>
           </div>
           ${mobileTradeStripHtml(post)}
           <div class="crt-chart-stage">
-            <div class="tv-chart-canvas desk-chart crt-main-chart expandable-chart" data-chart-url="${escapeHtml(post.chart_url || "")}" data-chart-label="${escapeHtml(chartLabel)}"></div>
+            <div class="desk-mtf-chart-grid">
+              ${timeframeChartsHtml(post)}
+            </div>
           </div>
           ${eventTimelineHtml(post)}
         </section>
@@ -2680,10 +2736,11 @@ function renderDeskPost(post) {
 }
 
 function renderDeskChecklist(items) {
-  if (!items?.length) return "";
+  const visibleItems = (items || []).filter((item) => item.key !== "session");
+  if (!visibleItems.length) return "";
   return `
     <div class="desk-checklist">
-      ${items.map((item) => {
+      ${visibleItems.map((item) => {
         const status = item.status || "wait";
         return `
           <span class="desk-check ${escapeHtml(status)}">

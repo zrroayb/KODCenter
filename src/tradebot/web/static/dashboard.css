@@ -3579,7 +3579,7 @@ body.view-desk .shell {
 
 .mtf-structure {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -3648,6 +3648,103 @@ body.view-desk .shell {
   line-height: 1.25;
 }
 
+.setup-radar {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(10, 12, 15, 0.96);
+}
+
+.setup-radar-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  min-height: 118px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(17, 20, 25, 0.94);
+}
+
+.setup-radar-card header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setup-radar-card strong,
+.setup-radar-card p,
+.setup-radar-card small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-radar-card strong {
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.setup-radar-card header span {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--muted);
+  font: 900 9px var(--mono);
+}
+
+.setup-radar-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.setup-radar-card small {
+  align-self: end;
+  color: var(--dim);
+  font: 800 10px var(--mono);
+}
+
+.setup-radar-card.ready,
+.setup-radar-card.active.ready {
+  border-color: rgba(43, 191, 138, 0.46);
+  background: rgba(43, 191, 138, 0.1);
+}
+
+.setup-radar-card.ready header span {
+  color: var(--green);
+  background: rgba(43, 191, 138, 0.13);
+}
+
+.setup-radar-card.armed,
+.setup-radar-card.active.armed {
+  border-color: rgba(231, 184, 74, 0.4);
+  background: rgba(231, 184, 74, 0.08);
+}
+
+.setup-radar-card.armed header span {
+  color: var(--amber);
+  background: rgba(231, 184, 74, 0.12);
+}
+
+.setup-radar-card.blocked {
+  border-color: rgba(224, 82, 82, 0.25);
+}
+
+.setup-radar-card.blocked header span {
+  color: #ffc2c2;
+  background: rgba(224, 82, 82, 0.1);
+}
+
+.setup-radar-card.unavailable {
+  opacity: 0.62;
+}
+
 .terminal-priority {
   display: flex;
   align-items: center;
@@ -3689,7 +3786,7 @@ body.view-desk .shell {
 .crt-stage-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 292px;
-  min-height: 680px;
+  min-height: 760px;
 }
 
 .crt-chart-shell {
@@ -3757,9 +3854,65 @@ body.view-desk .shell {
 
 .crt-chart-stage {
   position: relative;
-  min-height: 590px;
+  min-height: 670px;
+  overflow: auto;
+  background: #08090a;
+}
+
+.desk-mtf-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+}
+
+.desk-mtf-chart-card {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #111419;
+}
+
+.desk-mtf-chart-card.active {
+  border-color: rgba(103, 168, 255, 0.42);
+}
+
+.desk-mtf-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  padding: 0 9px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  background: #101318;
+}
+
+.desk-mtf-chart-head strong {
+  color: var(--text);
+  font: 900 11px var(--mono);
+}
+
+.desk-mtf-chart-head span {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.desk-mtf-chart {
+  min-height: 292px;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
   background: #08090a;
+}
+
+.desk-mtf-chart svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .crt-main-chart {
@@ -4570,6 +4723,15 @@ body.view-desk .shell {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .setup-radar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px;
+  }
+
+  .setup-radar-card {
+    min-height: 126px;
+  }
+
   .desk-market-tabs {
     padding: 10px;
   }
@@ -4670,8 +4832,24 @@ body.view-desk .shell {
   }
 
   .crt-chart-stage {
-    min-height: 520px;
-    overflow-x: auto;
+    min-height: 0;
+    overflow-x: hidden;
+  }
+
+  .desk-mtf-chart-grid {
+    grid-template-columns: 1fr;
+    padding: 8px 0;
+  }
+
+  .desk-mtf-chart-card {
+    border-left: 0;
+    border-right: 0;
+    border-radius: 0;
+  }
+
+  .desk-mtf-chart {
+    min-height: 430px;
+    aspect-ratio: auto;
   }
 
   .crt-mobile-strip {
@@ -4798,6 +4976,12 @@ body.view-desk .shell {
     width: 820px;
     max-width: none;
     height: auto;
+  }
+
+  .desk-mtf-chart svg {
+    width: 100%;
+    max-width: 100%;
+    height: 430px;
   }
 
   .desk-copy {
