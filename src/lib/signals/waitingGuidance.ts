@@ -1,0 +1,48 @@
+import type { Candle, TradingSignal } from "../ict/types";
+import { formatPrice } from "../ict/format";
+
+function executionCandles(signal: TradingSignal): Candle[] {
+  return signal.context.timeframes.m15.length ? signal.context.timeframes.m15 : signal.context.timeframes.m5;
+}
+
+export type CloseConfirmationRequirement = {
+  timeframe: "15m" | "5m";
+  level: number;
+  side: "above" | "below";
+  candleIndex: number;
+  candleTime: number;
+  reference: "last-closed-high" | "last-closed-low";
+  label: string;
+  reason: string;
+};
+
+export function closeConfirmationRequirement(signal: TradingSignal): CloseConfirmationRequirement | null {
+  if (signal.plan.entryModel.cisdConfirmed) return null;
+  const candles = executionCandles(signal);
+  if (candles.length < 1) return null;
+  const candleIndex = candles.length - 1;
+  const referenceCandle = candles[candleIndex];
+  const timeframe = signal.context.timeframes.m15.length ? "15m" : "5m";
+  const side = signal.direction === "long" ? "above" : "below";
+  const level = signal.direction === "long" ? referenceCandle.high : referenceCandle.low;
+  const reference = signal.direction === "long" ? "last-closed-high" : "last-closed-low";
+  return {
+    timeframe,
+    level,
+    side,
+    candleIndex,
+    candleTime: referenceCandle.time,
+    reference,
+    label: `${timeframe} mum ${formatPrice(level)} ${side === "above" ? "üstünde" : "altında"}`,
+    reason: signal.direction === "long"
+      ? "Son kapanmış mumun high'ı. Üstünde kapanış gelirse kısa vadeli alıcı kontrolü onaylanır."
+      : "Son kapanmış mumun low'u. Altında kapanış gelirse kısa vadeli satıcı kontrolü onaylanır."
+  };
+}
+
+export function entryRetestRequirement(signal: TradingSignal): string | null {
+  if (signal.plan.entryModel.retested) return null;
+  const gap = signal.plan.entryModel.fairValueGap;
+  if (!gap) return `Fiyat giriş seviyesine dokunsun: ${formatPrice(signal.plan.entry)}.`;
+  return `Fiyat giriş kutusuna dokunsun: ${formatPrice(gap.low)} - ${formatPrice(gap.high)}.`;
+}
