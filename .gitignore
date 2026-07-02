@@ -6,6 +6,7 @@ dist
 .DS_Store
 *.log
 *.tsbuildinfo
+*.egg-info
 vite.config.js
 vite.config.d.ts
 .tradebot_alerts.json
