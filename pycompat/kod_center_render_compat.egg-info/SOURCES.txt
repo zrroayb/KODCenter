@@ -1,0 +1,9 @@
+README.md
+setup.py
+pycompat/kod_center_render_compat.egg-info/PKG-INFO
+pycompat/kod_center_render_compat.egg-info/SOURCES.txt
+pycompat/kod_center_render_compat.egg-info/dependency_links.txt
+pycompat/kod_center_render_compat.egg-info/entry_points.txt
+pycompat/kod_center_render_compat.egg-info/top_level.txt
+pycompat/tradebot_web_compat/__init__.py
+pycompat/tradebot_web_compat/server.py

@@ -1,0 +1,2 @@
+[console_scripts]
+tradebot-web = tradebot_web_compat.server:main
