@@ -2,18 +2,13 @@ import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin } from "vite";
 import process from "node:process";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 const yahooUserAgent = "Mozilla/5.0";
 
-type YahooProxyRequest = {
-  url?: string;
-};
+type YahooProxyRequest = IncomingMessage;
 
-type YahooProxyResponse = {
-  statusCode: number;
-  setHeader(name: string, value: string): void;
-  end(body?: string): void;
-};
+type YahooProxyResponse = ServerResponse;
 
 type ReadyTelegramPayload = {
   id?: string;
@@ -88,12 +83,7 @@ type TelegramEnv = {
   GEMINI_MODEL?: string;
 };
 
-type JsonRequest = YahooProxyRequest & {
-  method?: string;
-  on(event: "data", callback: (chunk: Uint8Array) => void): void;
-  on(event: "end", callback: () => void): void;
-  on(event: "error", callback: (error: Error) => void): void;
-};
+type JsonRequest = IncomingMessage;
 
 function jsonResponse(response: YahooProxyResponse, statusCode: number, body: unknown) {
   response.statusCode = statusCode;
