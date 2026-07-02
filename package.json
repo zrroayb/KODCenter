@@ -23,6 +23,7 @@
     "vite": "^6.0.5"
   },
   "devDependencies": {
+    "@types/node": "^22.20.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
     "vitest": "^3.2.6"
