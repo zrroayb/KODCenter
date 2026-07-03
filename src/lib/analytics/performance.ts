@@ -15,6 +15,59 @@ export type BacktestResult = {
   bestPremiumDiscountLocation: string;
   worstCondition: string;
   equityCurve: number[];
+  replay?: RuntimeReplaySummary;
+};
+
+export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggered" | "open";
+
+export type RuntimeReplayTrade = {
+  id: string;
+  symbol: string;
+  direction: string;
+  signalTime: number;
+  grade: string;
+  score: number;
+  entry: number;
+  stopLoss: number;
+  target: number;
+  status: RuntimeReplayTradeStatus;
+  rMultiple: number;
+  maxFavorableR: number;
+  maxAdverseR: number;
+  candlesHeld: number;
+  note: string;
+};
+
+export type RuntimeReplaySymbolSummary = {
+  symbol: string;
+  readyAlerts: number;
+  triggeredTrades: number;
+  totalR: number;
+  winRate: number;
+};
+
+export type RuntimeReplaySummary = {
+  mode: "runtime-replay";
+  strategyId: string;
+  windowDays: number;
+  scanEveryCandles: number;
+  availableDays: number;
+  startedAt: number;
+  endedAt: number;
+  scannedWindows: number;
+  readyAlerts: number;
+  watchAlerts: number;
+  triggeredTrades: number;
+  notTriggered: number;
+  openTrades: number;
+  stoppedTrades: number;
+  tp1Trades: number;
+  tp2Trades: number;
+  totalR: number;
+  expectancyR: number;
+  bySymbol: RuntimeReplaySymbolSummary[];
+  trades: RuntimeReplayTrade[];
+  sampleWarning?: string;
 };
 
 export function performanceFromSignals(signals: TradingSignal[]): BacktestResult {

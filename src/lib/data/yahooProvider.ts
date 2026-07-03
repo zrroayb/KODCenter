@@ -14,7 +14,7 @@ export type MarketDataLoadResult = {
   errors: string[];
 };
 
-type YahooInterval = "5m" | "1h" | "1d";
+type YahooInterval = "5m" | "15m" | "1h" | "1d";
 type YahooRange = "5d" | "60d" | "1y";
 
 type YahooChartResponse = {
@@ -129,13 +129,14 @@ async function withRetry<T>(label: string, task: () => Promise<T>): Promise<T> {
 }
 
 async function loadYahooMarket(item: (typeof YAHOO_SYMBOLS)[number], signal?: AbortSignal): Promise<DemoMarket> {
-  const [m5, h1, daily] = await Promise.all([
+  const [m5, m15, h1, daily] = await Promise.all([
     withRetry(`${item.symbol} 5m`, () => fetchYahooCandles(item.yahoo, "5m", "5d", signal)),
+    withRetry(`${item.symbol} 15m`, () => fetchYahooCandles(item.yahoo, "15m", "60d", signal)),
     withRetry(`${item.symbol} 1h`, () => fetchYahooCandles(item.yahoo, "1h", "60d", signal)),
     withRetry(`${item.symbol} 1d`, () => fetchYahooCandles(item.yahoo, "1d", "1y", signal))
   ]);
 
-  if (!m5.length || !h1.length || !daily.length) {
+  if ((!m15.length && !m5.length) || !h1.length || !daily.length) {
     throw new Error(`${item.symbol}: Yahoo eksik candle döndürdü`);
   }
 
@@ -144,9 +145,9 @@ async function loadYahooMarket(item: (typeof YAHOO_SYMBOLS)[number], signal?: Ab
     name: item.name,
     timeframes: {
       daily: enrichWithSyntheticBidAsk(trimCandles(daily, 180), item.symbol),
-      h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(h1, "4h"), 120), item.symbol),
-      h1: enrichWithSyntheticBidAsk(trimCandles(h1, 160), item.symbol),
-      m15: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(m5, "15m"), 180), item.symbol),
+      h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(h1, "4h"), 180), item.symbol),
+      h1: enrichWithSyntheticBidAsk(trimCandles(h1, 780), item.symbol),
+      m15: enrichWithSyntheticBidAsk(trimCandles(m15.length ? m15 : aggregateCandles(m5, "15m"), 3_000), item.symbol),
       m5: enrichWithSyntheticBidAsk(trimCandles(m5, 160), item.symbol)
     }
   };

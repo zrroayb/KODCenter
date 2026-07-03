@@ -6,6 +6,7 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { createDemoMarkets } from "./data/demoData";
 import { runDemoBacktest } from "./lib/backtest/backtestEngine";
+import { runMonthlyRuntimeReplay } from "./lib/backtest/runtimeReplay";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
 import { buildDataHealthReport } from "./lib/data/dataHealth";
 import { loadYahooMarkets, type MarketDataLoadResult } from "./lib/data/yahooProvider";
@@ -275,14 +276,19 @@ export default function App() {
 
   const runBacktest = () => {
     const strategy = getStrategy(strategyId);
-    setBacktestResult(strategy.backtest({
-      contexts,
+    setBacktestResult(runMonthlyRuntimeReplay({
+      markets,
+      strategy,
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
         stopProfile: rules.stopProfile,
         useExecutionCosts: rules.useExecutionCosts,
-        slippageStress: rules.slippageStress
+        slippageStress: rules.slippageStress,
+        partialTpEnabled: rules.partialTpEnabled,
+        moveToBreakevenAtR: rules.moveToBreakevenAtR,
+        maxDailyRiskPct: rules.maxDailyRiskPct,
+        avoidNews: rules.avoidNews
       }
     }));
   };

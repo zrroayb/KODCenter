@@ -150,8 +150,11 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
       needs.push(`${closeRequirement.label} kapanmalı. ${closeRequirement.reason}`);
     }
     if (!retestRequirement && !closeRequirement) {
-      needs.push("Giriş henüz net değil; temiz kapanış bekle.");
+      needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
     }
+  }
+  if (signal.stage === "watch" && !needs.some((item) => item.includes("15m mum"))) {
+    needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
   for (const item of [...failedChecklist, ...neutralChecklist].filter((item) => item.label !== "Entry Model" && item.label !== "MSS").slice(0, 3)) {
     const simple = simpleChecklistText(item.label, signal);
@@ -171,7 +174,7 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
     needs.push(`Fiyat ${simpleDirection} tarafa güçlü bir mum atsın.`);
   }
   if (!signal.plan.entryModel.cisdConfirmed && !closeRequirement && !context.marketStructureShifts.some((item) => item.direction === direction)) {
-    needs.push(`Yön değişimi ${simpleDirection} tarafa mum kapanışıyla netleşsin.`);
+    needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
   if ((signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") && !signal.plan.entryModel.fairValueGap) {
     needs.push("Temiz bir giriş boşluğu oluşsun veya korunmuş kalsın.");

@@ -1086,6 +1086,22 @@ button:focus-visible {
   letter-spacing: 0.08em;
 }
 
+.replay-metric-grid {
+  margin-top: 10px;
+}
+
+.replay-symbol-list {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.replay-symbol-list div {
+  min-height: 74px;
+}
+
+.replay-trade-list {
+  margin-top: 14px;
+}
+
 .list-stack {
   display: grid;
   gap: 8px;
