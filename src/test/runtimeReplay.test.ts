@@ -19,5 +19,13 @@ describe("monthly runtime replay", () => {
     expect((result.replay?.readyAlerts ?? 0) + (result.replay?.watchAlerts ?? 0)).toBeGreaterThan(0);
     expect(result.equityCurve.length).toBeGreaterThan(0);
     expect(result.replay?.bySymbol.length).toBeLessThanOrEqual(5);
+    expect(result.replay?.calibration.length).toBeGreaterThan(0);
+    expect(result.replay?.failureReasons).toBeDefined();
+    if (result.replay?.trades.length) {
+      expect(result.replay.trades[0].outcomeReason).toBeTruthy();
+      expect(result.replay.trades[0].tags.length).toBeGreaterThan(0);
+    } else {
+      expect(result.replay?.calibration[0].label).toContain("READY");
+    }
   });
 });

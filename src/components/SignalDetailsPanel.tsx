@@ -5,6 +5,7 @@ import { fetchGeminiTradeCommentary, type GeminiTradeCommentaryResponse } from "
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
+import { signalLifecycleState } from "../lib/signals/signalClassification";
 import { waitingRequirementsForMinimumRR } from "./ScannerView";
 
 function statusClass(status: DecisionChecklistItem["status"] | SignalEvidenceItem["status"]) {
@@ -77,6 +78,7 @@ export function SignalDetailsPanel({
   const [aiCommentary, setAiCommentary] = useState<GeminiTradeCommentaryResponse>({ status: "disabled", reason: "Yüklenmedi" });
   const [aiLoading, setAiLoading] = useState(false);
   const annotations = selectedSignalAnnotations(signal);
+  const lifecycle = signalLifecycleState(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const setupTime = new Date(signalAnchorTime(signal)).toLocaleString();
   const planGapLabel = signal.plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG";
@@ -163,6 +165,10 @@ export function SignalDetailsPanel({
       <div className={`signal-ticket-state ${signal.stage}`}>
         <strong>{actionTitle(signal)}</strong>
         <span>{signal.grade} · Score {signal.score} · {formatR(signal.plan.rr)}</span>
+      </div>
+      <div className={`signal-lifecycle-strip ${lifecycle.severity}`}>
+        <strong>{lifecycle.label}</strong>
+        <span>{lifecycle.nextAction}</span>
       </div>
       <div className="signal-ticket-levels">
         <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>

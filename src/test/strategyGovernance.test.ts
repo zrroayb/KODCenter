@@ -62,6 +62,21 @@ describe("strategy governance engines", () => {
     expect(risk.summary).toContain("NFP");
   });
 
+  it("surfaces active watch event windows in the summary", () => {
+    const risk = buildEventRisk("NAS100", Date.UTC(2026, 6, 6, 13, 35));
+    expect(risk.level).toBe("watch");
+    expect(risk.noTrade).toBe(false);
+    expect(risk.summary).toContain("US cash open liquidity reset");
+    expect(risk.upcomingEvents.join(" ")).toContain("US cash open");
+  });
+
+  it("models CPI-style inflation windows as hard USD blocks", () => {
+    const risk = buildEventRisk("EURUSD", Date.UTC(2026, 6, 8, 12, 35));
+    expect(risk.level).toBe("high");
+    expect(risk.noTrade).toBe(true);
+    expect(risk.summary).toContain("US CPI");
+  });
+
   it("classifies spike expansion as blocked regime", () => {
     const candles = Array.from({ length: 40 }, (_, index) => candle(index, 100, 100.2, 99.8, 100));
     candles[candles.length - 1] = candle(39, 100, 106, 99, 105);

@@ -9,9 +9,78 @@ function bySymbol(entries: JournalEntry[], symbol: string): JournalEntry[] {
   return entries.filter((entry) => entry.symbol === symbol);
 }
 
+function countBy(values: string[]): Array<{ key: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const value of values.filter(Boolean)) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function closedR(entries: JournalEntry[]): JournalEntry[] {
+  return entries.filter((entry) => typeof entry.rMultiple === "number" && Number.isFinite(entry.rMultiple));
+}
+
+function averageR(entries: JournalEntry[]): number | undefined {
+  return average(closedR(entries).map((entry) => entry.rMultiple ?? 0));
+}
+
 export function journalLearningInsights(entries: JournalEntry[], signals: TradingSignal[]): JournalInsight[] {
-  const closed = entries.filter((entry) => typeof entry.rMultiple === "number" && Number.isFinite(entry.rMultiple));
+  const closed = closedR(entries);
+  const taken = entries.filter((entry) => entry.tradeAction === "taken" || Boolean(entry.takenAt));
   const insights: JournalInsight[] = [];
+
+  const takenAvg = averageR(taken);
+  if (typeof takenAvg === "number") {
+    insights.push({
+      label: "Alınan işlemler",
+      value: `${takenAvg.toFixed(2)}R`,
+      detail: takenAvg < 0
+        ? "Gerçek alınan trade ortalaması negatif. READY bile olsa risk küçült, C grade alma ve entry onayı sertleşsin."
+        : "Aldığın trade ortalaması pozitif. Aynı kuralları bozma; özellikle stop/entry notlarını standart tut."
+    });
+  }
+
+  const qualityStats = countBy(closed.map((entry) => entry.executionQuality ?? "beklemede"));
+  const weakQuality = qualityStats
+    .map((item) => ({ ...item, avgR: averageR(closed.filter((entry) => (entry.executionQuality ?? "beklemede") === item.key)) }))
+    .find((item) => item.key !== "temiz" && item.key !== "beklemede" && typeof item.avgR === "number" && item.avgR < 0);
+  if (weakQuality && typeof weakQuality.avgR === "number") {
+    insights.push({
+      label: `Execution filtresi: ${weakQuality.key}`,
+      value: `${weakQuality.avgR.toFixed(2)}R`,
+      detail: `${weakQuality.count} kayıtta negatif. Bu etiketle gelen setup'larda bot READY'i pratikte WATCH gibi ele almalı.`
+    });
+  }
+
+  const topMistake = countBy(entries.map((entry) => entry.mistake ?? ""))[0];
+  if (topMistake && topMistake.count >= 2) {
+    insights.push({
+      label: "Tekrar eden hata",
+      value: `${topMistake.count}x`,
+      detail: `"${topMistake.key}" sık yazılmış. Aynı uyarı aktif sinyalde varsa pas geçme nedeni olarak öne çıkarılmalı.`
+    });
+  }
+
+  const missed = entries.filter((entry) => entry.tradeAction === "missed").length;
+  if (taken.length && missed > taken.length) {
+    insights.push({
+      label: "Kaçan setup",
+      value: `${missed}/${taken.length}`,
+      detail: "Kaçırılan setup alınandan fazla. READY bildirimini kilitle, entry kutusu ve kapanış seviyesi daha erken görünmeli."
+    });
+  }
+
+  const topRuleViolation = countBy(entries.flatMap((entry) => entry.ruleViolations ?? []))[0];
+  if (topRuleViolation && topRuleViolation.count >= 2) {
+    insights.push({
+      label: "Kural ihlali",
+      value: `${topRuleViolation.count}x`,
+      detail: `${topRuleViolation.key} tekrar ediyor. Bu rule fail ise aktif sinyal otomatik düşük öncelik olmalı.`
+    });
+  }
 
   for (const signal of signals.slice(0, 5)) {
     const symbolEntries = bySymbol(closed, signal.symbol);
@@ -26,7 +95,7 @@ export function journalLearningInsights(entries: JournalEntry[], signals: Tradin
         label: `${signal.symbol} journal edge`,
         value: `${avgR.toFixed(2)}R`,
         detail: avgR < 0
-          ? "Bu sembolde kapanmış journal ortalaması negatif; risk düşür veya ekstra filtre bekle."
+          ? "Bu sembolde kapanmış journal ortalaması negatif; risk düşür, HTF/PD uyumu gelmeden alma."
           : "Bu sembolde journal ortalaması pozitif; yine de setup governance temiz olmalı."
       });
     }
@@ -46,5 +115,5 @@ export function journalLearningInsights(entries: JournalEntry[], signals: Tradin
       detail: "İşlemi aldım/pas geçtim ve sonuç R bilgileri arttıkça bot sembol ve setup bazlı filtre önerecek."
     }];
   }
-  return insights.slice(0, 6);
+  return insights.slice(0, 8);
 }

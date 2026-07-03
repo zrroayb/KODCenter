@@ -1094,6 +1094,11 @@ button:focus-visible {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
+.replay-calibration-list,
+.replay-failure-list {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
 .replay-symbol-list div {
   min-height: 74px;
 }
@@ -1438,6 +1443,49 @@ button:focus-visible {
   background:
     linear-gradient(180deg, rgba(255, 229, 232, 0.9), rgba(255, 255, 251, 0.72));
   border-color: rgba(220, 60, 71, 0.24);
+}
+
+.signal-lifecycle-strip {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 10px 11px;
+  border: 1px solid rgba(23, 27, 31, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 251, 0.72);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.72) inset;
+}
+
+.signal-lifecycle-strip strong {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+}
+
+.signal-lifecycle-strip span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.signal-lifecycle-strip.good {
+  border-color: rgba(18, 156, 107, 0.24);
+  background: linear-gradient(180deg, rgba(216, 248, 235, 0.86), rgba(255, 255, 251, 0.72));
+}
+
+.signal-lifecycle-strip.watch {
+  border-color: rgba(245, 158, 11, 0.24);
+  background: linear-gradient(180deg, rgba(255, 246, 218, 0.88), rgba(255, 255, 251, 0.72));
+}
+
+.signal-lifecycle-strip.danger {
+  border-color: rgba(220, 60, 71, 0.24);
+  background: linear-gradient(180deg, rgba(255, 229, 232, 0.9), rgba(255, 255, 251, 0.72));
+}
+
+.signal-lifecycle-strip.muted {
+  border-color: rgba(100, 116, 139, 0.18);
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.88), rgba(255, 255, 251, 0.7));
 }
 
 .signal-ticket-levels {

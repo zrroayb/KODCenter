@@ -2,7 +2,7 @@ import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, type F
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
 import { sessionWindows } from "../lib/session/sessionClock";
-import { closeConfirmationRequirement } from "../lib/signals/waitingGuidance";
+import { closeConfirmationRequirement, type CloseConfirmationRequirement } from "../lib/signals/waitingGuidance";
 
 type ChartMode = "execution" | "confirmation" | "context" | "daily";
 
@@ -98,6 +98,34 @@ function stopSourceText(signal: TradingSignal) {
 function entryGapLabel(signal: TradingSignal) {
   if (signal.plan.entrySource === "ifvg-retest") return "iFVG";
   return "FVG";
+}
+
+function compactDecisionText(text: string): string {
+  return text.length > 132 ? `${text.slice(0, 129)}...` : text;
+}
+
+function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirmationRequirement | null): string {
+  if (signal.stage === "invalidated") return compactDecisionText("TEK KARAR: alma. Stop/invalidation görüldü, yeni setup bekle.");
+  if (signal.stage === "missed") return compactDecisionText("TEK KARAR: kovalamadan bekle. Entry veya hedef kaçmış.");
+  if (signal.governance.status === "block") return compactDecisionText(`TEK KARAR: alma. ${signal.governance.blockers[0] ?? "Governance blok var."}`);
+  if (closeRequirement) {
+    const sideText = closeRequirement.side === "above" ? "üstünde" : "altında";
+    const refText = closeRequirement.reference === "last-closed-high" ? "son mum high" : "son mum low";
+    return compactDecisionText(`TEK KARAR: ${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${sideText} kapanmalı (${refText}).`);
+  }
+  if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
+    const gap = signal.plan.entryModel.fairValueGap;
+    const entryText = gap
+      ? `${formatPrice(gap.low)}-${formatPrice(gap.high)} entry kutusuna`
+      : `${formatPrice(signal.plan.entry)} entry seviyesine`;
+    return compactDecisionText(`TEK KARAR: fiyat ${entryText} gelsin, kapanışla onaylasın.`);
+  }
+  if (signal.stage === "ready") {
+    return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}.`);
+  }
+  return compactDecisionText(signal.plan.planWarnings[0]
+    ? `TEK KARAR: bekle. ${signal.plan.planWarnings[0]}`
+    : "TEK KARAR: setup izleniyor; READY olmadan işlem yok.");
 }
 
 function startOfUtcDay(timestamp: number): number {
@@ -367,9 +395,16 @@ export function CandleChart({
     const waitLineY = closeRequirement ? scaleY(closeRequirement.level) : 0;
     const waitLabelX = closeRequirement ? Math.min(plotRight - 168, Math.max(plot.left + 120, anchorX + 24)) : 0;
     const waitLabelY = closeRequirement ? Math.max(plot.top + 22, Math.min(plotBottom - 16, waitLineY - 22)) : 0;
+    const decisionText = chartDecisionText(selectedSignal, closeRequirement);
 
     return (
       <g className="selected-signal-overlay">
+        <g className="chart-decision-strip">
+          <rect x={plot.left + 10} y={plot.top + 10} width={plotRight - plot.left - 20} height="30" rx="6" fill="rgba(5, 7, 11, 0.9)" stroke={signalColor} strokeWidth="1.2" />
+          <text x={plot.left + 24} y={plot.top + 30} fill="#f8fafc" fontSize="11" fontWeight="900">
+            {decisionText}
+          </text>
+        </g>
         <rect
           x={anchorX}
           y={scaleY(rewardTop)}
@@ -521,7 +556,7 @@ export function CandleChart({
             />
             <rect x={waitLabelX} y={waitLabelY - 12} width="156" height="24" rx="4" fill="rgba(15, 23, 42, 0.9)" stroke="#f59e0b" strokeWidth="1.1" />
             <text x={waitLabelX + 78} y={waitLabelY + 4} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
-              burda MSB beklemeli
+              kapanış onayı
             </text>
             <text x={plot.left + 10} y={Math.max(plot.top + 14, waitLineY - 10)} fill="#f59e0b" fontSize="10" fontWeight="900">
               {closeRequirement.timeframe} KAPANIŞ {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}

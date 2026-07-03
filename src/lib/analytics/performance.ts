@@ -19,6 +19,15 @@ export type BacktestResult = {
 };
 
 export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggered" | "open";
+export type RuntimeReplayOutcomeReason =
+  | "clean-model"
+  | "stop-too-tight"
+  | "event-risk"
+  | "range-chop"
+  | "htf-conflict"
+  | "entry-not-filled"
+  | "expired"
+  | "unknown";
 
 export type RuntimeReplayTrade = {
   id: string;
@@ -35,6 +44,8 @@ export type RuntimeReplayTrade = {
   maxFavorableR: number;
   maxAdverseR: number;
   candlesHeld: number;
+  outcomeReason: RuntimeReplayOutcomeReason;
+  tags: string[];
   note: string;
 };
 
@@ -44,6 +55,13 @@ export type RuntimeReplaySymbolSummary = {
   triggeredTrades: number;
   totalR: number;
   winRate: number;
+};
+
+export type RuntimeReplayCalibration = {
+  label: string;
+  value: string;
+  detail: string;
+  verdict: "keep" | "tighten" | "relax" | "investigate";
 };
 
 export type RuntimeReplaySummary = {
@@ -66,6 +84,8 @@ export type RuntimeReplaySummary = {
   totalR: number;
   expectancyR: number;
   bySymbol: RuntimeReplaySymbolSummary[];
+  calibration: RuntimeReplayCalibration[];
+  failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;
   trades: RuntimeReplayTrade[];
   sampleWarning?: string;
 };

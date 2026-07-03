@@ -30,6 +30,7 @@ describe("chart trade plan overlay", () => {
     expect(markup).toContain("TP1");
     expect(markup).toContain("1R RISK");
     expect(markup).toContain("sweep üstü");
+    expect(markup).toContain("TEK KARAR");
   });
 
   it("renders compact entry, stop and TP markers on higher timeframe charts", () => {
@@ -153,7 +154,8 @@ describe("chart trade plan overlay", () => {
     expect(markup).toContain("15m KAPANIŞ");
     expect(markup).toContain("98.80");
     expect(markup).toContain("referans mum");
-    expect(markup).toContain("burda MSB beklemeli");
+    expect(markup).toContain("kapanış onayı");
+    expect(markup).toContain("TEK KARAR");
     expect(markup).toContain("Son mum low kırılırsa onay");
     expect(markup).toContain("liq alımı");
     expect(markup).toContain("NYAM.H");

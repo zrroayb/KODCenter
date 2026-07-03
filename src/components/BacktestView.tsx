@@ -2,6 +2,24 @@ import { RefreshCcw } from "lucide-react";
 import type { BacktestResult } from "../lib/analytics/performance";
 import { formatPrice } from "../lib/ict/format";
 
+function reasonText(reason: string) {
+  if (reason === "clean-model") return "Temiz model";
+  if (reason === "stop-too-tight") return "Stop / risk problemi";
+  if (reason === "event-risk") return "Event riski";
+  if (reason === "range-chop") return "Range / chop";
+  if (reason === "htf-conflict") return "HTF ters";
+  if (reason === "entry-not-filled") return "Entry dolmadı";
+  if (reason === "expired") return "Süre doldu";
+  return "Bilinmeyen";
+}
+
+function verdictText(verdict: string) {
+  if (verdict === "tighten") return "Sıkılaştır";
+  if (verdict === "keep") return "Koru";
+  if (verdict === "relax") return "Gevşet";
+  return "İncele";
+}
+
 export function BacktestView({ result, onRun }: { result: BacktestResult; onRun: () => void }) {
   const replay = result.replay;
   const metrics = [
@@ -46,12 +64,33 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               </div>
             ))}
           </div>
+          <div className="strategy-learning-list replay-calibration-list">
+            <strong>Kalibrasyon önerisi</strong>
+            {replay.calibration.map((item) => (
+              <div key={`${item.label}-${item.value}-${item.verdict}`}>
+                <span>{item.label}</span>
+                <b>{verdictText(item.verdict)} · {item.value}</b>
+                <small>{item.detail}</small>
+              </div>
+            ))}
+          </div>
+          <div className="strategy-learning-list replay-failure-list">
+            <strong>Neden patladı / neden dolmadı?</strong>
+            {replay.failureReasons.slice(0, 6).map((item) => (
+              <div key={item.reason}>
+                <span>{reasonText(item.reason)}</span>
+                <b>{item.count} kez · {item.totalR.toFixed(2)}R</b>
+                <small>Bu sebep artıyorsa ilgili filtre READY yerine WATCH olmalı.</small>
+              </div>
+            ))}
+            {!replay.failureReasons.length && <p className="muted-note">Kayıp sebebi yok; ya trade yok ya da sonuçlar pozitif.</p>}
+          </div>
           <div className="journal-entry-list replay-trade-list">
             {replay.trades.slice(0, 8).map((trade) => (
               <div key={trade.id}>
                 <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
                 <span>{new Date(trade.signalTime).toLocaleString()} · grade {trade.grade} · score {trade.score}</span>
-                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · {trade.note}</small>
+                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
             {!replay.trades.length && <p className="muted-note">Son 1 ayda READY trade tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}

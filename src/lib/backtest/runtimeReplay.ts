@@ -1,5 +1,12 @@
 import type { DemoMarket } from "../../data/demoData";
-import { equityCurveFromReturns, maxDrawdown, type BacktestResult, type RuntimeReplayTrade } from "../analytics/performance";
+import {
+  equityCurveFromReturns,
+  maxDrawdown,
+  type BacktestResult,
+  type RuntimeReplayCalibration,
+  type RuntimeReplayOutcomeReason,
+  type RuntimeReplayTrade
+} from "../analytics/performance";
 import { aggregateCandles, trimCandles } from "../data/candleAggregation";
 import { executableHigh, executableLow } from "../data/bidAsk";
 import type { Candle, MarketContext, MarketSymbol, TradingSignal } from "../ict/types";
@@ -19,7 +26,7 @@ type SetupState = {
   countedReady: boolean;
 };
 
-type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "note">;
+type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note">;
 
 export type RuntimeReplayInput = {
   markets: DemoMarket[];
@@ -120,9 +127,47 @@ function targetR(signal: TradingSignal, targetIndex: 0 | 1): number {
   return Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001));
 }
 
+function expectedBias(signal: TradingSignal) {
+  return signal.direction === "short" ? "bearish" : "bullish";
+}
+
+function expectedPd(signal: TradingSignal) {
+  return signal.direction === "short" ? "premium" : "discount";
+}
+
+function tradeTags(signal: TradingSignal): string[] {
+  const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
+  const expected = expectedBias(signal);
+  return Array.from(new Set([
+    `grade:${signal.grade}`,
+    `entry:${signal.plan.entrySource}`,
+    `entry-status:${signal.plan.entryStatus}`,
+    `stop:${signal.plan.stopSource}`,
+    `target:${signal.plan.targetSource}`,
+    `session:${activeSession}`,
+    `pd:${signal.context.premiumDiscount.zone}`,
+    `regime:${signal.context.regime.type}`,
+    `event:${signal.context.eventRisk.level}`,
+    signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? "smt:aligned" : "smt:none",
+    signal.context.premiumDiscount.zone === expectedPd(signal) ? "pd:aligned" : "pd:mismatch",
+    signal.context.bias.daily === expected || signal.context.bias.h4 === expected ? "htf:aligned" : "htf:conflict",
+    signal.plan.rr >= 2 ? "rr:2plus" : signal.plan.rr >= 1.5 ? "rr:ok" : "rr:low",
+    signal.governance.status === "allow" ? "governance:allow" : `governance:${signal.governance.status}`
+  ]));
+}
+
+function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeReplayOutcomeReason {
+  if (signal.context.eventRisk.level !== "clear") return "event-risk";
+  if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
+  if (signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
+  if (signal.plan.stopSource === "volatility-floor" || maxFavorableR < 0.25) return "stop-too-tight";
+  return "unknown";
+}
+
 function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]): ReplayOutcome {
+  const tags = tradeTags(signal);
   if (!futureCandles.length) {
-    return { status: "open", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, note: "İleri mum yok; sonuç açık kaldı." };
+    return { status: "open", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "expired", tags, note: "İleri mum yok; sonuç açık kaldı." };
   }
 
   const immediateEntry = signal.plan.entryStatus === "confirmed";
@@ -134,6 +179,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
       maxFavorableR: 0,
       maxAdverseR: 0,
       candlesHeld: futureCandles.length,
+      outcomeReason: "entry-not-filled",
+      tags,
       note: "Entry alanı sonraki mumlarda tetiklenmedi."
     };
   }
@@ -159,12 +206,15 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
       : executableHigh(candle, "sell") >= signal.plan.targets[0]);
 
     if (stopHit) {
+      const reason = stoppedReason(signal, maxFavorableR);
       return {
         status: "stopped",
         rMultiple: -1,
         maxFavorableR,
         maxAdverseR,
         candlesHeld: index + 1,
+        outcomeReason: reason,
+        tags,
         note: "Entry sonrası stop görüldü."
       };
     }
@@ -175,6 +225,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
         maxFavorableR,
         maxAdverseR,
         candlesHeld: index + 1,
+        outcomeReason: "clean-model",
+        tags,
         note: "Entry sonrası TP2 görüldü."
       };
     }
@@ -185,6 +237,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
         maxFavorableR,
         maxAdverseR,
         candlesHeld: index + 1,
+        outcomeReason: "clean-model",
+        tags,
         note: "Entry sonrası TP1 görüldü."
       };
     }
@@ -196,6 +250,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
     maxFavorableR,
     maxAdverseR,
     candlesHeld: afterEntry.length,
+    outcomeReason: "expired",
+    tags,
     note: `Süre doldu; max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
   };
 }
@@ -219,6 +275,103 @@ function symbolSummaries(trades: RuntimeReplayTrade[]) {
       winRate: triggered.length ? (wins / triggered.length) * 100 : 0
     };
   });
+}
+
+function failureReasonSummary(trades: RuntimeReplayTrade[]) {
+  const reasons = new Map<RuntimeReplayOutcomeReason, { count: number; totalR: number }>();
+  for (const trade of trades) {
+    if (trade.rMultiple > 0 && trade.outcomeReason === "clean-model") continue;
+    const current = reasons.get(trade.outcomeReason) ?? { count: 0, totalR: 0 };
+    current.count += 1;
+    current.totalR = Number((current.totalR + trade.rMultiple).toFixed(2));
+    reasons.set(trade.outcomeReason, current);
+  }
+  return [...reasons.entries()]
+    .map(([reason, value]) => ({ reason, ...value }))
+    .sort((a, b) => b.count - a.count || a.totalR - b.totalR);
+}
+
+function tagLabel(tag: string): string {
+  const [group, value] = tag.split(":");
+  if (group === "reason") {
+    if (value === "clean-model") return "Temiz model";
+    if (value === "stop-too-tight") return "Stop dar";
+    if (value === "event-risk") return "Event riski";
+    if (value === "range-chop") return "Range/chop";
+    if (value === "htf-conflict") return "HTF conflict";
+    if (value === "entry-not-filled") return "Entry dolmadı";
+    if (value === "expired") return "Süre doldu";
+    return "Bilinmeyen neden";
+  }
+  if (group === "pd") return value === "mismatch" ? "PD mismatch" : value === "aligned" ? "PD aligned" : `PD ${value}`;
+  if (group === "htf") return value === "conflict" ? "HTF conflict" : "HTF aligned";
+  if (group === "smt") return value === "none" ? "SMT yok" : "SMT aligned";
+  if (group === "rr") return value === "2plus" ? "RR 2+" : value === "ok" ? "RR uygun" : "RR düşük";
+  if (group === "entry-status") return `Entry ${value}`;
+  return `${group} ${value}`;
+}
+
+function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number): RuntimeReplayCalibration[] {
+  const insights: RuntimeReplayCalibration[] = [];
+  if (!trades.length) {
+    insights.push({
+      label: "READY üretimi",
+      value: "0",
+      detail: watchAlerts > 0
+        ? `${watchAlerts} WATCH var ama READY yok. Entry/MSS/FVG şartları fazla sıkı veya son 1 ay model gelmemiş.`
+        : "Son pencerede model setup üretmedi; veri ve market koşulu bekleniyor.",
+      verdict: "investigate"
+    });
+    return insights;
+  }
+
+  const tagStats = new Map<string, { count: number; totalR: number; wins: number }>();
+  for (const trade of trades) {
+    for (const tag of trade.tags) {
+      const current = tagStats.get(tag) ?? { count: 0, totalR: 0, wins: 0 };
+      current.count += 1;
+      current.totalR += trade.rMultiple;
+      if (trade.rMultiple > 0) current.wins += 1;
+      tagStats.set(tag, current);
+    }
+  }
+
+  for (const [tag, stat] of [...tagStats.entries()].filter(([, stat]) => stat.count >= 2)) {
+    const avgR = stat.totalR / stat.count;
+    if (avgR <= -0.35) {
+      insights.push({
+        label: tagLabel(tag),
+        value: `${avgR.toFixed(2)}R`,
+        detail: `${stat.count} örnekte negatif. Bu koşul READY'i WATCH'a düşürmek için aday.`,
+        verdict: "tighten"
+      });
+    } else if (avgR >= 0.45) {
+      insights.push({
+        label: tagLabel(tag),
+        value: `${avgR.toFixed(2)}R`,
+        detail: `${stat.count} örnekte pozitif. Bu filtre korunmalı, hatta skor ağırlığı artırılabilir.`,
+        verdict: "keep"
+      });
+    }
+  }
+
+  const reasons = failureReasonSummary(trades);
+  const topReason = reasons[0];
+  if (topReason) {
+    insights.push({
+      label: `Ana kayıp nedeni: ${tagLabel(`reason:${topReason.reason}`)}`,
+      value: `${topReason.count}`,
+      detail: `${topReason.totalR.toFixed(2)}R toplam etki. Stop/event/rejim filtrelerini buna göre sıkılaştır.`,
+      verdict: "investigate"
+    });
+  }
+
+  return insights
+    .sort((a, b) => {
+      const priority = { tighten: 0, investigate: 1, keep: 2, relax: 3 } as const;
+      return priority[a.verdict] - priority[b.verdict];
+    })
+    .slice(0, 8);
 }
 
 function streak(returns: number[], winning: boolean): number {
@@ -354,6 +507,8 @@ export function runMonthlyRuntimeReplay({
       totalR,
       expectancyR: triggered.length ? totalR / triggered.length : 0,
       bySymbol,
+      calibration: calibrationFromTrades(trades, watchAlerts),
+      failureReasons: failureReasonSummary(trades),
       trades: trades.slice(-80).reverse(),
       sampleWarning
     }
