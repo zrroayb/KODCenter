@@ -184,7 +184,7 @@ export function SignalDetailsPanel({
             : aiCommentary.status === "ready" || aiCommentary.status === "fallback"
               ? aiCommentary.commentary
               : aiCommentary.status === "disabled"
-                ? "Gemini token yok. GEMINI_API_KEY eklenince burada yorum görünecek."
+                ? "Gemini env yok. Render Environment'a GEMINI_API_KEY veya GOOGLE_API_KEY ekleyip servisi yeniden deploy et; localde .env dosyasına ekleyip serverı yeniden başlat."
                 : `AI yorumu alınamadı: ${aiCommentary.error ?? aiCommentary.reason ?? "bilinmeyen hata"}`}
         </p>
       </section>
