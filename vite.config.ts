@@ -73,6 +73,17 @@ type GeminiTradePayload = {
     status?: string;
     detail?: string;
   }>;
+  structureAudit?: {
+    verdict?: string;
+    headline?: string;
+    decision?: string;
+    items?: Array<{
+      label?: string;
+      status?: string;
+      detail?: string;
+    }>;
+    simpleFacts?: string[];
+  };
   chart?: {
     timeframe?: string;
     lastPrice?: number;
@@ -208,6 +219,8 @@ function clampText(value: unknown, max = 2800) {
 function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   const warning = input.warnings?.[0];
   const invalidation = input.invalidation?.[0];
+  const audit = input.structureAudit;
+  const auditIssue = audit?.items?.find((item) => item.status !== "pass");
   const plan =
     input.stage === "ready"
       ? "Plan hazır; entry, stop ve TP seviyeleri belli."
@@ -221,10 +234,10 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   return {
     status: "fallback" as const,
     commentary: clampText([
-      `Chart okuması: ${input.symbol ?? "-"} ${(input.direction ?? "").toUpperCase()} ${(input.stage ?? "").toUpperCase()} · ${input.grade ?? "-"} · ${formatTelegramR(input.rr)}.`,
-      `Ana karar: ${input.chart?.decisionLine || plan}`,
-      `Dikkat: ${warning || `PD ${input.context?.premiumDiscount ?? "-"}, HTF ${input.context?.dailyBias ?? "-"}/${input.context?.h4Bias ?? "-"}/${input.context?.h1Bias ?? "-"}.`}`,
-      `Mentor notu: ${input.chart?.waitingFor?.[0] || plan} Invalidation: ${invalidation || `Stop ${formatTelegramPrice(input.stopLoss)}.`}`
+      `Karar: ${audit?.headline || `${input.symbol ?? "-"} ${(input.direction ?? "").toUpperCase()} ${(input.stage ?? "").toUpperCase()}`}.`,
+      `Neden: ${audit?.decision || input.chart?.decisionLine || plan}`,
+      `Beklenen: ${auditIssue?.detail || input.chart?.waitingFor?.[0] || warning || plan}`,
+      `Risk: ${formatTelegramR(input.rr)} · SL ${formatTelegramPrice(input.stopLoss)} · ${invalidation || "Invalidation stop seviyesi."}`
     ].join("\n"), 900),
     model: "local-fallback",
     reason
@@ -263,22 +276,23 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
     .join("\n");
   const waitingFor = (input.chart?.waitingFor ?? []).slice(0, 6).join("\n");
   const annotations = JSON.stringify(input.chart?.annotations ?? {}, null, 0);
+  const structureAudit = JSON.stringify(input.structureAudit ?? {}, null, 0);
 
   return clampText(`
 Sen kullanıcının net ve doğrudan konuşan ICT/KOD chart akıl hocasısın.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
-Türkçe yaz. Teknik terimleri koru. En fazla 6 kısa satır yaz.
-Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, displacement, entry kutusu, stop ve TP mesafesini beraber değerlendir.
+Türkçe yaz. Teknik terimleri koru. Tam 4 kısa satır yaz.
+StructureAudit gerçek kaynak. Audit ile çelişme, audit dışı pattern uydurma.
+Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, entry, stop ve TP mesafesini beraber değerlendir.
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
-Eğer EntryModel FVG/iFVG değilse veya FVG alanı yoksa FVG/iFVG yorumu yapma.
+Eğer StructureAudit FVG/iFVG yok diyorsa FVG/iFVG kelimesini kullanma.
 Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta FVG yok", "entry chase olur", "stop zaten görülmüş" gibi.
 
 Format:
-Chart: ...
 Karar: ...
-Beklenen mum/level: ...
+Neden: ...
+Beklenen: ...
 Risk: ...
-Mentor notu: ...
 
 Trade:
 Symbol=${input.symbol}
@@ -302,6 +316,9 @@ ChartRead:
 Timeframe=${input.chart?.timeframe}
 LastPrice=${input.chart?.lastPrice}
 DecisionLine=${input.chart?.decisionLine}
+
+StructureAudit:
+${structureAudit || "-"}
 
 KeyLevels:
 ${keyLevels || "-"}

@@ -6,6 +6,7 @@ import { isCryptoSymbol } from "../lib/ict/symbols";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
 import type { DataHealthReport } from "../lib/data/dataHealth";
 import { signalDecisionLabel, signalDecisionReason } from "../lib/signals/signalClassification";
+import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../lib/signals/waitingGuidance";
 
 function stagePriority(signal: TradingSignal) {
@@ -290,6 +291,8 @@ export function ScannerView({
         ? signalDecisionReason(latestInactive)
         : "Kurallara göre görünür aday çıkmadı.";
   const bestRequirements = best ? waitingRequirementsForMinimumRR(best, minimumRR) : [];
+  const bestAudit = best ? buildStructureAudit(best) : null;
+  const simpleRequirements = bestRequirements.slice(0, 3);
   const dataLabel = dataLoading
     ? "Yükleniyor"
     : dataSource === "yahoo-live"
@@ -346,42 +349,60 @@ export function ScannerView({
           <>
             <div className="trade-now-main">
               <strong>{best.symbol} · {best.direction.toUpperCase()}</strong>
-              <span>{signalDecisionLabel(best)} · {best.stage.toUpperCase()} · {best.grade} · Score {best.score}</span>
+              <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · {best.grade} · Score {best.score}</span>
             </div>
-            <div className="trade-plan-grid">
+            <div className="simple-plan-grid">
               <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
-              <div><span>Entry model</span><strong>{best.plan.entrySource}</strong></div>
               <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
               <div><span>TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-              <div><span>Net RR</span><strong>{formatR(best.plan.rr)}</strong></div>
-              <div><span>Gross RR</span><strong>{formatR(best.plan.grossRR)}</strong></div>
-              <div><span>Friction</span><strong>{best.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(best.plan.executionCosts.total)}</strong></div>
-              <div><span>Stop nedeni</span><strong>{stopSourceText(best)}</strong></div>
-              <div><span>Risk</span><strong>{formatPrice(best.plan.riskDistance)}</strong></div>
-              <div><span>Rejim</span><strong>{best.context.regime.type}</strong></div>
-              <div><span>Veri güveni</span><strong>{best.context.dataConfidence.grade} · {best.context.dataConfidence.score}</strong></div>
-              <div><span>Event</span><strong>{best.context.eventRisk.level}</strong></div>
-              <div><span>Window</span><strong>{best.actionWindow.status}</strong></div>
-              <div><span>Replay</span><strong>{best.outcome.status}</strong></div>
-              <div><span>Governance</span><strong>{best.governance.status}</strong></div>
+              <div><span>RR</span><strong>{formatR(best.plan.rr)}</strong></div>
             </div>
-            <p className="trade-now-reason">{actionReason}</p>
+            <section className="simple-structure-box">
+              <strong>Yapı okuması</strong>
+              <p>{bestAudit?.decision ?? actionReason}</p>
+              <div>
+                {(bestAudit?.items ?? []).slice(0, 4).map((item) => (
+                  <span className={`structure-chip ${item.status}`} key={item.label}>{item.label}</span>
+                ))}
+              </div>
+            </section>
             {(best.governance.blockers.length > 0 || best.governance.warnings.length > 0) && (
               <div className="requirements-box governance-box">
                 <strong>Risk masası notu</strong>
                 <ul>
-                  {[...best.governance.blockers, ...best.governance.warnings].slice(0, 5).map((item) => <li key={item}>{item}</li>)}
+                  {[...best.governance.blockers, ...best.governance.warnings].slice(0, 3).map((item) => <li key={item}>{item}</li>)}
                 </ul>
               </div>
             )}
-            {best.stage !== "ready" && bestRequirements.length > 0 && (
+            {best.stage !== "ready" && simpleRequirements.length > 0 && (
               <div className="requirements-box">
-                <strong>READY için ne olmalı?</strong>
+                <strong>Ne bekliyoruz?</strong>
                 <ul>
-                  {bestRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}
+                  {simpleRequirements.map((requirement) => <li key={requirement}>{requirement}</li>)}
                 </ul>
               </div>
             )}
+            <details className="trade-technical-details">
+              <summary>Teknik detay</summary>
+              <div className="trade-plan-grid">
+                <div><span>Entry model</span><strong>{best.plan.entrySource}</strong></div>
+                <div><span>Gross RR</span><strong>{formatR(best.plan.grossRR)}</strong></div>
+                <div><span>Friction</span><strong>{best.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(best.plan.executionCosts.total)}</strong></div>
+                <div><span>Stop nedeni</span><strong>{stopSourceText(best)}</strong></div>
+                <div><span>Risk</span><strong>{formatPrice(best.plan.riskDistance)}</strong></div>
+                <div><span>Rejim</span><strong>{best.context.regime.type}</strong></div>
+                <div><span>Veri güveni</span><strong>{best.context.dataConfidence.grade} · {best.context.dataConfidence.score}</strong></div>
+                <div><span>Event</span><strong>{best.context.eventRisk.level}</strong></div>
+                <div><span>Window</span><strong>{best.actionWindow.status}</strong></div>
+                <div><span>Replay</span><strong>{best.outcome.status}</strong></div>
+                <div><span>Governance</span><strong>{best.governance.status}</strong></div>
+              </div>
+              {bestRequirements.length > simpleRequirements.length && (
+                <ul className="technical-requirements">
+                  {bestRequirements.slice(simpleRequirements.length).map((requirement) => <li key={requirement}>{requirement}</li>)}
+                </ul>
+              )}
+            </details>
             <button className="ghost-btn trade-now-button" onClick={() => onSelectSignal(best)} type="button">
               Chartta aç <ArrowRight size={16} />
             </button>

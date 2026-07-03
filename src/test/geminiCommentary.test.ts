@@ -31,6 +31,8 @@ describe("Gemini trade commentary", () => {
     expect(payload.chart.recentCandles.length).toBeGreaterThan(0);
     expect(payload.chart.recentCandles.some((candle) => candle.role?.includes("liquidity sweep"))).toBe(true);
     expect(payload.chart.annotations.fairValueGap?.low).toBe(100.2);
+    expect(payload.structureAudit.headline).toBeTruthy();
+    expect(payload.structureAudit.items.map((item) => item.label)).toContain("MSS/CISD");
   });
 
   it("does not invent a chart FVG when the selected plan has no gap", () => {
@@ -49,6 +51,7 @@ describe("Gemini trade commentary", () => {
     expect(payload.entryModel.fairValueGap).toBeUndefined();
     expect(payload.chart.annotations.fairValueGap).toBeUndefined();
     expect(payload.chart.keyLevels.map((level) => level.label)).not.toContain("FVG BOX");
+    expect(payload.structureAudit.items.find((item) => item.label === "FVG/iFVG")?.detail).toContain("FVG varmış gibi konuşma");
   });
 
   it("falls back to a local commentary when Gemini times out", async () => {
@@ -63,7 +66,7 @@ describe("Gemini trade commentary", () => {
 
     expect(result.status).toBe("fallback");
     expect(result.reason).toContain("Gemini upstream timeout");
-    expect(result.commentary).toContain("Chart okuması");
+    expect(result.commentary).toContain("Karar:");
     fetchSpy.mockRestore();
   });
 
@@ -74,7 +77,7 @@ describe("Gemini trade commentary", () => {
 
     expect(result.status).toBe("fallback");
     expect(result.reason).toContain("network down");
-    expect(result.commentary).toContain("Invalidation");
+    expect(result.commentary).toContain("Risk:");
     fetchSpy.mockRestore();
   });
 });

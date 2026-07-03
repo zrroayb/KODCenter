@@ -1,6 +1,7 @@
 import type { TradingSignal } from "../ict/types";
 import { formatPrice, formatR } from "../ict/format";
 import { selectedSignalAnnotations } from "../charts/selectedSignal";
+import { buildStructureAudit } from "../signals/structureAudit";
 import { closeConfirmationRequirement } from "../signals/waitingGuidance";
 
 export type GeminiTradeCommentaryPayload = {
@@ -49,6 +50,17 @@ export type GeminiTradeCommentaryPayload = {
     status: string;
     detail: string;
   }>;
+  structureAudit: {
+    verdict: string;
+    headline: string;
+    decision: string;
+    items: Array<{
+      label: string;
+      status: string;
+      detail: string;
+    }>;
+    simpleFacts: string[];
+  };
   chart: {
     timeframe: "15m" | "5m";
     lastPrice: number;
@@ -114,22 +126,13 @@ export type GeminiTradeCommentaryResponse = {
 };
 
 function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTradeCommentaryResponse {
-  const warning = [...signal.decisionSummary.warnings, ...signal.plan.planWarnings, ...signal.riskWarnings][0];
-  const chart = buildChartMentorContext(signal);
-  const wait = signal.stage === "ready"
-    ? "Plan hazır; entry, stop ve TP seviyeleri belli."
-    : signal.stage === "missed"
-      ? "Entry kaçmış veya hedefe gitmiş; kovalamadan yeni setup bekle."
-      : signal.stage === "invalidated"
-        ? "Setup bozulmuş; yeni model bekle."
-        : signal.plan.entryStatus === "confirmed"
-          ? "Entry modeli var ama kalite/RR/filtreler için bekle."
-          : "Retest ve MSS/CISD kapanış onayı bekle.";
+  const audit = buildStructureAudit(signal);
+  const firstIssue = audit.items.find((item) => item.status !== "pass");
   const commentary = [
-    `Chart okuması: ${signal.symbol} ${signal.direction.toUpperCase()} ${signal.stage.toUpperCase()} · ${signal.grade} · ${formatR(signal.plan.rr)}.`,
-    `Ana karar: ${chart.decisionLine}`,
-    `Dikkat: ${warning ?? `${signal.context.premiumDiscount.zone} bölgesi, HTF ${signal.context.bias.daily}/${signal.context.bias.h4}/${signal.context.bias.h1}.`}`,
-    `Mentor notu: ${wait} Invalidation ${signal.direction === "short" ? "stop üstü" : "stop altı"} ${formatPrice(signal.plan.stopLoss)}.`
+    `Karar: ${audit.headline}`,
+    `Neden: ${audit.decision}`,
+    `Beklenen: ${firstIssue?.detail ?? "Plan aktif; sadece entry disiplinini koru."}`,
+    `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0])}.`
   ].join("\n");
   return {
     status: "fallback",
@@ -277,6 +280,7 @@ function buildChartMentorContext(signal: TradingSignal): GeminiTradeCommentaryPa
 export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): GeminiTradeCommentaryPayload {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const planGap = (signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") ? signal.plan.entryModel.fairValueGap : undefined;
+  const structureAudit = buildStructureAudit(signal);
   return {
     id: signal.id,
     symbol: signal.symbol,
@@ -329,6 +333,7 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
       status: item.status,
       detail: item.detail
     })),
+    structureAudit,
     chart: buildChartMentorContext(signal)
   };
 }

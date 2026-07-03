@@ -6,6 +6,7 @@ import { formatPrice, formatR } from "../lib/ict/format";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
 import { signalLifecycleState } from "../lib/signals/signalClassification";
+import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { waitingRequirementsForMinimumRR } from "./ScannerView";
 
 function statusClass(status: DecisionChecklistItem["status"] | SignalEvidenceItem["status"]) {
@@ -78,6 +79,7 @@ export function SignalDetailsPanel({
   const [aiCommentary, setAiCommentary] = useState<GeminiTradeCommentaryResponse>({ status: "disabled", reason: "Yüklenmedi" });
   const [aiLoading, setAiLoading] = useState(false);
   const annotations = selectedSignalAnnotations(signal);
+  const structureAudit = buildStructureAudit(signal);
   const lifecycle = signalLifecycleState(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const setupTime = new Date(signalAnchorTime(signal)).toLocaleString();
@@ -176,6 +178,15 @@ export function SignalDetailsPanel({
         <div><span>TP1</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
         <div><span>RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
       </div>
+      <section className="ticket-structure">
+        <h3>Yapı okuması</h3>
+        <p>{structureAudit.decision}</p>
+        <div>
+          {structureAudit.items.slice(0, 4).map((item) => (
+            <span className={`structure-chip ${item.status}`} key={item.label}>{item.label}</span>
+          ))}
+        </div>
+      </section>
       <section className="ticket-wait">
         <h3>{signal.stage === "ready" ? "Durum" : "Ne bekliyoruz?"}</h3>
         <ul>

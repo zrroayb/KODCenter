@@ -45,6 +45,9 @@ def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> 
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
     entry_model = payload.get("entryModel") if isinstance(payload.get("entryModel"), dict) else {}
     chart = payload.get("chart") if isinstance(payload.get("chart"), dict) else {}
+    audit = payload.get("structureAudit") if isinstance(payload.get("structureAudit"), dict) else {}
+    audit_items = audit.get("items") if isinstance(audit.get("items"), list) else []
+    audit_issue = next((item for item in audit_items if isinstance(item, dict) and item.get("status") != "pass"), None)
     waiting_for = chart.get("waitingFor") if isinstance(chart.get("waitingFor"), list) else []
     stage = str(payload.get("stage") or "").lower()
     if stage == "ready":
@@ -66,13 +69,17 @@ def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> 
     invalidation_text = invalidation[0] if invalidation else f"Stop {_format_price(payload.get('stopLoss'))}."
     decision_line = chart.get("decisionLine") if isinstance(chart.get("decisionLine"), str) else plan
     mentor_note = waiting_for[0] if waiting_for else plan
+    fallback_headline = f"{payload.get('symbol', '-')} {str(payload.get('direction', '')).upper()} {stage.upper()}"
+    headline = audit.get("headline") if isinstance(audit.get("headline"), str) else fallback_headline
+    decision = audit.get("decision") if isinstance(audit.get("decision"), str) else decision_line
+    issue_detail = audit_issue.get("detail") if isinstance(audit_issue, dict) and isinstance(audit_issue.get("detail"), str) else None
 
     commentary = "\n".join(
         [
-            f"Chart okuması: {payload.get('symbol', '-')} {str(payload.get('direction', '')).upper()} {stage.upper()} · {payload.get('grade', '-')} · {_format_r(payload.get('rr'))}.",
-            f"Ana karar: {decision_line}",
-            f"Dikkat: {warning_text}.",
-            f"Mentor notu: {mentor_note} Invalidation: {invalidation_text}",
+            f"Karar: {headline}.",
+            f"Neden: {decision}",
+            f"Beklenen: {issue_detail or mentor_note or warning_text}",
+            f"Risk: {_format_r(payload.get('rr'))} · SL {_format_price(payload.get('stopLoss'))} · {invalidation_text}",
         ]
     )
     return {
@@ -96,6 +103,7 @@ def _build_gemini_prompt(payload: dict[str, Any]) -> str:
     recent_candles = chart.get("recentCandles") if isinstance(chart.get("recentCandles"), list) else []
     waiting_for = chart.get("waitingFor") if isinstance(chart.get("waitingFor"), list) else []
     annotations = chart.get("annotations") if isinstance(chart.get("annotations"), dict) else {}
+    structure_audit = payload.get("structureAudit") if isinstance(payload.get("structureAudit"), dict) else {}
     checklist = payload.get("checklist") if isinstance(payload.get("checklist"), list) else []
     evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
     warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
@@ -105,18 +113,18 @@ def _build_gemini_prompt(payload: dict[str, Any]) -> str:
     prompt = f"""
 Sen kullanıcının net ve doğrudan konuşan ICT/KOD chart akıl hocasısın.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
-Türkçe yaz. Teknik terimleri koru. En fazla 6 kısa satır yaz.
-Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, displacement, entry kutusu, stop ve TP mesafesini beraber değerlendir.
+Türkçe yaz. Teknik terimleri koru. Tam 4 kısa satır yaz.
+StructureAudit gerçek kaynak. Audit ile çelişme, audit dışı pattern uydurma.
+Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, entry, stop ve TP mesafesini beraber değerlendir.
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
-Eğer EntryModel FVG/iFVG değilse veya FVG alanı yoksa FVG/iFVG yorumu yapma.
+Eğer StructureAudit FVG/iFVG yok diyorsa FVG/iFVG kelimesini kullanma.
 Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta FVG yok", "entry chase olur", "stop zaten görülmüş" gibi.
 
 Format:
-Chart: ...
 Karar: ...
-Beklenen mum/level: ...
+Neden: ...
+Beklenen: ...
 Risk: ...
-Mentor notu: ...
 
 Trade:
 Symbol={payload.get("symbol")}
@@ -140,6 +148,9 @@ ChartRead:
 Timeframe={chart.get("timeframe")}
 LastPrice={chart.get("lastPrice")}
 DecisionLine={chart.get("decisionLine")}
+
+StructureAudit:
+{json.dumps(structure_audit, ensure_ascii=False)}
 
 KeyLevels:
 {json.dumps(key_levels[:14], ensure_ascii=False)}

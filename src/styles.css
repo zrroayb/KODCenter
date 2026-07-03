@@ -959,6 +959,121 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.simple-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.simple-plan-grid div {
+  min-width: 0;
+  min-height: 62px;
+  padding: 12px;
+  border: 1px solid rgba(17, 23, 27, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 251, 0.72);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.76) inset;
+}
+
+.simple-plan-grid span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.simple-plan-grid strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.simple-structure-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(18, 156, 107, 0.18);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(216, 248, 235, 0.58), rgba(255, 255, 251, 0.72));
+}
+
+.simple-structure-box strong {
+  font-size: 13px;
+}
+
+.simple-structure-box p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.42;
+}
+
+.simple-structure-box div,
+.ticket-structure div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.structure-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(100, 116, 139, 0.22);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 251, 0.68);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.structure-chip.pass {
+  color: var(--green);
+  border-color: rgba(18, 156, 107, 0.28);
+  background: rgba(18, 156, 107, 0.08);
+}
+
+.structure-chip.wait {
+  color: var(--amber);
+  border-color: rgba(201, 138, 20, 0.34);
+  background: rgba(201, 138, 20, 0.08);
+}
+
+.structure-chip.warn {
+  color: #7b6200;
+  border-color: rgba(201, 138, 20, 0.25);
+  background: rgba(201, 138, 20, 0.06);
+}
+
+.structure-chip.fail {
+  color: var(--red);
+  border-color: rgba(217, 68, 91, 0.3);
+  background: rgba(217, 68, 91, 0.07);
+}
+
+.trade-technical-details {
+  border-top: 1px solid rgba(23, 27, 31, 0.08);
+  padding-top: 10px;
+}
+
+.trade-technical-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.technical-requirements {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
 .trade-now-reason {
   margin: 0;
   line-height: 1.48;
@@ -1559,6 +1674,27 @@ button:focus-visible {
   margin-top: 6px;
 }
 
+.ticket-structure {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(216, 248, 235, 0.52), rgba(255, 255, 251, 0.72));
+  border: 1px solid rgba(18, 156, 107, 0.16);
+}
+
+.ticket-structure h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.ticket-structure p {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .ai-commentary {
   margin-top: 10px;
   padding: 12px;
@@ -2033,6 +2169,10 @@ button:focus-visible {
 
   .trade-now-main strong {
     font-size: 21px;
+  }
+
+  .simple-plan-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .decision-strip {
