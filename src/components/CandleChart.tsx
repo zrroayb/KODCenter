@@ -22,16 +22,19 @@ type CandleChartProps = {
 const width = 1120;
 const height = 620;
 const plot = {
-  left: 18,
-  right: 238,
+  left: 26,
+  right: 184,
   top: 46,
   bottom: 38
 };
 const plotRight = width - plot.right;
 const plotBottom = height - plot.bottom;
-const bull = "#22ab94";
+const bull = "#089981";
 const bear = "#f23645";
-const grid = "#1b232d";
+const bullWick = "#18ad98";
+const bearWick = "#ff4d5d";
+const grid = "rgba(42, 54, 69, 0.64)";
+const minorGrid = "rgba(42, 54, 69, 0.34)";
 const dayMs = 24 * 60 * 60 * 1000;
 
 function defaultVisibleCount(mode: ChartMode): number {
@@ -64,6 +67,10 @@ function timeLabel(time: number, mode: ChartMode) {
 
 function priceTicks(high: number, low: number, count = 7) {
   return Array.from({ length: count }, (_, index) => high - ((high - low) / (count - 1)) * index);
+}
+
+function snap(value: number) {
+  return Math.round(value) + 0.5;
 }
 
 function nearestCandle(candles: Candle[], time: number) {
@@ -112,22 +119,22 @@ function sessionLabel(sessionName: string) {
 function sessionStyle(sessionName: string) {
   if (sessionName === "Asia") {
     return {
-      fill: "rgba(37, 99, 235, 0.13)",
-      stroke: "rgba(96, 165, 250, 0.5)",
-      text: "rgba(96, 165, 250, 0.6)"
+      fill: "rgba(37, 99, 235, 0.06)",
+      stroke: "rgba(96, 165, 250, 0.32)",
+      text: "rgba(96, 165, 250, 0.42)"
     };
   }
   if (sessionName === "London") {
     return {
-      fill: "rgba(239, 68, 68, 0.12)",
-      stroke: "rgba(248, 113, 113, 0.5)",
-      text: "rgba(248, 113, 113, 0.58)"
+      fill: "rgba(239, 68, 68, 0.055)",
+      stroke: "rgba(248, 113, 113, 0.3)",
+      text: "rgba(248, 113, 113, 0.4)"
     };
   }
   return {
-    fill: "rgba(20, 184, 166, 0.13)",
-    stroke: "rgba(45, 212, 191, 0.5)",
-    text: "rgba(45, 212, 191, 0.58)"
+    fill: "rgba(20, 184, 166, 0.06)",
+    stroke: "rgba(45, 212, 191, 0.32)",
+    text: "rgba(45, 212, 191, 0.42)"
   };
 }
 
@@ -189,7 +196,7 @@ export function CandleChart({
   const scaleY = (price: number) => plot.top + ((high - price) / Math.max(high - low, 0.000001)) * (plotBottom - plot.top);
   const futureBars = selectedSignal ? (mode === "execution" ? 10 : 6) : 0;
   const step = (plotRight - plot.left) / Math.max(visible.length + futureBars, 1);
-  const candleWidth = Math.max(3, Math.min(12, step * 0.66));
+  const candleWidth = Math.max(4, Math.min(13, Math.floor(step * 0.72)));
   const visibleStartIndex = Math.max(0, candles.findIndex((candle) => candle.time === first?.time));
   const xAtVisibleIndex = (index: number) => plot.left + index * step + step / 2;
   const xForTime = (time: number) => {
@@ -215,13 +222,13 @@ export function CandleChart({
     .filter((pool) => contextLevels.includes(pool.level))
     .sort((a, b) => Math.abs(a.level - (latest?.close ?? a.level)) - Math.abs(b.level - (latest?.close ?? b.level)))
     .slice(0, selectedSignal ? 3 : 5);
-  const chartBackground = selectedIsExecution ? "#cfd5df" : "#06080c";
-  const plotBackground = selectedIsExecution ? "#d9dee7" : "#0b1118";
-  const gridColor = selectedIsExecution ? "rgba(148, 163, 184, 0.36)" : grid;
-  const axisColor = selectedIsExecution ? "#9aa3af" : "#7c8796";
-  const axisLineColor = selectedIsExecution ? "rgba(100, 116, 139, 0.42)" : "#283241";
-  const hudFill = selectedIsExecution ? "rgba(241, 245, 249, 0.72)" : "rgba(6, 8, 12, 0.72)";
-  const hudText = selectedIsExecution ? "#111827" : "#e5e7eb";
+  const chartBackground = "#05070b";
+  const plotBackground = "#0b1117";
+  const gridColor = grid;
+  const axisColor = "#8a94a6";
+  const axisLineColor = "rgba(76, 91, 110, 0.72)";
+  const hudFill = "rgba(8, 13, 20, 0.86)";
+  const hudText = "#e5edf7";
   const sessionRanges = (() => {
     if (mode !== "execution") return [];
 
@@ -356,7 +363,7 @@ export function CandleChart({
     const gapLabel = entryGapLabel(selectedSignal);
     const gapText = annotations.fairValueGap?.mitigated ? `${gapLabel} retest` : gapLabel;
     const gapLabelWidth = gapText ? tagWidthFor(gapText) : 68;
-    const manualLineColor = selectedIsExecution ? "#111827" : "#f8fafc";
+    const manualLineColor = "#f8fafc";
     const waitLineY = closeRequirement ? scaleY(closeRequirement.level) : 0;
     const waitLabelX = closeRequirement ? Math.min(plotRight - 168, Math.max(plot.left + 120, anchorX + 24)) : 0;
     const waitLabelY = closeRequirement ? Math.max(plot.top + 22, Math.min(plotBottom - 16, waitLineY - 22)) : 0;
@@ -512,8 +519,8 @@ export function CandleChart({
               strokeDasharray="5 6"
               opacity="0.95"
             />
-            <rect x={waitLabelX} y={waitLabelY - 12} width="156" height="24" rx="4" fill={selectedIsExecution ? "rgba(226, 232, 240, 0.88)" : "rgba(15, 23, 42, 0.9)"} stroke="#f59e0b" strokeWidth="1.1" />
-            <text x={waitLabelX + 78} y={waitLabelY + 4} fill={selectedIsExecution ? "#111827" : "#f8fafc"} fontSize="10" fontWeight="900" textAnchor="middle">
+            <rect x={waitLabelX} y={waitLabelY - 12} width="156" height="24" rx="4" fill="rgba(15, 23, 42, 0.9)" stroke="#f59e0b" strokeWidth="1.1" />
+            <text x={waitLabelX + 78} y={waitLabelY + 4} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
               burda MSB beklemeli
             </text>
             <text x={plot.left + 10} y={Math.max(plot.top + 14, waitLineY - 10)} fill="#f59e0b" fontSize="10" fontWeight="900">
@@ -554,10 +561,10 @@ export function CandleChart({
 
   const higherTimeframePlanOverlay = selectedIsHigherTimeframe && selectedSignal ? (() => {
     const chipWidth = 150;
-    const chipX = plotRight + 78;
+    const chipX = width - chipWidth - 8;
     const lineX1 = plot.left + 12;
-    const lineX2 = plotRight - 14;
-    const anchorDotX = plotRight + 42;
+    const lineX2 = plotRight - 16;
+    const anchorDotX = chipX - 22;
     const topLimit = plot.top + 14;
     const bottomLimit = plotBottom - 14;
     const minGap = 27;
@@ -622,7 +629,7 @@ export function CandleChart({
                 strokeWidth="1.1"
                 opacity="0.68"
               />
-              <circle cx={anchorDotX} cy={level.lineY} r="4" fill={level.color} stroke="#06080c" strokeWidth="1.6" />
+              <circle cx={anchorDotX} cy={level.lineY} r="4" fill={level.color} stroke={chartBackground} strokeWidth="1.6" />
               <rect x={chipX} y={level.labelY - 11} width={chipWidth} height="22" rx="5" fill={level.fill} stroke={level.color} strokeWidth="1.1" />
               <text x={chipX + chipWidth / 2} y={level.labelY + 4} fill="#f8fafc" fontSize="9" fontWeight="900" textAnchor="middle">
                 {level.label} {formatPrice(level.price)}
@@ -674,6 +681,7 @@ export function CandleChart({
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
         <rect width={width} height={height} rx="8" fill={chartBackground} />
         <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill={plotBackground} />
+        <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill="none" stroke="rgba(76, 91, 110, 0.46)" strokeWidth="1" />
         {showPremiumDiscountBand && range && (
           <>
             <rect x={plot.left} y={scaleY(range.high)} width={plotRight - plot.left} height={Math.max(0, scaleY(range.midpoint) - scaleY(range.high))} fill="rgba(242, 54, 69, 0.045)" />
@@ -695,14 +703,17 @@ export function CandleChart({
               x={session.x1 + (session.x2 - session.x1) / 2}
               y={Math.max(session.yHigh + 28, Math.min(session.yLow - 14, session.yHigh + (session.yLow - session.yHigh) / 2 + 10))}
               fill={session.text}
-              fontSize={session.x2 - session.x1 > 110 ? "38" : "22"}
+              fontSize={session.x2 - session.x1 > 110 ? "26" : "17"}
               fontWeight="900"
               textAnchor="middle"
-              opacity="0.42"
+              opacity="0.34"
             >
               {session.title}
             </text>
           </g>
+        ))}
+        {priceTicks(high, low, 13).filter((_, index) => index % 2 === 1).map((price) => (
+          <line key={`minor-grid-${price}`} x1={plot.left} x2={plotRight} y1={scaleY(price)} y2={scaleY(price)} stroke={minorGrid} strokeWidth="1" />
         ))}
         {priceTicks(high, low).map((price) => (
           <g key={`grid-${price}`}>
@@ -725,12 +736,12 @@ export function CandleChart({
 
           return (
             <g key={`${session.key}-levels`}>
-              <line x1={session.x1} x2={session.x2} y1={session.yHigh} y2={session.yHigh} stroke={session.stroke} strokeWidth="1" opacity="0.65" />
-              <line x1={session.x1} x2={session.x2} y1={session.yLow} y2={session.yLow} stroke={session.stroke} strokeWidth="1" opacity="0.65" />
-              <text x={labelX} y={highLabelY} fill={selectedIsExecution ? "#374151" : session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.88">
+              <line x1={session.x1} x2={session.x2} y1={session.yHigh} y2={session.yHigh} stroke={session.stroke} strokeWidth="1" opacity="0.52" />
+              <line x1={session.x1} x2={session.x2} y1={session.yLow} y2={session.yLow} stroke={session.stroke} strokeWidth="1" opacity="0.52" />
+              <text x={labelX} y={highLabelY} fill={session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.8">
                 {session.short}.H
               </text>
-              <text x={labelX} y={lowLabelY} fill={selectedIsExecution ? "#374151" : session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.88">
+              <text x={labelX} y={lowLabelY} fill={session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.8">
                 {session.short}.L
               </text>
             </g>
@@ -741,15 +752,40 @@ export function CandleChart({
         {range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "DRL", true, 0.24) : levelLine(range.low, "#94a3b8", "DRL", true, 0.74))}
         {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#f59e0b" : "#38bdf8", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.62, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
         {visible.map((candle, index) => {
-          const x = xAtVisibleIndex(index) - candleWidth / 2;
+          const centerX = snap(xAtVisibleIndex(index));
+          const x = Math.round(centerX - candleWidth / 2);
           const up = candle.close >= candle.open;
           const color = up ? bull : bear;
-          const bodyTop = scaleY(Math.max(candle.open, candle.close));
-          const bodyHeight = Math.max(2, Math.abs(scaleY(candle.open) - scaleY(candle.close)));
+          const wickColor = up ? bullWick : bearWick;
+          const bodyStroke = up ? "#087f6f" : "#be2d3c";
+          const openY = scaleY(candle.open);
+          const closeY = scaleY(candle.close);
+          const rawBodyHeight = Math.abs(openY - closeY);
+          const bodyHeight = Math.max(2.4, rawBodyHeight);
+          const bodyTop = rawBodyHeight < 2.4 ? (openY + closeY) / 2 - bodyHeight / 2 : Math.min(openY, closeY);
+          const opacity = selectedSignal && !selectedIsExecution ? 0.78 : 1;
           return (
             <g key={candle.time}>
-              <line x1={x + candleWidth / 2} x2={x + candleWidth / 2} y1={scaleY(candle.high)} y2={scaleY(candle.low)} stroke={color} strokeWidth="1.3" opacity={selectedSignal && !selectedIsExecution ? 0.74 : 1} />
-              <rect x={x} y={bodyTop} width={candleWidth} height={bodyHeight} rx="1.2" fill={color} opacity={selectedSignal && !selectedIsExecution ? 0.74 : 1} />
+              <line
+                x1={centerX}
+                x2={centerX}
+                y1={snap(scaleY(candle.high))}
+                y2={snap(scaleY(candle.low))}
+                stroke={wickColor}
+                strokeWidth={Math.max(1, Math.min(1.45, candleWidth * 0.16))}
+                opacity={opacity}
+              />
+              <rect
+                x={x}
+                y={bodyTop}
+                width={candleWidth}
+                height={bodyHeight}
+                rx="0.7"
+                fill={color}
+                stroke={bodyStroke}
+                strokeWidth="0.75"
+                opacity={opacity}
+              />
             </g>
           );
         })}
