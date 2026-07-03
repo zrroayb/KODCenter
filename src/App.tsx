@@ -329,7 +329,7 @@ export default function App() {
   }, [activeContext, activeSymbol, lastScanTime, rejectedSetups, visibleSignals]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell view-${activeView}`}>
       <Sidebar activeView={activeView} onChange={setActiveView} />
       <main className="workspace">
         <header className={activeView === "charts" ? "topbar compact" : "topbar"}>
