@@ -79,6 +79,12 @@ function simpleChecklistText(label: string, signal: TradingSignal): string | nul
       return "Hedef mesafesi stop riskine değsin.";
     case "Execution Cost":
       return "Spread/slippage planı bozmayacak kadar düşük kalsın.";
+    case "Regime":
+      return "Piyasa chop/news spike değil, setup modeline uygun rejimde olsun.";
+    case "Event Risk":
+      return "Yakında kırmızı haber varsa sakinleşene kadar bekle.";
+    case "Data Confidence":
+      return "Veri güveni yeterli olsun; demo/stale veriyle READY alma.";
     case "HTF Alignment":
       return `Üst zaman yönü de ${direction} tarafa baksın.`;
     default:
@@ -170,11 +176,19 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   if ((signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") && !signal.plan.entryModel.fairValueGap) {
     needs.push("Temiz bir giriş boşluğu oluşsun veya korunmuş kalsın.");
   }
+  if (signal.plan.entrySource !== "fvg-retest" && signal.plan.entrySource !== "ifvg-retest" && signal.plan.entryStatus !== "confirmed") {
+    needs.push("Giriş kapanış/onay modeliyle netleşsin.");
+  }
   if (signal.plan.executionCosts.stress !== "off" && signal.plan.grossRR >= minimumRR && signal.plan.rr < minimumRR) {
     needs.push(`Spread/slippage fazla. Kağıt üstünde ${formatR(signal.plan.grossRR)}, gerçek hesapta ${formatR(signal.plan.rr)}.`);
   }
   if (signal.plan.rr < minimumRR) {
     needs.push(`Kazanç mesafesi yetmiyor. En az ${formatR(minimumRR)} lazım, şu an ${formatR(signal.plan.rr)}.`);
+  }
+  needs.push(...signal.governance.blockers);
+  needs.push(...signal.governance.warnings);
+  if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") {
+    needs.push(signal.actionWindow.summary);
   }
   if (context.bias.daily !== bias && context.bias.h4 !== bias) {
     needs.push(`Üst zaman yönü de ${simpleDirection} tarafa dönsün.`);
@@ -341,8 +355,22 @@ export function ScannerView({
               <div><span>Friction</span><strong>{best.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(best.plan.executionCosts.total)}</strong></div>
               <div><span>Stop nedeni</span><strong>{stopSourceText(best)}</strong></div>
               <div><span>Risk</span><strong>{formatPrice(best.plan.riskDistance)}</strong></div>
+              <div><span>Rejim</span><strong>{best.context.regime.type}</strong></div>
+              <div><span>Veri güveni</span><strong>{best.context.dataConfidence.grade} · {best.context.dataConfidence.score}</strong></div>
+              <div><span>Event</span><strong>{best.context.eventRisk.level}</strong></div>
+              <div><span>Window</span><strong>{best.actionWindow.status}</strong></div>
+              <div><span>Replay</span><strong>{best.outcome.status}</strong></div>
+              <div><span>Governance</span><strong>{best.governance.status}</strong></div>
             </div>
             <p className="trade-now-reason">{actionReason}</p>
+            {(best.governance.blockers.length > 0 || best.governance.warnings.length > 0) && (
+              <div className="requirements-box governance-box">
+                <strong>Risk masası notu</strong>
+                <ul>
+                  {[...best.governance.blockers, ...best.governance.warnings].slice(0, 5).map((item) => <li key={item}>{item}</li>)}
+                </ul>
+              </div>
+            )}
             {best.stage !== "ready" && bestRequirements.length > 0 && (
               <div className="requirements-box">
                 <strong>READY için ne olmalı?</strong>

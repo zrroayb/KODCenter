@@ -31,6 +31,21 @@ export function buildChecklist(context: MarketContext, direction: TradeDirection
     checklistItem("MSS", context.marketStructureShifts.some((item) => item.direction === direction) ? "pass" : "neutral", "Market structure shift kontrol edildi."),
     checklistItem("FVG", plannedGap ? (plan.entryModel.retested ? "pass" : "neutral") : "neutral", gapExplanation),
     checklistItem("SMT", smt ? "pass" : "neutral", smt ? smt.note : "SMT pair teyidi yok veya uygun pair verisi yok."),
+    checklistItem(
+      "Regime",
+      context.regime.tradeability === "blocked" ? "fail" : context.regime.tradeability === "caution" ? "neutral" : "pass",
+      context.regime.summary
+    ),
+    checklistItem(
+      "Event Risk",
+      context.eventRisk.noTrade ? "fail" : context.eventRisk.level === "watch" ? "neutral" : "pass",
+      context.eventRisk.summary
+    ),
+    checklistItem(
+      "Data Confidence",
+      context.dataConfidence.score < 35 ? "fail" : context.dataConfidence.score < 68 ? "neutral" : "pass",
+      context.dataConfidence.summary
+    ),
     checklistItem("RR", plan.rr >= 1.5 ? "pass" : "fail", `RR ${formatR(plan.rr)}.`),
     checklistItem(
       "Execution Cost",
@@ -58,6 +73,9 @@ export function reasoningText(context: MarketContext, direction: TradeDirection,
     `Daily bias ${context.bias.daily}, 4H ${context.bias.h4}, 1H ${context.bias.h1}.`,
     fvg ? `${gapLabel} ${formatPrice(fvg.midpoint)} civarında entry modeli olarak map edildi.` : "Planlı FVG/iFVG yok; entry kapanış/onay modeliyle izleniyor.",
     smt ? `SMT: ${smt.note}` : "SMT teyidi yok; bu tek başına hard block değil.",
+    `Rejim: ${context.regime.summary}`,
+    `Event risk: ${context.eventRisk.summary}`,
+    `Veri güveni: ${context.dataConfidence.summary}.`,
     `Entry ${formatPrice(plan.entry)}, SL ${formatPrice(plan.stopLoss)}, ana TP ${formatPrice(plan.targets[0])}.`,
     `Entry modeli ${plan.entrySource}; durum ${plan.entryStatus}.`,
     `Stop ${plan.stopSource} ${stopSide} ${formatPrice(plan.stopBuffer)} buffer ile kondu; risk mesafesi ${formatPrice(plan.riskDistance)}.`,

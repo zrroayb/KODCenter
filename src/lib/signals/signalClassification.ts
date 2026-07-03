@@ -4,6 +4,7 @@ export type SignalDecisionClass = "tradeable" | "watch" | "wait" | "inactive";
 
 export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass {
   if (signal.stage === "invalidated" || signal.stage === "missed") return "inactive";
+  if (signal.governance.status === "block") return "wait";
   if (signal.stage === "ready") return "tradeable";
   if (signal.score >= 65 && signal.plan.rr >= 1) return "watch";
   return "wait";
@@ -20,6 +21,8 @@ export function signalDecisionLabel(signal: TradingSignal): string {
 export function signalDecisionReason(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "READY: entry, stop ve TP planı aktif.";
+  if (signal.governance.blockers.length) return signal.governance.blockers[0];
+  if (signal.governance.warnings.length) return signal.governance.warnings[0];
   if (decision === "inactive") {
     return signal.stage === "invalidated"
       ? "Stop/invalidation görülmüş. Trade kovalanmaz."

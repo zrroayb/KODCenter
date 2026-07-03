@@ -45,10 +45,15 @@ function MarketContextPanel({ context, signals }: { context: MarketContext; sign
         <div><span>Killzone</span><strong>{activeKillzone}</strong></div>
         <div><span>SMT</span><strong>{smt ? `${smt.direction} vs ${smt.partner}` : "yok"}</strong></div>
         <div><span>Sinyal</span><strong>{signals.length} / {ready} ready</strong></div>
+        <div><span>Rejim</span><strong>{context.regime.type}</strong></div>
+        <div><span>Event</span><strong>{context.eventRisk.level}</strong></div>
+        <div><span>Veri güveni</span><strong>{context.dataConfidence.grade} · {context.dataConfidence.score}</strong></div>
       </div>
       <section className="details-section">
         <h3>Dealing Range</h3>
         <p>High {formatPrice(context.dealingRange.high)} · EQ {formatPrice(context.dealingRange.midpoint)} · Low {formatPrice(context.dealingRange.low)}</p>
+        <p>{context.regime.summary}</p>
+        <p>{context.eventRisk.summary}</p>
       </section>
     </aside>
   );

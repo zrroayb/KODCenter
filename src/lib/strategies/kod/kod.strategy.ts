@@ -6,6 +6,8 @@ import { defaultAccountModel } from "../../risk/accountModel";
 import { estimateExecutionCosts } from "../../risk/executionCosts";
 import { performanceFromSignals } from "../../analytics/performance";
 import { buildIctSequence, type IctSequence } from "../../intelligence/ictSequenceEngine";
+import { buildActionWindow, evaluateSignalOutcome } from "../../intelligence/outcomeEngine";
+import { buildSetupGovernance } from "../../intelligence/setupGovernance";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { buildKodEntryModel } from "./entryModel";
 import { kodRuleResults } from "./kod.rules";
@@ -311,6 +313,34 @@ function buildSignalEvidence(
       price: sequence.mss?.level ?? sequence.sweep?.level
     },
     {
+      id: "governance",
+      label: "Governance",
+      status: "neutral",
+      detail: `${context.regime.summary} · ${context.eventRisk.summary} · ${context.dataConfidence.summary}`,
+      timeframe: "15m"
+    },
+    {
+      id: "market-regime",
+      label: "Market regime",
+      status: context.regime.tradeability === "good" ? "pass" : context.regime.tradeability === "caution" ? "neutral" : "warning",
+      detail: `${context.regime.type}: ${context.regime.summary} Efficiency ${context.regime.efficiency.toFixed(2)}, vol ${context.regime.volatilityRatio.toFixed(2)}x.`,
+      timeframe: "15m"
+    },
+    {
+      id: "event-risk",
+      label: "Event risk",
+      status: context.eventRisk.noTrade ? "warning" : context.eventRisk.level === "watch" ? "neutral" : "pass",
+      detail: context.eventRisk.summary,
+      timeframe: "15m"
+    },
+    {
+      id: "data-confidence",
+      label: "Data confidence",
+      status: context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "warning",
+      detail: context.dataConfidence.summary,
+      timeframe: "15m"
+    },
+    {
       id: "entry-model",
       label: "Entry model",
       status: plan.entryStatus === "confirmed" ? "pass" : plan.entryStatus === "pending" ? "neutral" : "warning",
@@ -441,11 +471,33 @@ function signalFromContext(context: MarketContext, settings: StrategyInput["sett
   const rawPlan = buildStructureRiskPlan(context, direction, minimumRR, stopProfile, executionCostStress);
   const sequence = buildIctSequence(context, direction, rawPlan);
   const ruleResults = kodRuleResults(context, direction, rawPlan.rr, minimumRR, rawPlan, sequence);
-  const score = kodScore(ruleResults);
+  const baseScore = kodScore(ruleResults);
+  const outcome = evaluateSignalOutcome(context, direction, rawPlan, sequence.setupStartIndex);
+  const governance = buildSetupGovernance({
+    context,
+    plan: rawPlan,
+    outcome,
+    sequenceStatus: sequence.status,
+    avoidNews: settings.avoidNews !== false
+  });
+  const score = Math.max(0, Math.min(100, baseScore + governance.scoreImpact));
   const grade = kodGrade(score);
-  const readyCandidate = sequence.ready && rawPlan.rr >= minimumRR && rawPlan.entryStatus === "confirmed";
+  const readyCandidate = governance.status !== "block" && sequence.ready && rawPlan.rr >= minimumRR && rawPlan.entryStatus === "confirmed";
   const lifecycle = evaluateSignalLifecycle(context, direction, rawPlan, readyCandidate);
-  const planWarnings = Array.from(new Set([...rawPlan.planWarnings, ...sequence.warnings, ...sequence.hardBlockers, ...lifecycle.warnings]));
+  const actionWindow = buildActionWindow(context, rawPlan, outcome, lifecycle.stage);
+  const planWarnings = Array.from(new Set([
+    ...rawPlan.planWarnings,
+    ...sequence.warnings,
+    ...sequence.hardBlockers,
+    ...governance.blockers,
+    ...governance.warnings,
+    ...context.regime.warnings,
+    ...context.eventRisk.warnings,
+    ...context.dataConfidence.warnings,
+    outcome.summary,
+    actionWindow.summary,
+    ...lifecycle.warnings
+  ]));
   const plan = { ...rawPlan, planWarnings };
   const position = calculatePositionSize({
     account: defaultAccountModel,
@@ -474,8 +526,29 @@ function signalFromContext(context: MarketContext, settings: StrategyInput["sett
     plan,
     context,
     decisionSummary,
-    evidence: buildSignalEvidence(context, direction, plan, lifecycle, riskPolicy, sequence),
-    riskWarnings: position.warnings
+    evidence: [
+      ...buildSignalEvidence(context, direction, plan, lifecycle, riskPolicy, sequence),
+      {
+        id: "outcome-replay",
+        label: "Outcome replay",
+        status: outcome.status === "stopped" ? "warning" : outcome.status === "tp1" || outcome.status === "tp2" ? "warning" : outcome.entryTouched ? "pass" : "neutral",
+        detail: outcome.summary,
+        timeframe: "15m",
+        candleIndex: outcome.exitCandleIndex ?? outcome.entryCandleIndex
+      },
+      {
+        id: "action-window",
+        label: "Action window",
+        status: actionWindow.status === "valid" ? "pass" : actionWindow.status === "expired" || actionWindow.status === "inactive" ? "warning" : "neutral",
+        detail: actionWindow.summary,
+        timeframe: "15m",
+        time: actionWindow.validUntil
+      }
+    ],
+    riskWarnings: position.warnings,
+    outcome,
+    governance,
+    actionWindow
   };
 }
 

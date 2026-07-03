@@ -12,6 +12,9 @@ export function decisionWarnings(context: MarketContext, direction: TradeDirecti
   if (!isCryptoSymbol(context.symbol) && context.killzones.every((zone) => !zone.active || zone.name === "Outside")) {
     warnings.push("Setup ana Killzone dışında oluştu.");
   }
+  warnings.push(...context.regime.warnings);
+  warnings.push(...context.eventRisk.warnings);
+  warnings.push(...context.dataConfidence.warnings);
   const bias = direction === "long" ? "bullish" : "bearish";
   if (context.bias.daily !== bias) warnings.push(`Daily bias ${context.bias.daily}, güçlü ${bias} değil.`);
   if (plan.executionCosts.stress !== "off" && plan.grossRR >= 1.5 && plan.rr < 1.5) {

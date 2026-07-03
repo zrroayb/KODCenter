@@ -60,6 +60,32 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
       atr: 1,
       averageRange: 1
     },
+    regime: {
+      type: "range",
+      tradeability: "good",
+      scoreImpact: 6,
+      efficiency: 0.2,
+      volatilityRatio: 1,
+      rangePosition: "middle",
+      summary: "Fixture range regime.",
+      warnings: []
+    },
+    eventRisk: {
+      level: "clear",
+      noTrade: false,
+      activeEvents: [],
+      upcomingEvents: [],
+      summary: "Fixture event clear.",
+      warnings: []
+    },
+    dataConfidence: {
+      score: 90,
+      grade: "A",
+      stale: false,
+      source: "mid-only",
+      summary: "Fixture data confidence.",
+      warnings: []
+    },
     dataFeed: {
       source: "mid-only",
       executionPrice: "mid",

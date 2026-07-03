@@ -4,6 +4,7 @@ import { SignalsView } from "./SignalsView";
 import type { BacktestResult } from "../lib/analytics/performance";
 import type { MarketSymbol, TradingSignal } from "../lib/ict/types";
 import { journalInsights } from "../lib/journal/journalAnalyzer";
+import { journalLearningInsights } from "../lib/journal/strategyLearning";
 import type { JournalEntry } from "../lib/journal/types";
 import type { RuntimeMarketMemory } from "../lib/memory/marketMemory";
 import type { RejectedSetup } from "../lib/strategies/types";
@@ -15,8 +16,9 @@ function actionText(entry: JournalEntry) {
   return "İZLEME";
 }
 
-function JournalPanel({ entries }: { entries: JournalEntry[] }) {
+function JournalPanel({ entries, signals }: { entries: JournalEntry[]; signals: TradingSignal[] }) {
   const insights = journalInsights(entries);
+  const learning = journalLearningInsights(entries, signals);
   return (
     <article className="panel wide">
       <header className="panel-head">
@@ -31,6 +33,16 @@ function JournalPanel({ entries }: { entries: JournalEntry[] }) {
           <div key={insight.label}>
             <span>{insight.label}</span>
             <strong>{insight.value}</strong>
+            <small>{insight.detail}</small>
+          </div>
+        ))}
+      </div>
+      <div className="strategy-learning-list">
+        <strong>Strateji öğrenme</strong>
+        {learning.map((insight) => (
+          <div key={`${insight.label}-${insight.value}`}>
+            <span>{insight.label}</span>
+            <b>{insight.value}</b>
             <small>{insight.detail}</small>
           </div>
         ))}
@@ -92,7 +104,7 @@ export function RecordsView({
         backtestResult={backtestResult}
         memory={memory}
       />
-      <JournalPanel entries={journalEntries} />
+      <JournalPanel entries={journalEntries} signals={[...signals, ...inactiveSignals]} />
       <BacktestView result={backtestResult} onRun={onRunBacktest} />
     </section>
   );

@@ -201,6 +201,21 @@ export function SignalDetailsPanel({
           <div><span>MSS/CISD</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
           <div><span>Friction</span><strong>{signal.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(signal.plan.executionCosts.total)}</strong></div>
           <div><span>RR durumu</span><strong>{rrStatusText(signal)}</strong></div>
+          <div><span>Rejim</span><strong>{signal.context.regime.type}</strong></div>
+          <div><span>Event</span><strong>{signal.context.eventRisk.level}</strong></div>
+          <div><span>Veri güveni</span><strong>{signal.context.dataConfidence.grade} · {signal.context.dataConfidence.score}</strong></div>
+          <div><span>Replay</span><strong>{signal.outcome.status}</strong></div>
+          <div><span>Window</span><strong>{signal.actionWindow.status}</strong></div>
+          <div><span>Governance</span><strong>{signal.governance.status}</strong></div>
+        </div>
+        <div className="detail-checklist governance-checklist">
+          {signal.governance.checklist.map((item) => (
+            <div key={item.label}>
+              <span className={statusClass(item.status)}>{item.status}</span>
+              <strong>{item.label}</strong>
+              <small>{item.explanation}</small>
+            </div>
+          ))}
         </div>
         <div className="detail-checklist">
           {checklist.slice(0, 8).map((item) => (
@@ -293,6 +308,9 @@ export function SignalDetailsPanel({
           ))}
         </div>
         <p>{signal.decisionSummary.invalidation[0] ?? (signal.direction === "short" ? "Setup sweep high üstünde invalid olur." : "Setup sweep low altında invalid olur.")}</p>
+        <p><strong>Outcome:</strong> {signal.outcome.summary}</p>
+        <p><strong>Action window:</strong> {signal.actionWindow.summary}</p>
+        <p><strong>Governance:</strong> {signal.governance.summary}</p>
         <p>{signal.decisionSummary.fullReasoning}</p>
         {htfBias && <p className="muted-note">HTF okuma: {htfBias.explanation}</p>}
         <p className="muted-note">Setup zamanı: {setupTime} · Judas: {annotations.judasSwing ? "mapped" : "map yok"}</p>

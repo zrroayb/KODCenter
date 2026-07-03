@@ -1,9 +1,12 @@
 import { latestClosed } from "../ict/candles";
 import type { Candle, MarketContext, MarketSymbol } from "../ict/types";
 import { detectBias } from "./biasEngine";
+import { buildDataConfidence } from "./dataConfidenceEngine";
+import { buildEventRisk } from "./eventRiskEngine";
 import { buildKillzoneContext } from "./killzoneContextEngine";
 import { buildLiquidityPools, detectSweeps } from "./liquidityMapEngine";
 import { buildLiquidityObjectives } from "./liquidityObjectives";
+import { classifyMarketRegime } from "./marketRegimeEngine";
 import { buildPremiumDiscountContext } from "./premiumDiscountContextEngine";
 import { buildDealingRange } from "./rangeEngine";
 import { detectDisplacements, detectFairValueGaps, detectMarketStructureShifts } from "./structureEngine";
@@ -36,6 +39,17 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
   ];
   const sweeps = detectSweeps(execution, liquidityPools);
   const feed = latest.feed ?? "mid-only";
+  const dataFeed = {
+    source: feed,
+    executionPrice: feed === "broker-bid-ask" || feed === "synthetic-bid-ask" ? "bid-ask" as const : "mid" as const,
+    note: feed === "synthetic-bid-ask"
+      ? "Yahoo mid candles with modeled bid/ask spread."
+      : feed === "broker-bid-ask"
+        ? "Broker bid/ask candles."
+        : feed === "demo"
+          ? "Demo/fallback candles."
+          : "Mid-only candles; executable bid/ask not available."
+  };
   return {
     symbol,
     timeframes,
@@ -60,14 +74,9 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     fairValueGaps: detectFairValueGaps(execution),
     smtDivergences: [],
     volatility: buildVolatilityContext(execution),
-    dataFeed: {
-      source: feed,
-      executionPrice: feed === "broker-bid-ask" || feed === "synthetic-bid-ask" ? "bid-ask" : "mid",
-      note: feed === "synthetic-bid-ask"
-        ? "Yahoo mid candles with modeled bid/ask spread."
-        : feed === "broker-bid-ask"
-          ? "Broker bid/ask candles."
-          : "Mid-only candles; executable bid/ask not available."
-    }
+    regime: classifyMarketRegime(execution),
+    eventRisk: buildEventRisk(symbol, latest.time),
+    dataConfidence: buildDataConfidence({ timeframes, dataFeed, now: latest.time }),
+    dataFeed
   };
 }

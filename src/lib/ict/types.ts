@@ -121,6 +121,42 @@ export type VolatilityContext = {
   averageRange: number;
 };
 
+export type MarketRegimeType = "trend" | "range" | "chop" | "news-expansion" | "post-sweep-continuation";
+
+export type MarketRegimeContext = {
+  type: MarketRegimeType;
+  tradeability: "good" | "caution" | "blocked";
+  scoreImpact: number;
+  efficiency: number;
+  volatilityRatio: number;
+  rangePosition: "upper" | "middle" | "lower";
+  summary: string;
+  warnings: string[];
+};
+
+export type EventRiskLevel = "clear" | "watch" | "high";
+
+export type EventRiskContext = {
+  level: EventRiskLevel;
+  noTrade: boolean;
+  activeEvents: string[];
+  upcomingEvents: string[];
+  minutesToNext?: number;
+  summary: string;
+  warnings: string[];
+};
+
+export type DataConfidenceGrade = "A" | "B" | "C" | "D";
+
+export type DataConfidenceContext = {
+  score: number;
+  grade: DataConfidenceGrade;
+  stale: boolean;
+  source: "broker-bid-ask" | "synthetic-bid-ask" | "mid-only" | "demo";
+  summary: string;
+  warnings: string[];
+};
+
 export type StopSource = "sweep" | "fvg" | "swing" | "volatility-floor";
 export type TargetSource = "dealing-range" | "liquidity" | "projection";
 export type ExecutionCostStress = "off" | "normal" | "high";
@@ -153,6 +189,9 @@ export type MarketContext = {
   fairValueGaps: FairValueGap[];
   smtDivergences: SmtDivergence[];
   volatility: VolatilityContext;
+  regime: MarketRegimeContext;
+  eventRisk: EventRiskContext;
+  dataConfidence: DataConfidenceContext;
   dataFeed: {
     source: "broker-bid-ask" | "synthetic-bid-ask" | "mid-only" | "demo";
     executionPrice: "bid-ask" | "mid";
@@ -221,6 +260,35 @@ export type SignalEvidenceItem = {
   price?: number;
 };
 
+export type SignalOutcomeStatus = "not-triggered" | "open" | "tp1" | "tp2" | "stopped" | "missed";
+
+export type SignalOutcome = {
+  status: SignalOutcomeStatus;
+  entryTouched: boolean;
+  entryCandleIndex?: number;
+  exitCandleIndex?: number;
+  maxFavorableR: number;
+  maxAdverseR: number;
+  candlesTracked: number;
+  summary: string;
+};
+
+export type SignalGovernance = {
+  status: "allow" | "caution" | "block";
+  scoreImpact: number;
+  blockers: string[];
+  warnings: string[];
+  checklist: DecisionChecklistItem[];
+  summary: string;
+};
+
+export type SignalActionWindow = {
+  status: "valid" | "waiting" | "expired" | "inactive";
+  candlesRemaining: number;
+  validUntil?: number;
+  summary: string;
+};
+
 export type TradingSignal = {
   id: string;
   strategyId: string;
@@ -236,4 +304,7 @@ export type TradingSignal = {
   decisionSummary: DecisionSummary;
   evidence: SignalEvidenceItem[];
   riskWarnings: string[];
+  outcome: SignalOutcome;
+  governance: SignalGovernance;
+  actionWindow: SignalActionWindow;
 };

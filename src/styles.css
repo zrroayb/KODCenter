@@ -853,6 +853,15 @@ button:focus-visible {
   line-height: 1.42;
 }
 
+.governance-box {
+  border-color: rgba(217, 68, 91, 0.22);
+  background: rgba(217, 68, 91, 0.06);
+}
+
+.governance-box strong {
+  color: #a3374c;
+}
+
 .trade-now-button {
   justify-content: center;
   margin-top: auto;
@@ -904,7 +913,8 @@ button:focus-visible {
 }
 
 .data-health-grid div,
-.journal-entry-list div {
+.journal-entry-list div,
+.strategy-learning-list div {
   display: grid;
   gap: 4px;
   padding: 10px;
@@ -917,10 +927,25 @@ button:focus-visible {
 .data-health-grid small,
 .journal-entry-list span,
 .journal-entry-list small,
+.strategy-learning-list span,
+.strategy-learning-list small,
 .metric-grid small {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.38;
+}
+
+.strategy-learning-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.strategy-learning-list > strong {
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .list-stack {
@@ -1363,6 +1388,10 @@ button:focus-visible {
 .detail-checklist {
   display: grid;
   gap: 7px;
+}
+
+.governance-checklist {
+  margin: 10px 0;
 }
 
 .evidence-list {
