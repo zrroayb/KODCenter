@@ -456,6 +456,9 @@ export default defineConfig(({ mode }) => {
       port: 8787,
       strictPort: false
     },
+    preview: {
+      allowedHosts: ["kodcenter.onrender.com"]
+    },
     test: {
       environment: "node"
     }
