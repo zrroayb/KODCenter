@@ -49,10 +49,34 @@ export type RuntimeReplayTrade = {
   note: string;
 };
 
+export type RuntimeReplayCandidate = {
+  id: string;
+  symbol: string;
+  direction: string;
+  signalTime: number;
+  stage: "watch" | "ready";
+  grade: string;
+  score: number;
+  entry: number;
+  stopLoss: number;
+  target: number;
+  rr: number;
+  entrySource: string;
+  entryStatus: string;
+  governance: string;
+  actionWindow: string;
+  decision: string;
+  reasons: string[];
+  tags: string[];
+};
+
 export type RuntimeReplaySymbolSummary = {
   symbol: string;
+  watchAlerts: number;
   readyAlerts: number;
+  candidateAlerts: number;
   triggeredTrades: number;
+  avgScore: number;
   totalR: number;
   winRate: number;
 };
@@ -86,7 +110,9 @@ export type RuntimeReplaySummary = {
   bySymbol: RuntimeReplaySymbolSummary[];
   calibration: RuntimeReplayCalibration[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;
+  watchReasonSummary: Array<{ reason: string; count: number }>;
   trades: RuntimeReplayTrade[];
+  candidates: RuntimeReplayCandidate[];
   sampleWarning?: string;
 };
 

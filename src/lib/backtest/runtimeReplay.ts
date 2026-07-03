@@ -4,6 +4,7 @@ import {
   maxDrawdown,
   type BacktestResult,
   type RuntimeReplayCalibration,
+  type RuntimeReplayCandidate,
   type RuntimeReplayOutcomeReason,
   type RuntimeReplayTrade
 } from "../analytics/performance";
@@ -12,6 +13,7 @@ import { executableHigh, executableLow } from "../data/bidAsk";
 import type { Candle, MarketContext, MarketSymbol, TradingSignal } from "../ict/types";
 import { buildMarketContext, type MarketTimeframes } from "../intelligence/marketContext";
 import { attachSmtDivergences } from "../intelligence/smtEngine";
+import { closeConfirmationRequirement, entryRetestRequirement } from "../signals/waitingGuidance";
 import type { StrategyModule, StrategySettings } from "../strategies/types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -256,25 +258,81 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]):
   };
 }
 
-function bestSymbol(trades: RuntimeReplayTrade[]): string {
-  const bySymbol = symbolSummaries(trades);
-  return [...bySymbol].sort((a, b) => b.totalR - a.totalR)[0]?.symbol ?? "";
+function candidateDecision(signal: TradingSignal): string {
+  if (signal.stage === "ready") return "READY: entry, stop ve TP planı aktif.";
+  const closeRequirement = closeConfirmationRequirement(signal);
+  if (closeRequirement) {
+    return `${closeRequirement.timeframe} mum ${closeRequirement.level} ${closeRequirement.side === "above" ? "üstünde" : "altında"} kapanmalı.`;
+  }
+  if (signal.plan.entryStatus === "pending") return "Entry/retest alanı bekleniyor.";
+  return signal.plan.planWarnings[0] ?? signal.governance.summary ?? "WATCH: setup izleniyor.";
 }
 
-function symbolSummaries(trades: RuntimeReplayTrade[]) {
-  const symbols = Array.from(new Set(trades.map((trade) => trade.symbol))).sort();
+function candidateReasons(signal: TradingSignal): string[] {
+  const closeRequirement = closeConfirmationRequirement(signal);
+  const retest = entryRetestRequirement(signal);
+  const failed = signal.decisionSummary.checklist
+    .filter((item) => item.status === "fail")
+    .map((item) => item.explanation || item.label);
+  return Array.from(new Set([
+    retest,
+    closeRequirement ? `${closeRequirement.label} kapanış onayı bekleniyor.` : undefined,
+    signal.governance.blockers[0],
+    signal.governance.warnings[0],
+    ...signal.plan.planWarnings,
+    ...signal.riskWarnings,
+    ...failed
+  ].filter((item): item is string => Boolean(item))))
+    .slice(0, 6);
+}
+
+function replayCandidate(signal: TradingSignal, time: number): RuntimeReplayCandidate {
+  return {
+    id: `${signal.id}-${time}-candidate`,
+    symbol: signal.symbol,
+    direction: signal.direction,
+    signalTime: time,
+    stage: signal.stage === "ready" ? "ready" : "watch",
+    grade: signal.grade,
+    score: signal.score,
+    entry: signal.plan.entry,
+    stopLoss: signal.plan.stopLoss,
+    target: signal.plan.targets[0] ?? signal.plan.entry,
+    rr: signal.plan.rr,
+    entrySource: signal.plan.entrySource,
+    entryStatus: signal.plan.entryStatus,
+    governance: signal.governance.status,
+    actionWindow: signal.actionWindow.status,
+    decision: candidateDecision(signal),
+    reasons: candidateReasons(signal),
+    tags: tradeTags(signal)
+  };
+}
+
+function bestSymbol(trades: RuntimeReplayTrade[], candidates: RuntimeReplayCandidate[]): string {
+  const bySymbol = symbolSummaries(trades, candidates);
+  return [...bySymbol].sort((a, b) => b.totalR - a.totalR || b.readyAlerts - a.readyAlerts || b.watchAlerts - a.watchAlerts)[0]?.symbol ?? "";
+}
+
+function symbolSummaries(trades: RuntimeReplayTrade[], candidates: RuntimeReplayCandidate[]) {
+  const symbols = Array.from(new Set([...trades.map((trade) => trade.symbol), ...candidates.map((candidate) => candidate.symbol)])).sort();
   return symbols.map((symbol) => {
     const symbolTrades = trades.filter((trade) => trade.symbol === symbol);
+    const symbolCandidates = candidates.filter((candidate) => candidate.symbol === symbol);
     const triggered = symbolTrades.filter((trade) => trade.status !== "not-triggered");
     const wins = triggered.filter((trade) => trade.rMultiple > 0).length;
+    const scoreSum = symbolCandidates.reduce((sum, candidate) => sum + candidate.score, 0);
     return {
       symbol,
-      readyAlerts: symbolTrades.length,
+      watchAlerts: symbolCandidates.filter((candidate) => candidate.stage === "watch").length,
+      readyAlerts: symbolCandidates.filter((candidate) => candidate.stage === "ready").length,
+      candidateAlerts: symbolCandidates.length,
       triggeredTrades: triggered.length,
+      avgScore: symbolCandidates.length ? scoreSum / symbolCandidates.length : 0,
       totalR: Number(symbolTrades.reduce((sum, trade) => sum + trade.rMultiple, 0).toFixed(2)),
       winRate: triggered.length ? (wins / triggered.length) * 100 : 0
     };
-  });
+  }).sort((a, b) => b.readyAlerts - a.readyAlerts || b.watchAlerts - a.watchAlerts || b.avgScore - a.avgScore);
 }
 
 function failureReasonSummary(trades: RuntimeReplayTrade[]) {
@@ -289,6 +347,18 @@ function failureReasonSummary(trades: RuntimeReplayTrade[]) {
   return [...reasons.entries()]
     .map(([reason, value]) => ({ reason, ...value }))
     .sort((a, b) => b.count - a.count || a.totalR - b.totalR);
+}
+
+function watchReasonSummary(candidates: RuntimeReplayCandidate[]) {
+  const counts = new Map<string, number>();
+  for (const candidate of candidates.filter((item) => item.stage === "watch")) {
+    const reason = candidate.reasons[0] ?? candidate.decision;
+    counts.set(reason, (counts.get(reason) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8);
 }
 
 function tagLabel(tag: string): string {
@@ -401,6 +471,7 @@ export function runMonthlyRuntimeReplay({
   const setupStates = new Map<string, SetupState>();
   const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
   const trades: RuntimeReplayTrade[] = [];
+  const candidates: RuntimeReplayCandidate[] = [];
   let scannedWindows = 0;
   let watchAlerts = 0;
   let readyAlerts = 0;
@@ -428,10 +499,12 @@ export function runMonthlyRuntimeReplay({
 
       if (signal.stage === "watch" && !state.countedWatch) {
         watchAlerts += 1;
+        candidates.push(replayCandidate(signal, time));
         state.countedWatch = true;
       }
 
       if (signal.stage === "ready" && !state.countedReady) {
+        candidates.push(replayCandidate(signal, time));
         const market = marketBySymbol.get(signal.symbol);
         const outcome = evaluateForwardOutcome(signal, market ? futureCandlesForSignal(market, time, maxHoldCandles) : []);
         trades.push({
@@ -462,7 +535,7 @@ export function runMonthlyRuntimeReplay({
   const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.rMultiple, 0));
   const equityCurve = equityCurveFromReturns(returns);
   const totalR = Number(returns.reduce((sum, value) => sum + value, 0).toFixed(2));
-  const bySymbol = symbolSummaries(trades);
+  const bySymbol = symbolSummaries(trades, candidates);
   const tp1Trades = trades.filter((trade) => trade.status === "tp1").length;
   const tp2Trades = trades.filter((trade) => trade.status === "tp2").length;
   const stoppedTrades = trades.filter((trade) => trade.status === "stopped").length;
@@ -482,7 +555,7 @@ export function runMonthlyRuntimeReplay({
     maxWinStreak: streak(returns, true),
     maxLossStreak: streak(returns, false),
     bestKillzone: "Runtime replay",
-    bestSymbol: bestSymbol(trades),
+    bestSymbol: bestSymbol(trades, candidates),
     bestSetupGrade: [...trades].sort((a, b) => b.rMultiple - a.rMultiple)[0]?.grade ?? "",
     bestPremiumDiscountLocation: "Measured from closed-candle replay",
     worstCondition: stoppedTrades > wins.length ? "Stops dominate TP hits" : "Sample still building",
@@ -509,7 +582,9 @@ export function runMonthlyRuntimeReplay({
       bySymbol,
       calibration: calibrationFromTrades(trades, watchAlerts),
       failureReasons: failureReasonSummary(trades),
+      watchReasonSummary: watchReasonSummary(candidates),
       trades: trades.slice(-80).reverse(),
+      candidates: candidates.slice(-120).reverse(),
       sampleWarning
     }
   };

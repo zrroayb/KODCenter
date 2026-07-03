@@ -1095,7 +1095,8 @@ button:focus-visible {
 }
 
 .replay-calibration-list,
-.replay-failure-list {
+.replay-failure-list,
+.replay-watch-reason-list {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 
@@ -1105,6 +1106,20 @@ button:focus-visible {
 
 .replay-trade-list {
   margin-top: 14px;
+}
+
+.replay-candidate-list {
+  margin-top: 14px;
+}
+
+.journal-entry-list > strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .list-stack {

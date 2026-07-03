@@ -59,10 +59,11 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             {replay.bySymbol.map((row) => (
               <div key={row.symbol}>
                 <span>{row.symbol}</span>
-                <b>{row.totalR.toFixed(2)}R</b>
-                <small>{row.readyAlerts} READY · {row.triggeredTrades} tetik · win {row.winRate.toFixed(1)}%</small>
+                <b>{row.watchAlerts} WATCH · {row.readyAlerts} READY</b>
+                <small>{row.triggeredTrades} tetik · {row.totalR.toFixed(2)}R · avg score {row.avgScore.toFixed(0)} · win {row.winRate.toFixed(1)}%</small>
               </div>
             ))}
+            {!replay.bySymbol.length && <p className="muted-note">Bu ay hiç setup adayı oluşmadı; veri/saat aralığı veya strateji filtresi kontrol edilmeli.</p>}
           </div>
           <div className="strategy-learning-list replay-calibration-list">
             <strong>Kalibrasyon önerisi</strong>
@@ -73,6 +74,17 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
                 <small>{item.detail}</small>
               </div>
             ))}
+          </div>
+          <div className="strategy-learning-list replay-watch-reason-list">
+            <strong>READY neden çıkmadı?</strong>
+            {replay.watchReasonSummary.map((item) => (
+              <div key={item.reason}>
+                <span>{item.reason}</span>
+                <b>{item.count} WATCH</b>
+                <small>Bu madde çok tekrar ediyorsa strateji şartı ya fazla sıkı ya da chart gerçekten hazır değil.</small>
+              </div>
+            ))}
+            {!replay.watchReasonSummary.length && <p className="muted-note">WATCH sebebi yok; READY trade listesine bak.</p>}
           </div>
           <div className="strategy-learning-list replay-failure-list">
             <strong>Neden patladı / neden dolmadı?</strong>
@@ -94,6 +106,18 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               </div>
             ))}
             {!replay.trades.length && <p className="muted-note">Son 1 ayda READY trade tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
+          </div>
+          <div className="journal-entry-list replay-candidate-list">
+            <strong>Aylık setup akışı</strong>
+            {replay.candidates.slice(0, 18).map((candidate) => (
+              <div key={candidate.id}>
+                <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · {candidate.grade} · Score {candidate.score}</strong>
+                <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
+                <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · TP1 {formatPrice(candidate.target)} · {candidate.decision}</small>
+                {candidate.reasons.length > 0 && <small>Eksik: {candidate.reasons.slice(0, 3).join(" · ")}</small>}
+              </div>
+            ))}
+            {!replay.candidates.length && <p className="muted-note">Replay scan çalıştı ama aday kaydı yok. Bu durumda veri warmup veya rule filtreleri çok sıkı olabilir.</p>}
           </div>
         </>
       )}
