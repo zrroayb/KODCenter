@@ -1,5 +1,7 @@
 import type { TradingSignal } from "../ict/types";
 import { formatPrice, formatR } from "../ict/format";
+import { selectedSignalAnnotations } from "../charts/selectedSignal";
+import { closeConfirmationRequirement } from "../signals/waitingGuidance";
 
 export type GeminiTradeCommentaryPayload = {
   id: string;
@@ -47,6 +49,60 @@ export type GeminiTradeCommentaryPayload = {
     status: string;
     detail: string;
   }>;
+  chart: {
+    timeframe: "15m" | "5m";
+    lastPrice: number;
+    decisionLine: string;
+    waitingFor: string[];
+    keyLevels: Array<{
+      label: string;
+      price?: number;
+      zone?: [number, number];
+      reason: string;
+    }>;
+    annotations: {
+      sweep?: {
+        side: string;
+        level: number;
+        candleIndex: number;
+        reclaimed: boolean;
+      };
+      mss?: {
+        direction: string;
+        level: number;
+        candleIndex: number;
+      };
+      displacement?: {
+        direction: string;
+        candleIndex: number;
+        bodyRatio: number;
+        rangeAtr: number;
+      };
+      fairValueGap?: {
+        source: string;
+        direction: string;
+        low: number;
+        high: number;
+        midpoint: number;
+        mitigated: boolean;
+        candleIndex: number;
+      };
+      smt?: {
+        partner: string;
+        side: string;
+        note: string;
+      };
+    };
+    recentCandles: Array<{
+      index: number;
+      time: number;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      role?: string;
+    }>;
+  };
 };
 
 export type GeminiTradeCommentaryResponse = {
@@ -59,6 +115,7 @@ export type GeminiTradeCommentaryResponse = {
 
 function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTradeCommentaryResponse {
   const warning = [...signal.decisionSummary.warnings, ...signal.plan.planWarnings, ...signal.riskWarnings][0];
+  const chart = buildChartMentorContext(signal);
   const wait = signal.stage === "ready"
     ? "Plan hazır; entry, stop ve TP seviyeleri belli."
     : signal.stage === "missed"
@@ -69,16 +126,151 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
           ? "Entry modeli var ama kalite/RR/filtreler için bekle."
           : "Retest ve MSS/CISD kapanış onayı bekle.";
   const commentary = [
-    `Yerel özet: ${signal.symbol} ${signal.direction.toUpperCase()} ${signal.stage.toUpperCase()} · ${signal.grade} · ${formatR(signal.plan.rr)}.`,
+    `Chart okuması: ${signal.symbol} ${signal.direction.toUpperCase()} ${signal.stage.toUpperCase()} · ${signal.grade} · ${formatR(signal.plan.rr)}.`,
+    `Ana karar: ${chart.decisionLine}`,
     `Dikkat: ${warning ?? `${signal.context.premiumDiscount.zone} bölgesi, HTF ${signal.context.bias.daily}/${signal.context.bias.h4}/${signal.context.bias.h1}.`}`,
-    `Bekle/Plan: ${wait}`,
-    `Invalidation: ${signal.direction === "short" ? "Stop üstü" : "Stop altı"} ${formatPrice(signal.plan.stopLoss)}.`
+    `Mentor notu: ${wait} Invalidation ${signal.direction === "short" ? "stop üstü" : "stop altı"} ${formatPrice(signal.plan.stopLoss)}.`
   ].join("\n");
   return {
     status: "fallback",
     commentary,
     model: "local-fallback",
     reason
+  };
+}
+
+function executionCandles(signal: TradingSignal) {
+  return signal.context.timeframes.m15.length ? signal.context.timeframes.m15 : signal.context.timeframes.m5;
+}
+
+function candleRole(signal: TradingSignal, index: number): string | undefined {
+  const annotations = selectedSignalAnnotations(signal);
+  const roles = [
+    annotations.sweep?.candleIndex === index ? "liquidity sweep / reclaim referansı" : undefined,
+    annotations.displacement?.candleIndex === index ? "displacement candle" : undefined,
+    annotations.marketStructureShift?.candleIndex === index ? "MSS/CISD referansı" : undefined,
+    annotations.fairValueGap?.candleIndex === index ? "planlı FVG/iFVG candle" : undefined,
+    annotations.smtDivergence?.candleIndex === index ? "SMT divergence candle" : undefined
+  ].filter((item): item is string => Boolean(item));
+  return roles.length ? roles.join(", ") : undefined;
+}
+
+function buildDecisionLine(signal: TradingSignal): string {
+  const closeRequirement = closeConfirmationRequirement(signal);
+  if (signal.stage === "invalidated") return "Bu setup artık işlem adayı değil; stop/invalidation görülmüş.";
+  if (signal.stage === "missed") return "Trade kovalanmaz; entry/hedef kaçmış, yeni model beklenir.";
+  if (signal.governance.status === "block") return signal.governance.blockers[0] ?? "Governance blok var.";
+  if (closeRequirement) {
+    return `${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${closeRequirement.side === "above" ? "üstünde" : "altında"} kapanmalı; referans ${closeRequirement.reference}.`;
+  }
+  if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
+    const gap = signal.plan.entryModel.fairValueGap;
+    return gap
+      ? `Fiyat ${formatPrice(gap.low)}-${formatPrice(gap.high)} entry kutusuna dönüp kapanışla onay vermeli.`
+      : `Fiyat ${formatPrice(signal.plan.entry)} entry seviyesine gelip kapanışla onay vermeli.`;
+  }
+  if (signal.stage === "ready") {
+    return `READY plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, TP1 ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}.`;
+  }
+  return signal.plan.planWarnings[0] ?? "Setup izleniyor; READY olmadan işlem yok.";
+}
+
+function buildWaitingFor(signal: TradingSignal): string[] {
+  const closeRequirement = closeConfirmationRequirement(signal);
+  const waits = [
+    !signal.plan.entryModel.retested ? "Entry kutusu/retest seviyesine temas bekleniyor." : undefined,
+    closeRequirement ? `${closeRequirement.label} kapanış onayı bekleniyor: ${closeRequirement.reason}` : undefined,
+    signal.context.eventRisk.level !== "clear" ? `Event/saat riski: ${signal.context.eventRisk.summary}` : undefined,
+    signal.governance.status !== "allow" ? signal.governance.summary : undefined,
+    ...signal.plan.planWarnings.slice(0, 3)
+  ].filter((item): item is string => Boolean(item));
+  return Array.from(new Set(waits)).slice(0, 6);
+}
+
+function buildChartMentorContext(signal: TradingSignal): GeminiTradeCommentaryPayload["chart"] {
+  const candles = executionCandles(signal);
+  const annotations = selectedSignalAnnotations(signal);
+  const closeRequirement = closeConfirmationRequirement(signal);
+  const recentStartIndex = Math.max(0, candles.length - 18);
+  const recentCandles = candles.slice(-18).map((candle, offset) => {
+    const index = recentStartIndex + offset;
+    return {
+      index,
+      time: candle.time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      role: candleRole(signal, index)
+    };
+  });
+  const keyLevels: GeminiTradeCommentaryPayload["chart"]["keyLevels"] = [];
+  keyLevels.push(
+    { label: "ENTRY", price: signal.plan.entry, reason: `${signal.plan.entrySource}/${signal.plan.entryStatus}` },
+    { label: "STOP", price: signal.plan.stopLoss, reason: `${signal.plan.stopSource} + buffer` },
+    { label: "TP1", price: signal.plan.targets[0], reason: signal.plan.targetSource },
+    { label: "TP2", price: signal.plan.targets[1], reason: signal.plan.targetSource },
+    { label: "DRH", price: signal.context.dealingRange.high, reason: signal.context.dealingRange.source },
+    { label: "EQ", price: signal.context.dealingRange.midpoint, reason: "dealing range midpoint" },
+    { label: "DRL", price: signal.context.dealingRange.low, reason: signal.context.dealingRange.source }
+  );
+  if (annotations.sweep) {
+    keyLevels.push({ label: "SWEEP", price: annotations.sweep.level, reason: `${annotations.sweep.side}, reclaimed=${annotations.sweep.reclaimed}` });
+  }
+  if (annotations.marketStructureShift) {
+    keyLevels.push({ label: "MSS/CISD", price: annotations.marketStructureShift.level, reason: `${annotations.marketStructureShift.direction} structure shift` });
+  }
+  if (closeRequirement) {
+    keyLevels.push({ label: "KAPANIŞ ONAYI", price: closeRequirement.level, reason: closeRequirement.reason });
+  }
+  if (annotations.fairValueGap) {
+    keyLevels.push({
+      label: signal.plan.entrySource === "ifvg-retest" ? "iFVG BOX" : "FVG BOX",
+      zone: [annotations.fairValueGap.low, annotations.fairValueGap.high],
+      reason: `planlı gap, mitigated=${annotations.fairValueGap.mitigated}`
+    });
+  }
+
+  return {
+    timeframe: signal.context.timeframes.m15.length ? "15m" : "5m",
+    lastPrice: candles[candles.length - 1]?.close ?? signal.plan.entry,
+    decisionLine: buildDecisionLine(signal),
+    waitingFor: buildWaitingFor(signal),
+    keyLevels,
+    annotations: {
+      sweep: annotations.sweep ? {
+        side: annotations.sweep.side,
+        level: annotations.sweep.level,
+        candleIndex: annotations.sweep.candleIndex,
+        reclaimed: annotations.sweep.reclaimed
+      } : undefined,
+      mss: annotations.marketStructureShift ? {
+        direction: annotations.marketStructureShift.direction,
+        level: annotations.marketStructureShift.level,
+        candleIndex: annotations.marketStructureShift.candleIndex
+      } : undefined,
+      displacement: annotations.displacement ? {
+        direction: annotations.displacement.direction,
+        candleIndex: annotations.displacement.candleIndex,
+        bodyRatio: annotations.displacement.bodyRatio,
+        rangeAtr: annotations.displacement.rangeAtr
+      } : undefined,
+      fairValueGap: annotations.fairValueGap ? {
+        source: signal.plan.entrySource,
+        direction: annotations.fairValueGap.direction,
+        low: annotations.fairValueGap.low,
+        high: annotations.fairValueGap.high,
+        midpoint: annotations.fairValueGap.midpoint,
+        mitigated: annotations.fairValueGap.mitigated,
+        candleIndex: annotations.fairValueGap.candleIndex
+      } : undefined,
+      smt: annotations.smtDivergence ? {
+        partner: annotations.smtDivergence.partner,
+        side: annotations.smtDivergence.side,
+        note: annotations.smtDivergence.note
+      } : undefined
+    },
+    recentCandles
   };
 }
 
@@ -136,7 +328,8 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
       label: item.label,
       status: item.status,
       detail: item.detail
-    }))
+    })),
+    chart: buildChartMentorContext(signal)
   };
 }
 

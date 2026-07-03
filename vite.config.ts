@@ -73,6 +73,60 @@ type GeminiTradePayload = {
     status?: string;
     detail?: string;
   }>;
+  chart?: {
+    timeframe?: string;
+    lastPrice?: number;
+    decisionLine?: string;
+    waitingFor?: string[];
+    keyLevels?: Array<{
+      label?: string;
+      price?: number;
+      zone?: [number, number];
+      reason?: string;
+    }>;
+    annotations?: {
+      sweep?: {
+        side?: string;
+        level?: number;
+        candleIndex?: number;
+        reclaimed?: boolean;
+      };
+      mss?: {
+        direction?: string;
+        level?: number;
+        candleIndex?: number;
+      };
+      displacement?: {
+        direction?: string;
+        candleIndex?: number;
+        bodyRatio?: number;
+        rangeAtr?: number;
+      };
+      fairValueGap?: {
+        source?: string;
+        direction?: string;
+        low?: number;
+        high?: number;
+        midpoint?: number;
+        mitigated?: boolean;
+        candleIndex?: number;
+      };
+      smt?: {
+        partner?: string;
+        side?: string;
+        note?: string;
+      };
+    };
+    recentCandles?: Array<{
+      index?: number;
+      time?: number;
+      open?: number;
+      high?: number;
+      low?: number;
+      close?: number;
+      role?: string;
+    }>;
+  };
 };
 
 type TelegramEnv = {
@@ -167,10 +221,10 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   return {
     status: "fallback" as const,
     commentary: clampText([
-      `Yerel özet: ${input.symbol ?? "-"} ${(input.direction ?? "").toUpperCase()} ${(input.stage ?? "").toUpperCase()} · ${input.grade ?? "-"} · ${formatTelegramR(input.rr)}.`,
+      `Chart okuması: ${input.symbol ?? "-"} ${(input.direction ?? "").toUpperCase()} ${(input.stage ?? "").toUpperCase()} · ${input.grade ?? "-"} · ${formatTelegramR(input.rr)}.`,
+      `Ana karar: ${input.chart?.decisionLine || plan}`,
       `Dikkat: ${warning || `PD ${input.context?.premiumDiscount ?? "-"}, HTF ${input.context?.dailyBias ?? "-"}/${input.context?.h4Bias ?? "-"}/${input.context?.h1Bias ?? "-"}.`}`,
-      `Bekle/Plan: ${plan}`,
-      `Invalidation: ${invalidation || `Stop ${formatTelegramPrice(input.stopLoss)}.`}`
+      `Mentor notu: ${input.chart?.waitingFor?.[0] || plan} Invalidation: ${invalidation || `Stop ${formatTelegramPrice(input.stopLoss)}.`}`
     ].join("\n"), 900),
     model: "local-fallback",
     reason
@@ -192,18 +246,39 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
     .join("\n");
   const warnings = (input.warnings ?? []).slice(0, 8).join("\n");
   const invalidation = (input.invalidation ?? []).slice(0, 3).join("\n");
+  const keyLevels = (input.chart?.keyLevels ?? [])
+    .slice(0, 14)
+    .map((level) => {
+      const value = Array.isArray(level.zone)
+        ? `${level.zone[0]}-${level.zone[1]}`
+        : typeof level.price === "number"
+          ? String(level.price)
+          : "-";
+      return `${level.label}: ${value} (${level.reason ?? "-"})`;
+    })
+    .join("\n");
+  const recentCandles = (input.chart?.recentCandles ?? [])
+    .slice(-18)
+    .map((candle) => `#${candle.index} O=${candle.open} H=${candle.high} L=${candle.low} C=${candle.close}${candle.role ? ` role=${candle.role}` : ""}`)
+    .join("\n");
+  const waitingFor = (input.chart?.waitingFor ?? []).slice(0, 6).join("\n");
+  const annotations = JSON.stringify(input.chart?.annotations ?? {}, null, 0);
 
   return clampText(`
-Sen ICT/KOD trade karar masasında kısa yorum yapan bir asistansın.
+Sen kullanıcının net ve doğrudan konuşan ICT/KOD chart akıl hocasısın.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
-Türkçe yaz. Teknik terimleri koru. En fazla 4 kısa satır yaz.
+Türkçe yaz. Teknik terimleri koru. En fazla 6 kısa satır yaz.
+Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, displacement, entry kutusu, stop ve TP mesafesini beraber değerlendir.
+Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
 Eğer EntryModel FVG/iFVG değilse veya FVG alanı yoksa FVG/iFVG yorumu yapma.
+Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta FVG yok", "entry chase olur", "stop zaten görülmüş" gibi.
 
 Format:
-Özet: ...
-Dikkat: ...
-Bekle/Plan: ...
-Invalidation: ...
+Chart: ...
+Karar: ...
+Beklenen mum/level: ...
+Risk: ...
+Mentor notu: ...
 
 Trade:
 Symbol=${input.symbol}
@@ -222,6 +297,23 @@ Bias D/H4/H1=${input.context?.dailyBias}/${input.context?.h4Bias}/${input.contex
 PD=${input.context?.premiumDiscount}
 Session=${input.context?.session}
 Feed=${input.context?.dataFeed}
+
+ChartRead:
+Timeframe=${input.chart?.timeframe}
+LastPrice=${input.chart?.lastPrice}
+DecisionLine=${input.chart?.decisionLine}
+
+KeyLevels:
+${keyLevels || "-"}
+
+WaitingFor:
+${waitingFor || "-"}
+
+ChartAnnotations:
+${annotations || "-"}
+
+RecentCandles:
+${recentCandles || "-"}
 
 Checklist:
 ${checklist || "-"}

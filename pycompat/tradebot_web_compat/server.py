@@ -44,6 +44,8 @@ def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> 
     invalidation = payload.get("invalidation") if isinstance(payload.get("invalidation"), list) else []
     context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
     entry_model = payload.get("entryModel") if isinstance(payload.get("entryModel"), dict) else {}
+    chart = payload.get("chart") if isinstance(payload.get("chart"), dict) else {}
+    waiting_for = chart.get("waitingFor") if isinstance(chart.get("waitingFor"), list) else []
     stage = str(payload.get("stage") or "").lower()
     if stage == "ready":
         plan = "Plan hazır; giriş, stop ve TP seviyeleri belli."
@@ -62,13 +64,15 @@ def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> 
     )
     warning_text = warnings[0] if warnings else default_warning
     invalidation_text = invalidation[0] if invalidation else f"Stop {_format_price(payload.get('stopLoss'))}."
+    decision_line = chart.get("decisionLine") if isinstance(chart.get("decisionLine"), str) else plan
+    mentor_note = waiting_for[0] if waiting_for else plan
 
     commentary = "\n".join(
         [
-            f"Yerel özet: {payload.get('symbol', '-')} {str(payload.get('direction', '')).upper()} {stage.upper()} · {payload.get('grade', '-')} · {_format_r(payload.get('rr'))}.",
+            f"Chart okuması: {payload.get('symbol', '-')} {str(payload.get('direction', '')).upper()} {stage.upper()} · {payload.get('grade', '-')} · {_format_r(payload.get('rr'))}.",
+            f"Ana karar: {decision_line}",
             f"Dikkat: {warning_text}.",
-            f"Bekle/Plan: {plan}",
-            f"Invalidation: {invalidation_text}",
+            f"Mentor notu: {mentor_note} Invalidation: {invalidation_text}",
         ]
     )
     return {
@@ -77,6 +81,91 @@ def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> 
         "model": "python-local-fallback",
         "reason": reason,
     }
+
+
+def _build_gemini_prompt(payload: dict[str, Any]) -> str:
+    chart = payload.get("chart") if isinstance(payload.get("chart"), dict) else {}
+    entry_model = payload.get("entryModel") if isinstance(payload.get("entryModel"), dict) else {}
+    planned_gap = entry_model.get("fairValueGap") if isinstance(entry_model.get("fairValueGap"), dict) else None
+    planned_gap_text = (
+        json.dumps(planned_gap, ensure_ascii=False)
+        if planned_gap
+        else "planlı FVG/iFVG yok; FVG kelimesini kullanma"
+    )
+    key_levels = chart.get("keyLevels") if isinstance(chart.get("keyLevels"), list) else []
+    recent_candles = chart.get("recentCandles") if isinstance(chart.get("recentCandles"), list) else []
+    waiting_for = chart.get("waitingFor") if isinstance(chart.get("waitingFor"), list) else []
+    annotations = chart.get("annotations") if isinstance(chart.get("annotations"), dict) else {}
+    checklist = payload.get("checklist") if isinstance(payload.get("checklist"), list) else []
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
+    warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
+    invalidation = payload.get("invalidation") if isinstance(payload.get("invalidation"), list) else []
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
+
+    prompt = f"""
+Sen kullanıcının net ve doğrudan konuşan ICT/KOD chart akıl hocasısın.
+Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
+Türkçe yaz. Teknik terimleri koru. En fazla 6 kısa satır yaz.
+Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, displacement, entry kutusu, stop ve TP mesafesini beraber değerlendir.
+Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
+Eğer EntryModel FVG/iFVG değilse veya FVG alanı yoksa FVG/iFVG yorumu yapma.
+Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta FVG yok", "entry chase olur", "stop zaten görülmüş" gibi.
+
+Format:
+Chart: ...
+Karar: ...
+Beklenen mum/level: ...
+Risk: ...
+Mentor notu: ...
+
+Trade:
+Symbol={payload.get("symbol")}
+Direction={payload.get("direction")}
+Stage={payload.get("stage")}
+Grade={payload.get("grade")}
+Score={payload.get("score")}
+Entry={payload.get("entry")}
+Stop={payload.get("stopLoss")}
+TP={payload.get("targets")}
+NetRR={payload.get("rr")}
+GrossRR={payload.get("grossRR")}
+EntryModel={entry_model.get("source")}/{entry_model.get("status")}, retest={entry_model.get("retested")}, MSS/CISD={entry_model.get("cisdConfirmed")}
+PlannedFVG={planned_gap_text}
+Bias D/H4/H1={context.get("dailyBias")}/{context.get("h4Bias")}/{context.get("h1Bias")}
+PD={context.get("premiumDiscount")}
+Session={context.get("session")}
+Feed={context.get("dataFeed")}
+
+ChartRead:
+Timeframe={chart.get("timeframe")}
+LastPrice={chart.get("lastPrice")}
+DecisionLine={chart.get("decisionLine")}
+
+KeyLevels:
+{json.dumps(key_levels[:14], ensure_ascii=False)}
+
+WaitingFor:
+{json.dumps(waiting_for[:6], ensure_ascii=False)}
+
+ChartAnnotations:
+{json.dumps(annotations, ensure_ascii=False)}
+
+RecentCandles:
+{json.dumps(recent_candles[-18:], ensure_ascii=False)}
+
+Checklist:
+{json.dumps(checklist[:10], ensure_ascii=False)}
+
+Warnings:
+{json.dumps(warnings[:8], ensure_ascii=False)}
+
+Evidence:
+{json.dumps(evidence[:8], ensure_ascii=False)}
+
+Invalidation:
+{json.dumps(invalidation[:3], ensure_ascii=False)}
+"""
+    return prompt[:5000]
 
 
 def _telegram_caption(payload: dict[str, Any], ai_commentary: str | None = None) -> str:
@@ -137,11 +226,7 @@ def _gemini_commentary(payload: dict[str, Any]) -> dict[str, Any]:
     if not api_key:
         return _fallback_commentary(payload, "GEMINI_API_KEY missing")
     model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
-    prompt = (
-        "Türkçe, en fazla 4 kısa satır ICT/KOD trade yorumu yaz. "
-        "Kesin al/sat deme, yatırım tavsiyesi verme. Veri:\n"
-        + json.dumps(payload, ensure_ascii=False)[:4500]
-    )
+    prompt = _build_gemini_prompt(payload)
     try:
         _, body = _post_json(
             "https://generativelanguage.googleapis.com/v1beta/interactions",

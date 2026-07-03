@@ -183,10 +183,10 @@ export function SignalDetailsPanel({
         </ul>
       </section>
       <section className={`ai-commentary ${aiCommentary.status}`}>
-        <h3>AI yorumu</h3>
+        <h3>AI chart mentoru</h3>
         <p>
           {aiLoading
-            ? "Gemini trade yorumunu hazırlıyor..."
+            ? "Gemini chartı ICT mentor gibi okuyor..."
             : aiCommentary.status === "ready" || aiCommentary.status === "fallback"
               ? aiCommentary.commentary
               : aiCommentary.status === "disabled"
