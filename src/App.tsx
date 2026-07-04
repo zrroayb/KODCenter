@@ -368,7 +368,7 @@ export default function App() {
             <button className="ghost-btn" onClick={() => void refreshMarketData()} type="button" disabled={dataLoading || dataRefreshing}>
               Veriyi yenile
             </button>
-            {activeView !== "charts" && <span className="market-universe">{markets.map((market) => market.symbol).join(" · ")}</span>}
+            {activeView !== "charts" && <span className="market-universe">{markets.length} market izleniyor</span>}
           </div>
         </header>
         {activeView === "scanner" && (

@@ -131,6 +131,18 @@ function stopSourceText(signal: TradingSignal) {
   return "volatility floor";
 }
 
+function dataHealthTitle(report: DataHealthReport) {
+  if (report.status === "ok") return "Veri kullanılabilir";
+  if (report.status === "warning") return "Veri uyarılı ama okunabilir";
+  return "Veri zayıf, dikkat";
+}
+
+function dataHealthSummary(report: DataHealthReport) {
+  if (report.status === "ok") return "Canlı veri akıyor. Sinyal kararında data tarafı ekstra engel çıkarmıyor.";
+  if (report.source === "demo") return "Canlı veri alınamadığı için demo/fallback devrede. READY sinyali gelse bile gerçek işlem kararı verme.";
+  return "Bazı marketlerde veri gecikmesi veya HTF yaş uyarısı var. Sinyali okuyabilirsin ama chartta teyit etmeden karar verme.";
+}
+
 export function waitingRequirements(signal: TradingSignal): string[] {
   return waitingRequirementsForMinimumRR(signal, 1.5);
 }
@@ -216,23 +228,31 @@ function DataHealthPanel({ report }: { report: DataHealthReport }) {
     <article className={`panel data-health-panel ${report.status}`}>
       <header className="panel-head">
         <div>
-          <span className="eyebrow">Data doğruluk</span>
-          <h2>{report.status === "ok" ? "Veri temiz" : report.status === "warning" ? "Veri uyarılı" : "Fallback / riskli"}</h2>
+          <span className="eyebrow">Veri durumu</span>
+          <h2>{dataHealthTitle(report)}</h2>
         </div>
         <span className="badge">{report.source}</span>
       </header>
-      <div className="data-health-grid">
-        {report.rows.map((row) => (
-          <div key={row.symbol}>
-            <strong>{row.symbol}</strong>
-            <span>
-              {row.source} · {row.feedMode} · exec lag {Number.isFinite(row.executionLagMinutes) ? `${row.executionLagMinutes} dk` : "yok"} · HTF yaş {Number.isFinite(row.htfAgeMinutes) ? `${row.htfAgeMinutes} dk` : "yok"} · 1D yaş {Number.isFinite(row.dailyAgeMinutes) ? `${row.dailyAgeMinutes} dk` : "yok"}
-            </span>
-            <small>5m {row.counts.m5} · 15m {row.counts.m15} · 1h {row.counts.h1} · 4h {row.counts.h4} · 1D {row.counts.daily}</small>
-          </div>
-        ))}
-      </div>
-      {newestIssues.length > 0 && <p className="muted-note">{newestIssues.join(" · ")}</p>}
+      <p className="data-health-readable">{dataHealthSummary(report)}</p>
+      {newestIssues.length > 0 && (
+        <ul className="data-health-simple-list">
+          {newestIssues.slice(0, 2).map((issue) => <li key={issue}>{issue}</li>)}
+        </ul>
+      )}
+      <details className="compact-details data-health-details">
+        <summary>Teknik veri detayları</summary>
+        <div className="data-health-grid">
+          {report.rows.map((row) => (
+            <div key={row.symbol}>
+              <strong>{row.symbol}</strong>
+              <span>
+                {row.source} · {row.feedMode} · exec lag {Number.isFinite(row.executionLagMinutes) ? `${row.executionLagMinutes} dk` : "yok"} · HTF yaş {Number.isFinite(row.htfAgeMinutes) ? `${row.htfAgeMinutes} dk` : "yok"} · 1D yaş {Number.isFinite(row.dailyAgeMinutes) ? `${row.dailyAgeMinutes} dk` : "yok"}
+              </span>
+              <small>5m {row.counts.m5} · 15m {row.counts.m15} · 1h {row.counts.h1} · 4h {row.counts.h4} · 1D {row.counts.daily}</small>
+            </div>
+          ))}
+        </div>
+      </details>
     </article>
   );
 }
@@ -285,16 +305,16 @@ export function ScannerView({
         ? "İşlem adayı var"
         : actionState === "watch"
           ? "Şu an alınacak trade yok"
-          : "Trade yok";
+          : "Şu an işlem yok";
   const actionReason = best
     ? best.stage === "ready"
       ? best.decisionSummary.shortSummary
       : signalDecisionReason(best)
       : latestInactive?.stage === "invalidated"
         ? "Son görünen setup stop/invalidation gördü; yeni setup bekleniyor."
-      : latestInactive?.stage === "missed"
-        ? signalDecisionReason(latestInactive)
-        : "Kurallara göre görünür aday çıkmadı.";
+        : latestInactive?.stage === "missed"
+          ? signalDecisionReason(latestInactive)
+        : "Kurallara göre güvenli aday yok. Bekle, zorlamıyoruz.";
   const bestRequirements = best ? waitingRequirementsForMinimumRR(best, minimumRR) : [];
   const bestAudit = best ? buildStructureAudit(best) : null;
   const simpleRequirements = bestRequirements.slice(0, 3);
@@ -307,41 +327,6 @@ export function ScannerView({
         : "Demo fallback";
   return (
     <section className="view-grid">
-      <article className="panel hero-panel">
-        <header className="panel-head">
-          <div>
-            <span className="eyebrow">Scanner</span>
-            <h2>Tüm market KOD taraması</h2>
-          </div>
-          <button className="primary-btn" onClick={onScan} type="button" disabled={dataLoading}>
-            <Play size={16} /> {dataLoading ? "Veri yükleniyor" : "Tümünü tara"}
-          </button>
-        </header>
-        <div className="scan-summary">
-          <div><span>Son tarama</span><strong>{new Date(lastScanTime).toLocaleTimeString()}</strong></div>
-          <div><span>Market</span><strong>{marketCount}</strong></div>
-          <div><span>Veri</span><strong>{dataLabel}</strong></div>
-          <div><span>Sinyal</span><strong>{signals.length} / {readySignals.length} ready</strong></div>
-          <div><span>Geçmiş</span><strong>{inactiveSignals.length}</strong></div>
-        </div>
-        {dataErrors.length > 0 && (
-          <div className={`provider-warning ${dataSource}`}>
-            <strong>Veri uyarısı</strong>
-            {dataErrors.slice(0, 4).map((error) => <span key={error}>{error}</span>)}
-          </div>
-        )}
-        {(best ?? latestInactive) && (
-          <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
-            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}</strong>
-            <span>
-              {best
-                ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
-                : "Aktif trade adayı değil; stop/missed durumunda yeni setup beklenir."}
-            </span>
-          </div>
-        )}
-      </article>
-      <DataHealthPanel report={dataHealth} />
       <article className={`panel trade-now-panel ${actionState}`}>
         <header className="trade-now-head">
           <span>{actionIcon}</span>
@@ -416,6 +401,40 @@ export function ScannerView({
           <p className="trade-now-reason">{dataLoading ? "Canlı veriler geldikten sonra en iyi aday burada görünecek." : actionReason}</p>
         )}
       </article>
+      <article className="panel hero-panel">
+        <header className="panel-head">
+          <div>
+            <span className="eyebrow">Scanner</span>
+            <h2>Market radar</h2>
+          </div>
+          <button className="primary-btn" onClick={onScan} type="button" disabled={dataLoading}>
+            <Play size={16} /> {dataLoading ? "Veri yükleniyor" : "Tara"}
+          </button>
+        </header>
+        <div className="scan-summary">
+          <div><span>Son tarama</span><strong>{new Date(lastScanTime).toLocaleTimeString()}</strong></div>
+          <div><span>Market</span><strong>{marketCount}</strong></div>
+          <div><span>Veri</span><strong>{dataLabel}</strong></div>
+          <div><span>Sinyal</span><strong>{signals.length} / {readySignals.length} ready</strong></div>
+          <div><span>Geçmiş</span><strong>{inactiveSignals.length}</strong></div>
+        </div>
+        {dataErrors.length > 0 && (
+          <div className={`provider-warning ${dataSource}`}>
+            <strong>Veri uyarısı</strong>
+            {dataErrors.slice(0, 4).map((error) => <span key={error}>{error}</span>)}
+          </div>
+        )}
+        {(best ?? latestInactive) && (
+          <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
+            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}</strong>
+            <span>
+              {best
+                ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
+                : "Aktif trade adayı değil; stop/missed durumunda yeni setup beklenir."}
+            </span>
+          </div>
+        )}
+      </article>
       <article className="panel">
         <header className="panel-head"><h2>Bulunan sinyaller</h2><span className="badge">{signals.length}</span></header>
         <div className="scan-signal-list">
@@ -453,6 +472,7 @@ export function ScannerView({
           {!inactiveSignals.length && <p className="muted-note">Stop olmuş veya missed setup yok.</p>}
         </div>
       </article>
+      <DataHealthPanel report={dataHealth} />
       <article className="panel wide">
         <header className="panel-head"><h2>Elendi / düşük kalite</h2><span className="badge">{rejectedSetups.length}</span></header>
         <div className="list-stack">
