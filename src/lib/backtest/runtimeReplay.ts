@@ -21,6 +21,8 @@ const DEFAULT_WINDOW_DAYS = 30;
 const DEFAULT_MAX_HOLD_CANDLES = 96;
 const DEFAULT_SCAN_EVERY_CANDLES = 4;
 const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const REPLAY_READY_MIN_SCORE = 40;
+const REPLAY_READY_MIN_RR = 1;
 
 type SetupState = {
   lastSeen: number;
@@ -101,9 +103,10 @@ function setupKey(signal: TradingSignal): string {
     signal.symbol,
     signal.direction,
     signal.plan.entrySource,
-    roundedLevel(signal.plan.entry, signal.symbol),
-    roundedLevel(signal.plan.stopLoss, signal.symbol),
-    roundedLevel(signal.plan.targets[0] ?? signal.plan.entry, signal.symbol)
+    signal.plan.stopSource,
+    signal.plan.targetSource,
+    signal.context.premiumDiscount.zone,
+    signal.context.regime.type
   ].join("|");
 }
 
@@ -166,8 +169,8 @@ function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeRep
   return "unknown";
 }
 
-function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[]): ReplayOutcome {
-  const tags = tradeTags(signal);
+function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], tagsExtra: string[] = []): ReplayOutcome {
+  const tags = Array.from(new Set([...tradeTags(signal), ...tagsExtra]));
   if (!futureCandles.length) {
     return { status: "open", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "expired", tags, note: "İleri mum yok; sonuç açık kaldı." };
   }
@@ -286,13 +289,19 @@ function candidateReasons(signal: TradingSignal): string[] {
     .slice(0, 6);
 }
 
-function replayCandidate(signal: TradingSignal, time: number): RuntimeReplayCandidate {
+function replayReadyDecision(signal: TradingSignal) {
+  if (signal.stage === "ready") return "LIVE READY: entry, stop ve TP planı aktifti.";
+  if (signal.plan.entryStatus === "confirmed") return "REPLAY READY: şartlar uygundu, forward sonuç ölçüldü.";
+  return "REPLAY READY: WATCH adayıydı; entry/retest ileri mumlarda test edildi.";
+}
+
+function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeReplayCandidate["stage"] = signal.stage === "ready" ? "ready" : "watch"): RuntimeReplayCandidate {
   return {
-    id: `${signal.id}-${time}-candidate`,
+    id: `${signal.id}-${time}-${stage}-candidate`,
     symbol: signal.symbol,
     direction: signal.direction,
     signalTime: time,
-    stage: signal.stage === "ready" ? "ready" : "watch",
+    stage,
     grade: signal.grade,
     score: signal.score,
     entry: signal.plan.entry,
@@ -303,10 +312,24 @@ function replayCandidate(signal: TradingSignal, time: number): RuntimeReplayCand
     entryStatus: signal.plan.entryStatus,
     governance: signal.governance.status,
     actionWindow: signal.actionWindow.status,
-    decision: candidateDecision(signal),
+    decision: stage === "ready" ? replayReadyDecision(signal) : candidateDecision(signal),
     reasons: candidateReasons(signal),
     tags: tradeTags(signal)
   };
+}
+
+function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean {
+  if (signal.stage === "ready") return true;
+  if (signal.stage !== "watch") return false;
+  if (signal.governance.status === "block") return false;
+  if (signal.context.eventRisk.noTrade) return false;
+  if (signal.context.dataConfidence.score < 45) return false;
+  if (signal.score < REPLAY_READY_MIN_SCORE) return false;
+  if (signal.plan.rr < Math.min(minimumRR, REPLAY_READY_MIN_RR)) return false;
+  if (signal.plan.entryStatus === "fallback") return false;
+  if (signal.plan.entrySource === "fallback-close") return false;
+  if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") return false;
+  return true;
 }
 
 function bestSymbol(trades: RuntimeReplayTrade[], candidates: RuntimeReplayCandidate[]): string {
@@ -472,6 +495,7 @@ export function runMonthlyRuntimeReplay({
   const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
   const trades: RuntimeReplayTrade[] = [];
   const candidates: RuntimeReplayCandidate[] = [];
+  const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : 1.5;
   let scannedWindows = 0;
   let watchAlerts = 0;
   let readyAlerts = 0;
@@ -503,12 +527,17 @@ export function runMonthlyRuntimeReplay({
         state.countedWatch = true;
       }
 
-      if (signal.stage === "ready" && !state.countedReady) {
-        candidates.push(replayCandidate(signal, time));
+      const replayEligible = replayEligibleSignal(signal, minimumRR);
+      if (replayEligible && !state.countedReady) {
+        candidates.push(replayCandidate(signal, time, "ready"));
         const market = marketBySymbol.get(signal.symbol);
-        const outcome = evaluateForwardOutcome(signal, market ? futureCandlesForSignal(market, time, maxHoldCandles) : []);
+        const outcome = evaluateForwardOutcome(
+          signal,
+          market ? futureCandlesForSignal(market, time, maxHoldCandles) : [],
+          signal.stage === "ready" ? ["replay:live-ready"] : ["replay:watch-promoted"]
+        );
         trades.push({
-          id: `${signal.id}-replay`,
+          id: `${signal.id}-${time}-replay`,
           symbol: signal.symbol,
           direction: signal.direction,
           signalTime: time,

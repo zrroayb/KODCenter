@@ -85,7 +85,7 @@ describe("BacktestView replay visibility", () => {
   it("renders monthly watch candidates even when there are no ready trades", () => {
     const markup = renderToStaticMarkup(<BacktestView result={replayResult()} onRun={() => undefined} />);
 
-    expect(markup).toContain("READY neden çıkmadı?");
+    expect(markup).toContain("WATCH neden kaldı?");
     expect(markup).toContain("Aylık setup akışı");
     expect(markup).toContain("12 WATCH");
     expect(markup).toContain("GBPUSD SHORT");

@@ -33,7 +33,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
   const replayMetrics = replay ? [
     ["Pencere", `${replay.availableDays.toFixed(1)} / ${replay.windowDays} gün · ${replay.scanEveryCandles}x15m`],
     ["Runtime scan", replay.scannedWindows],
-    ["READY alert", replay.readyAlerts],
+    ["Replay entry", replay.readyAlerts],
     ["WATCH setup", replay.watchAlerts],
     ["TP / SL", `${replay.tp1Trades + replay.tp2Trades} / ${replay.stoppedTrades}`],
     ["Toplam R", `${replay.totalR.toFixed(2)}R`]
@@ -59,7 +59,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             {replay.bySymbol.map((row) => (
               <div key={row.symbol}>
                 <span>{row.symbol}</span>
-                <b>{row.watchAlerts} WATCH · {row.readyAlerts} READY</b>
+                <b>{row.watchAlerts} WATCH · {row.readyAlerts} replay entry</b>
                 <small>{row.triggeredTrades} tetik · {row.totalR.toFixed(2)}R · avg score {row.avgScore.toFixed(0)} · win {row.winRate.toFixed(1)}%</small>
               </div>
             ))}
@@ -76,15 +76,15 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             ))}
           </div>
           <div className="strategy-learning-list replay-watch-reason-list">
-            <strong>READY neden çıkmadı?</strong>
+            <strong>WATCH neden kaldı?</strong>
             {replay.watchReasonSummary.map((item) => (
               <div key={item.reason}>
                 <span>{item.reason}</span>
                 <b>{item.count} WATCH</b>
-                <small>Bu madde çok tekrar ediyorsa strateji şartı ya fazla sıkı ya da chart gerçekten hazır değil.</small>
+                <small>Bu madde çok tekrar ediyorsa entry şartı fazla sıkı, veri kötü ya da chart gerçekten hazır değil.</small>
               </div>
             ))}
-            {!replay.watchReasonSummary.length && <p className="muted-note">WATCH sebebi yok; READY trade listesine bak.</p>}
+            {!replay.watchReasonSummary.length && <p className="muted-note">WATCH sebebi yok; replay entry listesine bak.</p>}
           </div>
           <div className="strategy-learning-list replay-failure-list">
             <strong>Neden patladı / neden dolmadı?</strong>
@@ -105,7 +105,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
                 <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
-            {!replay.trades.length && <p className="muted-note">Son 1 ayda READY trade tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
+            {!replay.trades.length && <p className="muted-note">Son 1 ayda replay entry tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
           </div>
           <div className="journal-entry-list replay-candidate-list">
             <strong>Aylık setup akışı</strong>

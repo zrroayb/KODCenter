@@ -17,6 +17,8 @@ describe("monthly runtime replay", () => {
     expect(result.replay).toBeDefined();
     expect(result.replay?.scannedWindows).toBeGreaterThan(0);
     expect((result.replay?.readyAlerts ?? 0) + (result.replay?.watchAlerts ?? 0)).toBeGreaterThan(0);
+    expect(result.replay?.readyAlerts).toBeGreaterThan(0);
+    expect(result.replay?.trades.length).toBeGreaterThan(0);
     expect(result.equityCurve.length).toBeGreaterThan(0);
     expect(result.replay?.bySymbol.length).toBeGreaterThan(0);
     expect(result.replay?.bySymbol.length).toBeLessThanOrEqual(5);
@@ -26,11 +28,7 @@ describe("monthly runtime replay", () => {
     expect(result.replay?.watchReasonSummary).toBeDefined();
     expect(result.replay?.bySymbol.some((row) => row.watchAlerts + row.readyAlerts > 0)).toBe(true);
     expect(result.replay?.candidates[0].decision).toBeTruthy();
-    if (result.replay?.trades.length) {
-      expect(result.replay.trades[0].outcomeReason).toBeTruthy();
-      expect(result.replay.trades[0].tags.length).toBeGreaterThan(0);
-    } else {
-      expect(result.replay?.calibration[0].label).toContain("READY");
-    }
+    expect(result.replay?.trades[0].outcomeReason).toBeTruthy();
+    expect(result.replay?.trades[0].tags.length).toBeGreaterThan(0);
   });
 });
