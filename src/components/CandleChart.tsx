@@ -31,10 +31,14 @@ const plotRight = width - plot.right;
 const plotBottom = height - plot.bottom;
 const bull = "#089981";
 const bear = "#f23645";
-const bullWick = "#18ad98";
-const bearWick = "#ff4d5d";
-const grid = "rgba(42, 54, 69, 0.64)";
-const minorGrid = "rgba(42, 54, 69, 0.34)";
+const cleanChartBackground = "#E8E5E0";
+const cleanCandleUp = "#FFFFFF";
+const cleanCandleDown = "#191D24";
+const cleanCandleWick = "#4C5057";
+const cleanCandleUpStroke = "#565A61";
+const cleanCandleDownStroke = "#191D24";
+const grid = "rgba(25, 29, 36, 0.11)";
+const minorGrid = "rgba(25, 29, 36, 0.055)";
 const dayMs = 24 * 60 * 60 * 1000;
 
 function defaultVisibleCount(mode: ChartMode): number {
@@ -245,18 +249,18 @@ export function CandleChart({
   };
   const showPremiumDiscountBand = Boolean(range && contextLevels.includes(range.high) && contextLevels.includes(range.low) && contextLevels.includes(range.midpoint));
   const timeIndexes = Array.from(new Set([0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => Math.min(visible.length - 1, Math.max(0, Math.round((visible.length - 1) * ratio))))));
-  const lastPriceColor = latest && latest.close >= latest.open ? bull : bear;
+  const lastPriceColor = latest && latest.close >= latest.open ? "#6F7278" : cleanCandleDown;
   const visibleLiquidity = (context?.liquidityPools ?? [])
     .filter((pool) => contextLevels.includes(pool.level))
     .sort((a, b) => Math.abs(a.level - (latest?.close ?? a.level)) - Math.abs(b.level - (latest?.close ?? b.level)))
     .slice(0, selectedSignal ? 3 : 5);
-  const chartBackground = "#05070b";
-  const plotBackground = "#0b1117";
+  const chartBackground = cleanChartBackground;
+  const plotBackground = cleanChartBackground;
   const gridColor = grid;
-  const axisColor = "#8a94a6";
-  const axisLineColor = "rgba(76, 91, 110, 0.72)";
-  const hudFill = "rgba(8, 13, 20, 0.86)";
-  const hudText = "#e5edf7";
+  const axisColor = "#6F7278";
+  const axisLineColor = "rgba(25, 29, 36, 0.26)";
+  const hudFill = "rgba(232, 229, 224, 0.88)";
+  const hudText = "#191D24";
   const sessionRanges = (() => {
     if (mode !== "execution") return [];
 
@@ -315,14 +319,14 @@ export function CandleChart({
 
   const tagWidthFor = (text: string) => Math.min(168, Math.max(58, Math.ceil(text.length * 6.5 + 20)));
 
-  const priceTag = (price: number, color: string, label: string, fill = "#111827", text = `${label} ${formatPrice(price)}`) => {
+  const priceTag = (price: number, color: string, label: string, fill = "#191D24", text = `${label} ${formatPrice(price)}`) => {
     const y = scaleY(price);
     const tagWidth = tagWidthFor(text);
     const tagX = width - tagWidth - 8;
     return (
       <g key={`${label}-${price}-tag`}>
         <rect x={tagX} y={y - 12} width={tagWidth} height="24" rx="4" fill={fill} stroke={color} strokeWidth="1" />
-        <text x={tagX + tagWidth / 2} y={y + 4} fill="#f8fafc" fontSize="10" fontWeight="800" textAnchor="middle">{text}</text>
+        <text x={tagX + tagWidth / 2} y={y + 4} fill={fill === cleanCandleUp ? "#191D24" : "#f8fafc"} fontSize="10" fontWeight="800" textAnchor="middle">{text}</text>
       </g>
     );
   };
@@ -400,8 +404,8 @@ export function CandleChart({
     return (
       <g className="selected-signal-overlay">
         <g className="chart-decision-strip">
-          <rect x={plot.left + 10} y={plot.top + 10} width={plotRight - plot.left - 20} height="30" rx="6" fill="rgba(5, 7, 11, 0.9)" stroke={signalColor} strokeWidth="1.2" />
-          <text x={plot.left + 24} y={plot.top + 30} fill="#f8fafc" fontSize="11" fontWeight="900">
+          <rect x={plot.left + 10} y={plot.top + 10} width={plotRight - plot.left - 20} height="30" rx="6" fill="rgba(255, 255, 255, 0.72)" stroke={signalColor} strokeWidth="1.2" />
+          <text x={plot.left + 24} y={plot.top + 30} fill="#191D24" fontSize="11" fontWeight="900">
             {decisionText}
           </text>
         </g>
@@ -785,14 +789,14 @@ export function CandleChart({
         {range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "DRH", true, 0.24) : levelLine(range.high, "#94a3b8", "DRH", true, 0.74))}
         {range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "EQ", true, 0.78))}
         {range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "DRL", true, 0.24) : levelLine(range.low, "#94a3b8", "DRL", true, 0.74))}
-        {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#f59e0b" : "#38bdf8", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.62, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
+        {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#7B5A16" : "#1D5C73", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.5, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
         {visible.map((candle, index) => {
           const centerX = snap(xAtVisibleIndex(index));
           const x = Math.round(centerX - candleWidth / 2);
           const up = candle.close >= candle.open;
-          const color = up ? bull : bear;
-          const wickColor = up ? bullWick : bearWick;
-          const bodyStroke = up ? "#087f6f" : "#be2d3c";
+          const color = up ? cleanCandleUp : cleanCandleDown;
+          const wickColor = up ? cleanCandleWick : cleanCandleDown;
+          const bodyStroke = up ? cleanCandleUpStroke : cleanCandleDownStroke;
           const openY = scaleY(candle.open);
           const closeY = scaleY(candle.close);
           const rawBodyHeight = Math.abs(openY - closeY);
@@ -815,26 +819,26 @@ export function CandleChart({
                 y={bodyTop}
                 width={candleWidth}
                 height={bodyHeight}
-                rx="0.7"
+                rx="0"
                 fill={color}
                 stroke={bodyStroke}
-                strokeWidth="0.75"
+                strokeWidth={up ? "1.05" : "0.8"}
                 opacity={opacity}
               />
             </g>
           );
         })}
         <line x1={plot.left} x2={plotRight} y1={scaleY(latest.close)} y2={scaleY(latest.close)} stroke={lastPriceColor} strokeWidth="1" strokeDasharray="2 5" opacity="0.78" />
-        {!selectedIsHigherTimeframe && priceTag(latest.close, lastPriceColor, "LAST", lastPriceColor === bull ? "#064e3b" : "#4c0519", formatPrice(latest.close))}
+        {!selectedIsHigherTimeframe && priceTag(latest.close, lastPriceColor, "LAST", latest.close >= latest.open ? cleanCandleUp : cleanCandleDown, formatPrice(latest.close))}
         {markers}
         {selectedOverlay}
         {higherTimeframePlanOverlay}
         <g className="chart-hud compact">
-          <rect x={plot.left + 8} y="14" width={plotRight - plot.left - 16} height="25" rx="4" fill={hudFill} stroke="rgba(148, 163, 184, 0.18)" />
+          <rect x={plot.left + 8} y="14" width={plotRight - plot.left - 16} height="25" rx="4" fill={hudFill} stroke="rgba(25, 29, 36, 0.16)" />
           <text x={plot.left + 18} y="31" fill={hudText} fontSize="11" fontWeight="900">
             {title} · O {formatPrice(latest.open)} H {formatPrice(latest.high)} L {formatPrice(latest.low)} C {formatPrice(latest.close)}
           </text>
-          <text x={plotRight - 12} y="31" fill={selectedSignal ? stageColor(selectedSignal) : "#94a3b8"} fontSize="11" fontWeight="900" textAnchor="end">
+          <text x={plotRight - 12} y="31" fill={selectedSignal ? stageColor(selectedSignal) : "#555A62"} fontSize="11" fontWeight="900" textAnchor="end">
             {selectedSignal ? setupStatus(selectedSignal) : `PD ${context?.premiumDiscount.zone ?? "-"}`}
           </text>
         </g>

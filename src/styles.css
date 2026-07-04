@@ -1428,8 +1428,8 @@ button:focus-visible {
   min-height: 360px;
   display: grid;
   place-items: center;
-  color: rgba(246, 248, 247, 0.58);
-  background: #06080c;
+  color: rgba(25, 29, 36, 0.58);
+  background: #e8e5e0;
 }
 
 .signal-marker {
@@ -2693,6 +2693,27 @@ input {
 
 .tradingview-chart svg {
   filter: saturate(1.08) contrast(1.02);
+}
+
+.chart-panel.tradingview-chart {
+  border-color: rgba(25, 29, 36, 0.24);
+  background: #e8e5e0;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.38), 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+}
+
+.chart-panel.tradingview-chart.selected {
+  border-color: rgba(25, 29, 36, 0.42);
+  box-shadow: 0 28px 84px rgba(0, 0, 0, 0.42), 0 0 0 1px rgba(25, 29, 36, 0.12);
+}
+
+.chart-panel.tradingview-chart figcaption {
+  color: #191d24;
+  background: #e8e5e0;
+  border-bottom-color: rgba(25, 29, 36, 0.14);
+}
+
+.chart-panel.tradingview-chart svg {
+  filter: none;
 }
 
 .charts-workspace.with-selection {
