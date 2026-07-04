@@ -127,6 +127,19 @@ export function validCrtPullback(candles: Candle[], direction: TradeDirection | 
   };
 }
 
+function buildCrtRange(candles: Candle[]): DealingRange {
+  // True CRT range: the previous closed HTF candle (3-candle model: range -> manipulation -> distribution).
+  // The last candle is the live/manipulation candle and must not define the range.
+  if (candles.length < 2) return buildDealingRange(candles, "CRT fallback dealing range");
+  const rangeCandle = candles[candles.length - 2];
+  return {
+    high: rangeCandle.high,
+    low: rangeCandle.low,
+    midpoint: (rangeCandle.high + rangeCandle.low) / 2,
+    source: "CRT range: previous closed candle"
+  };
+}
+
 function poiFromGap(gap: FairValueGap): CrtPoi {
   return {
     type: gap.mitigated ? "breaker" : "fvg",
@@ -191,8 +204,9 @@ export function buildCrtContext(input: {
     buildCrtBias(input.daily, "1d"),
     buildCrtBias(input.h4, "4h")
   ];
-  const selectedBias = macroBiases.find((bias) => bias.direction !== "neutral") ?? macroBiases[macroBiases.length - 1];
-  const activeRange = buildDealingRange(input.h4.length ? input.h4 : input.daily, "CRT 4H minimum range");
+  // Setup timeframe drives direction (4h first); monthly/weekly act as confluence, not dictators.
+  const selectedBias = [...macroBiases].reverse().find((bias) => bias.direction !== "neutral") ?? macroBiases[macroBiases.length - 1];
+  const activeRange = buildCrtRange(input.h4.length >= 2 ? input.h4 : input.daily);
   const pullback = validCrtPullback(input.h4.length ? input.h4 : input.daily, selectedBias.direction);
   const direction = selectedBias.direction === "neutral" ? "long" : selectedBias.direction;
   const pois = [
