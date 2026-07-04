@@ -48,7 +48,7 @@ type SignalLifecycle = {
 };
 
 function inferDirection(context: MarketContext): TradeDirection {
-  const latestSweep = context.sweeps.find((sweep) => sweep.reclaimed);
+  const latestSweep = latestByIndex(context.sweeps.filter((sweep) => sweep.reclaimed));
   if (latestSweep?.side === "buy-side") return "short";
   if (latestSweep?.side === "sell-side") return "long";
   if (context.bias.h4 === "bearish") return "short";
@@ -295,6 +295,7 @@ function buildSignalEvidence(
   const fvg = (plan.entrySource === "fvg-retest" || plan.entrySource === "ifvg-retest") ? plan.entryModel.fairValueGap : undefined;
   const fvgLabel = plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG";
   const smt = latestByIndex(context.smtDivergences.filter((item) => item.direction === direction));
+  const orderBlock = latestByIndex(context.orderBlocks.filter((item) => item.direction === direction));
   const objective = (context.liquidityObjectives ?? [])
     .filter((item) => item.side === (direction === "short" ? "sell-side" : "buy-side"))
     .sort((a, b) => Math.abs(a.level - plan.entry) - Math.abs(b.level - plan.entry))[0];
@@ -383,9 +384,9 @@ function buildSignalEvidence(
     },
     {
       id: "mss",
-      label: "MSS",
+      label: mss?.kind === "choch" ? "CHoCH" : mss?.kind === "bos" ? "BOS" : "MSS",
       status: mss ? "pass" : "fail",
-      detail: mss ? `${direction} MSS close ${mss.level.toFixed(5)}` : `${direction} MSS kapanışı yok.`,
+      detail: mss ? `${direction} ${(mss.kind ?? "mss").toUpperCase()} close ${mss.level.toFixed(5)}` : `${direction} BOS/CHOCH kapanışı yok.`,
       timeframe: "15m",
       candleIndex: mss?.candleIndex,
       time: candleTime(context, mss?.candleIndex),
@@ -400,6 +401,25 @@ function buildSignalEvidence(
       candleIndex: fvg?.candleIndex,
       time: candleTime(context, fvg?.candleIndex),
       price: fvg?.midpoint
+    },
+    {
+      id: "order-block",
+      label: "Order block",
+      status: orderBlock ? (orderBlock.mitigated ? "neutral" : "pass") : "neutral",
+      detail: orderBlock
+        ? `${direction} OB ${orderBlock.low.toFixed(5)}-${orderBlock.high.toFixed(5)} · strength ${orderBlock.strengthPct}%${orderBlock.mitigated ? " · mitigated" : ""}.`
+        : "Swing kırılımından aktif OB teyidi yok; no-trade değil, kalite notu.",
+      timeframe: "15m",
+      candleIndex: orderBlock?.candleIndex,
+      time: candleTime(context, orderBlock?.candleIndex),
+      price: orderBlock?.midpoint
+    },
+    {
+      id: "retracement",
+      label: "Retracement",
+      status: context.retracement.currentPct > 88 ? "warning" : "neutral",
+      detail: context.retracement.summary,
+      timeframe: "15m"
     },
     {
       id: "smt",

@@ -79,6 +79,8 @@ describe("KOD strategy module", () => {
     expect(signal.evidence.map((item) => item.id)).toContain("risk-policy");
     expect(signal.evidence.map((item) => item.id)).toContain("lifecycle");
     expect(signal.evidence.map((item) => item.id)).toContain("ict-sequence");
+    expect(signal.evidence.map((item) => item.id)).toContain("order-block");
+    expect(signal.evidence.map((item) => item.id)).toContain("retracement");
   });
 
   it("keeps the real sweep candle index when a previous candle raided liquidity", () => {

@@ -9,6 +9,8 @@ export function buildChecklist(context: MarketContext, direction: TradeDirection
   const plannedGap = usesGapEntry ? plan.entryModel.fairValueGap : undefined;
   const gapLabel = plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG";
   const smt = context.smtDivergences.find((item) => item.direction === direction);
+  const mss = context.marketStructureShifts.find((item) => item.direction === direction);
+  const orderBlock = [...context.orderBlocks].reverse().find((item) => item.direction === direction);
   const gapExplanation = plannedGap
     ? `${gapLabel} ${formatPrice(plannedGap.low)}-${formatPrice(plannedGap.high)} entry modeli için map edildi${plannedGap.mitigated ? "; retest/mitigation var." : "."}`
     : "Planlı FVG/iFVG yok; entry MSS/close üzerinden izleniyor.";
@@ -28,8 +30,10 @@ export function buildChecklist(context: MarketContext, direction: TradeDirection
     ),
     checklistItem("Liquidity Sweep", context.sweeps.some((sweep) => sweep.reclaimed) ? "pass" : "neutral", "Raid ve reclaim kontrol edildi."),
     checklistItem("Displacement", context.displacements.some((item) => item.direction === direction) ? "pass" : "neutral", "Directional displacement kontrol edildi."),
-    checklistItem("MSS", context.marketStructureShifts.some((item) => item.direction === direction) ? "pass" : "neutral", "Market structure shift kontrol edildi."),
+    checklistItem("BOS / CHOCH", mss ? "pass" : "neutral", mss ? `${(mss.kind ?? "mss").toUpperCase()} ${formatPrice(mss.level)} kırıldı.` : "Swing bazlı BOS/CHOCH kırılımı bekleniyor."),
     checklistItem("FVG", plannedGap ? (plan.entryModel.retested ? "pass" : "neutral") : "neutral", gapExplanation),
+    checklistItem("Order Block", orderBlock ? (orderBlock.mitigated ? "neutral" : "pass") : "neutral", orderBlock ? `${direction} OB ${formatPrice(orderBlock.low)}-${formatPrice(orderBlock.high)}, strength ${orderBlock.strengthPct}%.` : "Swing kırılımından temiz OB teyidi yok."),
+    checklistItem("Retracement", context.retracement.currentPct <= 88 ? "pass" : "neutral", context.retracement.summary),
     checklistItem("SMT", smt ? "pass" : "neutral", smt ? smt.note : "SMT pair teyidi yok veya uygun pair verisi yok."),
     checklistItem(
       "Regime",
@@ -64,6 +68,8 @@ export function reasoningText(context: MarketContext, direction: TradeDirection,
   const fvg = (plan.entrySource === "fvg-retest" || plan.entrySource === "ifvg-retest") ? plan.entryModel.fairValueGap : undefined;
   const gapLabel = plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG";
   const smt = context.smtDivergences.find((item) => item.direction === direction);
+  const mss = context.marketStructureShifts.find((item) => item.direction === direction);
+  const orderBlock = [...context.orderBlocks].reverse().find((item) => item.direction === direction);
   const stopSide = direction === "short" ? "üstüne" : "altına";
   const shortSummary = `${context.symbol} üzerinde ${side} KOD setup bulundu. RR ${formatR(plan.rr)}.`;
   const fullReasoning = [
@@ -71,7 +77,10 @@ export function reasoningText(context: MarketContext, direction: TradeDirection,
     `Price aktif Dealing Range'e göre ${context.premiumDiscount.zone} içinde.`,
     sweep ? `${formatPrice(sweep.level)} seviyesindeki ${sweep.side} liquidity swept ve reclaimed oldu.` : "Liquidity sweep hâlâ gelişiyor.",
     `Daily bias ${context.bias.daily}, 4H ${context.bias.h4}, 1H ${context.bias.h1}.`,
+    mss ? `${(mss.kind ?? "mss").toUpperCase()} ${formatPrice(mss.level)} swing kırılımı ile structure shift verdi.` : "Swing bazlı BOS/CHOCH henüz net değil.",
     fvg ? `${gapLabel} ${formatPrice(fvg.midpoint)} civarında entry modeli olarak map edildi.` : "Planlı FVG/iFVG yok; entry kapanış/onay modeliyle izleniyor.",
+    orderBlock ? `OB referansı ${formatPrice(orderBlock.low)}-${formatPrice(orderBlock.high)}; strength ${orderBlock.strengthPct}%.` : "OB teyidi yok; tek başına hard block değil.",
+    `Retracement: ${context.retracement.summary}`,
     smt ? `SMT: ${smt.note}` : "SMT teyidi yok; bu tek başına hard block değil.",
     `Rejim: ${context.regime.summary}`,
     `Event risk: ${context.eventRisk.summary}`,

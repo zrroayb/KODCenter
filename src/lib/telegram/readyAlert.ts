@@ -87,7 +87,7 @@ function readyReasons(signal: TradingSignal): string[] {
   const reasons = [
     signal.plan.entryStatus === "confirmed" ? "Entry modeli onaylı" : null,
     passed.has("Liquidity Sweep") ? "Liquidity sweep + reclaim var" : null,
-    signal.plan.entryModel.cisdConfirmed || passed.has("MSS") ? "MSS / CISD kapanışı var" : null,
+    signal.plan.entryModel.cisdConfirmed || passed.has("MSS") || passed.has("BOS / CHOCH") ? "BOS/CHOCH · MSS / CISD kapanışı var" : null,
     passed.has("FVG") ? "FVG / iFVG planı map edildi" : null,
     passed.has("SMT") ? "SMT pair teyidi var" : null,
     `Net RR ${formatR(signal.plan.rr)}`

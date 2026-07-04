@@ -51,10 +51,21 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
       { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
     ],
     sweeps: [],
+    swingPoints: [
+      { side: "low", level: 99, candleIndex: 8, strength: "minor" },
+      { side: "high", level: 101, candleIndex: 16, strength: "minor" }
+    ],
     judasSwings: [],
     displacements: [],
     marketStructureShifts: [],
     fairValueGaps: [],
+    orderBlocks: [],
+    retracement: {
+      direction: "neutral",
+      currentPct: 0,
+      deepestPct: 0,
+      summary: "Fixture retracement neutral."
+    },
     smtDivergences: [],
     volatility: {
       atr: 1,

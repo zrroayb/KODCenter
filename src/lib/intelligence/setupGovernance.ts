@@ -42,6 +42,16 @@ export function buildSetupGovernance(input: {
     scoreImpact -= 8;
   }
 
+  if (input.context.retracement.currentPct > 88) {
+    warnings.push(`Deep retracement: ${input.context.retracement.summary}`);
+    scoreImpact -= 6;
+  }
+  const activeOrderBlock = [...input.context.orderBlocks].reverse().find((item) => item.direction === (input.plan.entry < input.plan.stopLoss ? "short" : "long"));
+  if (activeOrderBlock?.mitigated) {
+    warnings.push("OB daha önce mitigated; tepki kalitesi düşebilir.");
+    scoreImpact -= 4;
+  }
+
   if (input.outcome.status === "stopped") {
     blockers.push("Replay sonucu stop/invalidation görmüş; yeni setup bekle.");
     scoreImpact -= 30;
@@ -62,6 +72,7 @@ export function buildSetupGovernance(input: {
     item("Event risk", input.context.eventRisk.noTrade ? "fail" : input.context.eventRisk.level === "watch" ? "neutral" : "pass", input.context.eventRisk.summary),
     item("Market regime", input.context.regime.tradeability === "blocked" ? "fail" : input.context.regime.tradeability === "caution" ? "neutral" : "pass", input.context.regime.summary),
     item("Data confidence", input.context.dataConfidence.score < 35 ? "fail" : input.context.dataConfidence.score < 68 ? "neutral" : "pass", input.context.dataConfidence.summary),
+    item("Retracement", input.context.retracement.currentPct > 88 ? "neutral" : "pass", input.context.retracement.summary),
     item("Outcome replay", input.outcome.status === "stopped" || input.outcome.status === "tp1" || input.outcome.status === "tp2" ? "fail" : input.outcome.status === "open" ? "pass" : "neutral", input.outcome.summary)
   ];
 

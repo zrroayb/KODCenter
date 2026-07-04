@@ -93,6 +93,7 @@ export function buildIctSequence(context: MarketContext, direction: TradeDirecti
   if (!sweep) warnings.push(`${side} sweep + reclaim bekleniyor.`);
   if (sweep && !displacement) warnings.push("Sweep sonrası displacement bekleniyor.");
   if (displacement && !mss) warnings.push("Displacement sonrası MSS/CISD kapanışı bekleniyor.");
+  if (mss?.kind === "choch") warnings.push("CHoCH reversal yapısı: retest gelmeden READY alma.");
   if (!deliveryGap) warnings.push("Sweep sonrası geçerli FVG/iFVG delivery yok.");
   if (deliveryGap && !deliveryFits) {
     hardBlockers.push("FVG/iFVG mevcut setup sırasına ait değil; eski/alakasız delivery kullanılmaz.");
@@ -128,9 +129,9 @@ export function buildIctSequence(context: MarketContext, direction: TradeDirecti
     }),
     step({
       id: "mss",
-      label: "MSS / CISD",
+      label: mss?.kind === "choch" ? "CHoCH / CISD" : mss?.kind === "bos" ? "BOS / CISD" : "MSS / CISD",
       status: mss ? "pass" : displacement ? "pending" : "fail",
-      detail: mss ? `${direction} close through structure ${mss.level.toFixed(5)}.` : "Yön değişimi mum kapanışı bekleniyor.",
+      detail: mss ? `${direction} ${(mss.kind ?? "mss").toUpperCase()} close through ${mss.level.toFixed(5)}.` : "Yön değişimi mum kapanışı bekleniyor.",
       candleIndex: mss?.candleIndex,
       time: candleTime(context, mss?.candleIndex),
       price: mss?.level

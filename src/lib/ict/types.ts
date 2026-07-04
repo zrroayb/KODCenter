@@ -75,6 +75,13 @@ export type Sweep = {
   reclaimed: boolean;
 };
 
+export type SwingPoint = {
+  side: "high" | "low";
+  level: number;
+  candleIndex: number;
+  strength: "minor" | "major";
+};
+
 export type JudasSwing = {
   direction: TradeDirection;
   session: string;
@@ -92,6 +99,8 @@ export type MarketStructureShift = {
   direction: TradeDirection;
   level: number;
   candleIndex: number;
+  kind?: "bos" | "choch" | "mss";
+  brokenIndex?: number;
 };
 
 export type FairValueGap = {
@@ -101,6 +110,28 @@ export type FairValueGap = {
   midpoint: number;
   candleIndex: number;
   mitigated: boolean;
+  mitigatedIndex?: number;
+};
+
+export type OrderBlock = {
+  direction: TradeDirection;
+  low: number;
+  high: number;
+  midpoint: number;
+  candleIndex: number;
+  mitigated: boolean;
+  mitigatedIndex?: number;
+  volumeScore: number;
+  strengthPct: number;
+};
+
+export type RetracementContext = {
+  direction: "bullish" | "bearish" | "neutral";
+  currentPct: number;
+  deepestPct: number;
+  swingHigh?: number;
+  swingLow?: number;
+  summary: string;
 };
 
 export type SmtDivergence = {
@@ -183,10 +214,13 @@ export type MarketContext = {
   liquidityPools: LiquidityPool[];
   liquidityObjectives: LiquidityObjective[];
   sweeps: Sweep[];
+  swingPoints: SwingPoint[];
   judasSwings: JudasSwing[];
   displacements: Displacement[];
   marketStructureShifts: MarketStructureShift[];
   fairValueGaps: FairValueGap[];
+  orderBlocks: OrderBlock[];
+  retracement: RetracementContext;
   smtDivergences: SmtDivergence[];
   volatility: VolatilityContext;
   regime: MarketRegimeContext;

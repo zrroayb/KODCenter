@@ -1,35 +1,36 @@
 import type { Candle, LiquidityPool, Sweep } from "../ict/types";
 import { executableHigh, executableLow } from "../data/bidAsk";
+import { detectSwingPoints } from "./structureEngine";
 
 function equalLiquidityPools(candles: Candle[]): LiquidityPool[] {
   const sample = candles.slice(-48);
   const pools: LiquidityPool[] = [];
-  const averageRange = sample.reduce((sum, candle) => sum + Math.max(candle.high - candle.low, 0), 0) / Math.max(sample.length, 1);
-  const lastClose = sample[sample.length - 1]?.close ?? 1;
-  const tolerance = Math.max(averageRange * 0.08, Math.abs(lastClose) * 0.00003);
+  if (sample.length < 8) return pools;
+  const high = Math.max(...sample.map((candle) => candle.high));
+  const low = Math.min(...sample.map((candle) => candle.low));
+  const tolerance = Math.max((high - low) * 0.01, Math.abs(sample[sample.length - 1]?.close ?? 1) * 0.00003);
+  const swings = detectSwingPoints(sample, 2, sample.length);
 
-  for (let index = 2; index < sample.length - 2; index += 1) {
-    const candle = sample[index];
-    const nearby = sample.slice(Math.max(0, index - 5), Math.min(sample.length, index + 6));
-    const equalHighs = nearby.filter((item) => Math.abs(item.high - candle.high) <= tolerance);
-    const equalLows = nearby.filter((item) => Math.abs(item.low - candle.low) <= tolerance);
+  for (const side of ["high", "low"] as const) {
+    const candidates = swings.filter((point) => point.side === side);
+    const used = new Set<number>();
+    for (const point of candidates) {
+      if (used.has(point.candleIndex)) continue;
+      const group = candidates.filter((candidate) =>
+        candidate.candleIndex >= point.candleIndex
+        && Math.abs(candidate.level - point.level) <= tolerance
+      );
+      if (group.length < 2) continue;
+      group.forEach((candidate) => used.add(candidate.candleIndex));
+      const level = group.reduce((sum, candidate) => sum + candidate.level, 0) / group.length;
+      const strong = group.length >= 3 ? "strong" : "moderate";
 
-    if (equalHighs.length >= 3) {
       pools.push({
-        id: `eqh-${Math.round(candle.high / tolerance)}`,
-        side: "buy-side",
-        level: candle.high,
-        label: "Equal highs buy-side liquidity",
-        strength: "moderate"
-      });
-    }
-    if (equalLows.length >= 3) {
-      pools.push({
-        id: `eql-${Math.round(candle.low / tolerance)}`,
-        side: "sell-side",
-        level: candle.low,
-        label: "Equal lows sell-side liquidity",
-        strength: "moderate"
+        id: `${side === "high" ? "eqh" : "eql"}-${Math.round(level / tolerance)}`,
+        side: side === "high" ? "buy-side" : "sell-side",
+        level,
+        label: side === "high" ? "Swing equal highs buy-side liquidity" : "Swing equal lows sell-side liquidity",
+        strength: strong
       });
     }
   }
@@ -41,6 +42,7 @@ function equalLiquidityPools(candles: Candle[]): LiquidityPool[] {
 
 export function buildLiquidityPools(candles: Candle[], prefix = "range"): LiquidityPool[] {
   const sample = candles.slice(-32);
+  if (!sample.length) return [];
   const high = Math.max(...sample.map((candle) => candle.high));
   const low = Math.min(...sample.map((candle) => candle.low));
   return [
@@ -52,6 +54,7 @@ export function buildLiquidityPools(candles: Candle[], prefix = "range"): Liquid
 
 export function detectSweeps(candles: Candle[], pools: LiquidityPool[]): Sweep[] {
   const latest = candles[candles.length - 1];
+  if (!latest) return [];
   const windowStart = Math.max(0, candles.length - 8);
   const recent = candles.slice(windowStart);
   const sweeps: Sweep[] = [];

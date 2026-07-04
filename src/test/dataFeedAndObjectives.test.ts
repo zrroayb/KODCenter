@@ -16,6 +16,9 @@ describe("bid/ask data layer and liquidity objectives", () => {
     expect(context.liquidityObjectives.map((objective) => objective.kind)).toEqual(
       expect.arrayContaining(["PDH", "PDL", "PWH", "PWL", "PMH", "PML"])
     );
+    expect(context.swingPoints).toBeDefined();
+    expect(context.orderBlocks).toBeDefined();
+    expect(context.retracement.summary).toBeTruthy();
   });
 
   it("uses mapped liquidity objectives as real TP candidates", () => {

@@ -9,7 +9,7 @@ import { buildLiquidityObjectives } from "./liquidityObjectives";
 import { classifyMarketRegime } from "./marketRegimeEngine";
 import { buildPremiumDiscountContext } from "./premiumDiscountContextEngine";
 import { buildDealingRange } from "./rangeEngine";
-import { detectDisplacements, detectFairValueGaps, detectMarketStructureShifts } from "./structureEngine";
+import { buildRetracementContext, detectDisplacements, detectFairValueGaps, detectMarketStructureShifts, detectOrderBlocks, detectSwingPoints } from "./structureEngine";
 import { buildVolatilityContext } from "./volatilityEngine";
 
 export type MarketTimeframes = {
@@ -38,6 +38,10 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     ...objectivePools
   ];
   const sweeps = detectSweeps(execution, liquidityPools);
+  const swingPoints = detectSwingPoints(execution);
+  const marketStructureShifts = detectMarketStructureShifts(execution);
+  const orderBlocks = detectOrderBlocks(execution, swingPoints);
+  const retracement = buildRetracementContext(execution, swingPoints);
   const feed = latest.feed ?? "mid-only";
   const dataFeed = {
     source: feed,
@@ -64,14 +68,17 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     liquidityPools,
     liquidityObjectives,
     sweeps,
+    swingPoints,
     judasSwings: sweeps.map((sweep) => ({
       direction: sweep.side === "buy-side" ? "short" : "long",
       session: buildKillzoneContext(latest.time).find((zone) => zone.active)?.name ?? "Outside",
       sweepLevel: sweep.level
     })),
     displacements: detectDisplacements(execution),
-    marketStructureShifts: detectMarketStructureShifts(execution),
+    marketStructureShifts,
     fairValueGaps: detectFairValueGaps(execution),
+    orderBlocks,
+    retracement,
     smtDivergences: [],
     volatility: buildVolatilityContext(execution),
     regime: classifyMarketRegime(execution),

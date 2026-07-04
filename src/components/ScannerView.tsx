@@ -69,7 +69,12 @@ function simpleChecklistText(label: string, signal: TradingSignal): string | nul
     case "Displacement":
       return `Fiyat ${direction} tarafa güçlü bir mum atsın.`;
     case "MSS":
+    case "BOS / CHOCH":
       return `Yön değişimi ${direction} tarafa mum kapanışıyla netleşsin.`;
+    case "Order Block":
+      return "OB teyidi varsa kalite artar; yoksa tek başına no-trade değil.";
+    case "Retracement":
+      return "Fiyat çok geç kalmış olmasın; derin retracement/chase riski kontrol edilsin.";
     case "FVG":
       return signal.plan.entryModel.fairValueGap
         ? "Seçilen FVG/iFVG kutusu korunup retest temiz kalsın."

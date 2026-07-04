@@ -5,6 +5,11 @@ export function decisionWarnings(context: MarketContext, direction: TradeDirecti
   const warnings = [...riskWarnings, ...plan.planWarnings];
   if (plan.entryStatus !== "confirmed") warnings.push(`Entry modeli ${plan.entryStatus}: ${plan.entrySource}. READY için retest + MSS/CISD gerekli.`);
   if (context.premiumDiscount.zone === "equilibrium") warnings.push("Entry equilibrium'a yakın.");
+  const mss = context.marketStructureShifts.find((item) => item.direction === direction);
+  if (mss?.kind === "choch") warnings.push("Structure CHOCH: reversal teyidi var ama continuation kadar temiz değil; retest disiplini şart.");
+  const orderBlock = [...context.orderBlocks].reverse().find((item) => item.direction === direction);
+  if (orderBlock?.mitigated) warnings.push("Order block daha önce mitigated olmuş; reaction kalitesi düşük olabilir.");
+  if (context.retracement.currentPct > 88) warnings.push(`Retracement çok derin (${context.retracement.currentPct.toFixed(1)}%); chase/late-entry riski var.`);
   const plannedGap = (plan.entrySource === "fvg-retest" || plan.entrySource === "ifvg-retest") ? plan.entryModel.fairValueGap : undefined;
   if (plannedGap?.mitigated) {
     warnings.push(`${plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG"} plan zone kısmen mitigated olmuş.`);

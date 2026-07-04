@@ -32,9 +32,9 @@ describe("fair value gap detection", () => {
     candles[20] = candle(20, 100.8, 101, 100, 100.7);
     candles[21] = candle(21, 100.6, 100.7, 98.5, 98.8);
     candles[22] = candle(22, 98.9, 99.4, 98.6, 98.7);
-    candles[23] = candle(23, 98.7, 99.55, 98.4, 99);
-    candles[24] = candle(24, 99, 99.58, 98.8, 99.2);
-    candles[25] = candle(25, 99.2, 99.6, 98.9, 99.1);
+    candles[23] = candle(23, 98.7, 99.35, 98.4, 99);
+    candles[24] = candle(24, 99, 99.38, 98.8, 99.2);
+    candles[25] = candle(25, 99.2, 99.39, 98.9, 99.1);
 
     const gaps = detectFairValueGaps(candles);
 
@@ -45,6 +45,24 @@ describe("fair value gap detection", () => {
       high: 100,
       candleIndex: 22,
       mitigated: false
+    });
+  });
+
+  it("marks a bearish gap mitigated when price trades back into the gap boundary", () => {
+    const candles = baseCandles(26);
+    candles[20] = candle(20, 100.8, 101, 100, 100.7);
+    candles[21] = candle(21, 100.6, 100.7, 98.5, 98.8);
+    candles[22] = candle(22, 98.9, 99.4, 98.6, 98.7);
+    candles[23] = candle(23, 98.7, 99.35, 98.4, 99);
+    candles[24] = candle(24, 99, 99.52, 98.8, 99.2);
+    candles[25] = candle(25, 99.2, 99.6, 98.9, 99.1);
+
+    const gaps = detectFairValueGaps(candles);
+
+    expect(gaps[0]).toMatchObject({
+      direction: "short",
+      mitigated: true,
+      mitigatedIndex: 24
     });
   });
 });

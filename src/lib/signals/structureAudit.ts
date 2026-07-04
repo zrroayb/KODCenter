@@ -54,6 +54,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
   const mss = annotations.marketStructureShift;
   const sweep = annotations.sweep;
   const stageVerdict = structureVerdict(signal);
+  const orderBlock = [...signal.context.orderBlocks].reverse().find((item) => item.direction === signal.direction);
 
   const items: StructureAuditItem[] = [
     {
@@ -67,7 +68,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
       label: "MSS/CISD",
       status: signal.plan.entryModel.cisdConfirmed || mss ? "pass" : "wait",
       detail: signal.plan.entryModel.cisdConfirmed || mss
-        ? `Yön değişimi ${directionText(signal)} tarafa onaylı${mss ? `: ${formatPrice(mss.level)}` : "."}`
+        ? `Yön değişimi ${directionText(signal)} tarafa ${(mss?.kind ?? "MSS").toString().toUpperCase()} ile onaylı${mss ? `: ${formatPrice(mss.level)}` : "."}`
         : closeRequirement
           ? `${closeRequirement.label} kapanışı bekleniyor. Sebep: ${closeRequirement.reason}`
           : `15m mum ${directionText(signal)} tarafa kapanış vermeli.`
@@ -97,6 +98,13 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
       label: "Risk",
       status: signal.stage === "invalidated" || signal.outcome.status === "stopped" ? "fail" : signal.plan.rr >= 1.5 ? "pass" : "wait",
       detail: `RR ${formatR(signal.plan.rr)} · Stop ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0])}.`
+    },
+    {
+      label: "OB/Ret",
+      status: signal.context.retracement.currentPct > 88 ? "warn" : "pass",
+      detail: orderBlock
+        ? `OB ${formatPrice(orderBlock.low)}-${formatPrice(orderBlock.high)} · retracement ${signal.context.retracement.currentPct.toFixed(1)}%.`
+        : `OB teyidi yok; retracement ${signal.context.retracement.currentPct.toFixed(1)}%.`
     }
   ];
 
