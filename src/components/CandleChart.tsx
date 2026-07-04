@@ -96,12 +96,14 @@ function stopSourceText(signal: TradingSignal) {
   if (signal.plan.stopSource === "sweep") return signal.direction === "short" ? "sweep üstü" : "sweep altı";
   if (signal.plan.stopSource === "fvg") return signal.direction === "short" ? "FVG üstü" : "FVG altı";
   if (signal.plan.stopSource === "swing") return signal.direction === "short" ? "swing üstü" : "swing altı";
+  if (signal.plan.stopSource === "manipulation") return signal.direction === "short" ? "manipulation wick üstü" : "manipulation wick altı";
   return "volatility floor";
 }
 
 function entryGapLabel(signal: TradingSignal) {
   if (signal.plan.entrySource === "ifvg-retest") return "iFVG";
-  return "FVG";
+  if (signal.plan.entrySource === "fvg-retest") return "FVG";
+  return "POI";
 }
 
 function compactDecisionText(text: string): string {
@@ -125,7 +127,7 @@ function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirm
     return compactDecisionText(`TEK KARAR: fiyat ${entryText} gelsin, kapanışla onaylasın.`);
   }
   if (signal.stage === "ready") {
-    return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}.`);
+    return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`);
   }
   return compactDecisionText(signal.plan.planWarnings[0]
     ? `TEK KARAR: bekle. ${signal.plan.planWarnings[0]}`
@@ -250,9 +252,16 @@ export function CandleChart({
   const showPremiumDiscountBand = Boolean(range && contextLevels.includes(range.high) && contextLevels.includes(range.low) && contextLevels.includes(range.midpoint));
   const timeIndexes = Array.from(new Set([0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => Math.min(visible.length - 1, Math.max(0, Math.round((visible.length - 1) * ratio))))));
   const lastPriceColor = latest && latest.close >= latest.open ? "#6F7278" : cleanCandleDown;
+  const seenLiquidityLevels = new Set<string>();
   const visibleLiquidity = (context?.liquidityPools ?? [])
     .filter((pool) => contextLevels.includes(pool.level))
     .sort((a, b) => Math.abs(a.level - (latest?.close ?? a.level)) - Math.abs(b.level - (latest?.close ?? b.level)))
+    .filter((pool) => {
+      const key = `${pool.side}-${pool.level.toFixed(6)}`;
+      if (seenLiquidityLevels.has(key)) return false;
+      seenLiquidityLevels.add(key);
+      return true;
+    })
     .slice(0, selectedSignal ? 3 : 5);
   const chartBackground = cleanChartBackground;
   const plotBackground = cleanChartBackground;
@@ -525,7 +534,7 @@ export function CandleChart({
               strokeWidth="2"
             />
             <rect x={xForCandleIndex(annotations.marketStructureShift.candleIndex) - 22} y={scaleY(annotations.marketStructureShift.level) - 25} width="44" height="18" rx="4" fill="#1e1b4b" stroke="#a78bfa" />
-            <text x={xForCandleIndex(annotations.marketStructureShift.candleIndex)} y={scaleY(annotations.marketStructureShift.level) - 12} fill="#ddd6fe" fontSize="10" fontWeight="800" textAnchor="middle">MSS</text>
+            <text x={xForCandleIndex(annotations.marketStructureShift.candleIndex)} y={scaleY(annotations.marketStructureShift.level) - 12} fill="#ddd6fe" fontSize="10" fontWeight="800" textAnchor="middle">ChoCH</text>
           </g>
         )}
         {closeRequirement && (
@@ -583,7 +592,7 @@ export function CandleChart({
         )}
         {levelLine(selectedSignal.plan.entry, "#38bdf8", "ENTRY", false, 1, "#0c4a6e")}
         {levelLine(selectedSignal.plan.stopLoss, bear, selectedSignal.stage === "invalidated" ? "STOP HIT" : "STOP", false, 1, "#4c0519")}
-        {selectedSignal.plan.targets.map((target, index) => levelLine(target, bull, `TP${index + 1}`, index > 0, 1, "#064e3b"))}
+        {selectedSignal.plan.targets.map((target, index) => levelLine(target, bull, index === 0 ? "EQ/TP1" : "DOL/TP2", index > 0, 1, "#064e3b"))}
         <g className="trade-execution-markers">
           {planMarker(selectedSignal.plan.entry, "#38bdf8", "#0c4a6e", anchorX, "entry")}
           {planMarker(selectedSignal.plan.stopLoss, bear, "#4c0519", anchorX, "stop")}
@@ -627,7 +636,7 @@ export function CandleChart({
       ...selectedSignal.plan.targets.slice(0, 2).map((target, index) => ({
         key: `target-${index}`,
         price: target,
-        label: `HTF TP${index + 1}`,
+        label: index === 0 ? "HTF EQ/TP1" : "HTF DOL/TP2",
         color: index === 0 ? bull : "#14b8a6",
         fill: "rgba(6, 78, 59, 0.9)",
         dash: index === 0 ? "4 5" : "2 6"
@@ -786,9 +795,9 @@ export function CandleChart({
             </g>
           );
         })}
-        {range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "DRH", true, 0.24) : levelLine(range.high, "#94a3b8", "DRH", true, 0.74))}
-        {range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "EQ", true, 0.78))}
-        {range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "DRL", true, 0.24) : levelLine(range.low, "#94a3b8", "DRL", true, 0.74))}
+        {range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "CRT H", true, 0.24) : levelLine(range.high, "#94a3b8", "CRT H", true, 0.74))}
+        {range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "CRT EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "CRT EQ", true, 0.78))}
+        {range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "CRT L", true, 0.24) : levelLine(range.low, "#94a3b8", "CRT L", true, 0.74))}
         {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#7B5A16" : "#1D5C73", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.5, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
         {visible.map((candle, index) => {
           const centerX = snap(xAtVisibleIndex(index));

@@ -48,9 +48,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
   const retestRequirement = entryRetestRequirement(signal);
   const expectedSweep = expectedSweepSide(signal);
   const expectedZone = expectedPdZone(signal);
-  const plannedGap = (signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest")
-    ? signal.plan.entryModel.fairValueGap
-    : undefined;
+  const plannedGap = signal.plan.entryModel.fairValueGap;
   const mss = annotations.marketStructureShift;
   const sweep = annotations.sweep;
   const stageVerdict = structureVerdict(signal);
@@ -58,17 +56,22 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
 
   const items: StructureAuditItem[] = [
     {
-      label: "Liquidity",
+      label: "CRT Bias / DOL",
+      status: signal.context.crt.selectedBias.direction === signal.direction ? "pass" : "wait",
+      detail: signal.context.crt.selectedBias.summary
+    },
+    {
+      label: "Manipulation",
       status: sweep?.side === expectedSweep && sweep.reclaimed ? "pass" : "wait",
       detail: sweep?.side === expectedSweep && sweep.reclaimed
         ? `${expectedSweep} sweep alındı ve reclaim var: ${formatPrice(sweep.level)}.`
         : `${expectedSweep} sweep + reclaim netleşmeden model hazır sayılmaz.`
     },
     {
-      label: "MSS/CISD",
+      label: "ChoCH/Just",
       status: signal.plan.entryModel.cisdConfirmed || mss ? "pass" : "wait",
       detail: signal.plan.entryModel.cisdConfirmed || mss
-        ? `Yön değişimi ${directionText(signal)} tarafa ${(mss?.kind ?? "MSS").toString().toUpperCase()} ile onaylı${mss ? `: ${formatPrice(mss.level)}` : "."}`
+        ? `Yön değişimi ${directionText(signal)} tarafa ChoCH/Just kapanışı ile onaylı${mss ? `: ${formatPrice(mss.level)}` : "."}`
         : closeRequirement
           ? `${closeRequirement.label} kapanışı bekleniyor. Sebep: ${closeRequirement.reason}`
           : `15m mum ${directionText(signal)} tarafa kapanış vermeli.`
@@ -81,11 +84,11 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
         : retestRequirement ?? `Fiyat ${formatPrice(signal.plan.entry)} giriş alanına gelip kapanış onayı vermeli.`
     },
     {
-      label: "FVG/iFVG",
-      status: plannedGap ? "pass" : signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest" ? "fail" : "warn",
+      label: "POI",
+      status: plannedGap || signal.plan.entryModel.retested ? "pass" : "wait",
       detail: plannedGap
-        ? `Planlı ${signal.plan.entrySource} alanı: ${formatPrice(plannedGap.low)} - ${formatPrice(plannedGap.high)}.`
-        : "Bu plan FVG/iFVG kullanmıyor; chart yorumunda FVG varmış gibi konuşma."
+        ? `Planlı POI alanı: ${formatPrice(plannedGap.low)} - ${formatPrice(plannedGap.high)}.`
+        : "POI teması yok; chart yorumunda zone varmış gibi konuşma."
     },
     {
       label: "PD",
@@ -97,7 +100,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
     {
       label: "Risk",
       status: signal.stage === "invalidated" || signal.outcome.status === "stopped" ? "fail" : signal.plan.rr >= 1.5 ? "pass" : "wait",
-      detail: `RR ${formatR(signal.plan.rr)} · Stop ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0])}.`
+      detail: `RR ${formatR(signal.plan.rr)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ/TP1 ${formatPrice(signal.plan.targets[0])} · DOL/TP2 ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}.`
     },
     {
       label: "OB/Ret",
@@ -119,7 +122,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
 
   const decision =
     stageVerdict === "ready"
-      ? `Plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, TP1 ${formatPrice(signal.plan.targets[0])}.`
+      ? `Plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, EQ ${formatPrice(signal.plan.targets[0])}, DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}.`
       : stageVerdict === "blocked"
         ? "Stop/invalidation görülmüş; yeni setup bekle."
         : stageVerdict === "done"
@@ -134,7 +137,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
     simpleFacts: [
       `${signal.symbol} ${signal.direction.toUpperCase()} · ${signal.stage.toUpperCase()} · ${signal.grade}`,
       decision,
-      `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0])}`
+      `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · EQ/TP1 ${formatPrice(signal.plan.targets[0])} · DOL/TP2 ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}`
     ]
   };
 }

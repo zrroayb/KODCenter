@@ -35,8 +35,8 @@ export function closeConfirmationRequirement(signal: TradingSignal): CloseConfir
     reference,
     label: `${timeframe} mum ${formatPrice(level)} ${side === "above" ? "üstünde" : "altında"}`,
     reason: signal.direction === "long"
-      ? "Son kapanmış mumun high'ı. Üstünde kapanış gelirse kısa vadeli alıcı kontrolü onaylanır."
-      : "Son kapanmış mumun low'u. Altında kapanış gelirse kısa vadeli satıcı kontrolü onaylanır."
+      ? "ChoCH/Just için referans high. Üstünde kapanış gelirse alıcı karakter değişimi onaylanır."
+      : "ChoCH/Just için referans low. Altında kapanış gelirse satıcı karakter değişimi onaylanır."
   };
 }
 

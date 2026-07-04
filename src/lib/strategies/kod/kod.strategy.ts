@@ -203,6 +203,7 @@ function stopSourceLabel(source: StopSource): string {
   if (source === "sweep") return "sweep";
   if (source === "fvg") return "FVG";
   if (source === "swing") return "recent swing";
+  if (source === "manipulation") return "manipulation wick";
   return "volatility floor";
 }
 

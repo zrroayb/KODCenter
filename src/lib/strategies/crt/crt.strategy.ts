@@ -1,12 +1,404 @@
-import type { StrategyModule } from "../types";
-import { emptyBacktestResult } from "../placeholderStrategy";
+import { checklistItem } from "../../brain/decisionSummary";
+import { executableClose, executableHigh, executableLow } from "../../data/bidAsk";
+import { formatPrice, formatR } from "../../ict/format";
+import type { Candle, CrtPoi, DecisionSummary, ExecutionCostStress, MarketContext, MarketSymbol, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
+import { isCryptoSymbol } from "../../ict/symbols";
+import { defaultAccountModel } from "../../risk/accountModel";
+import { estimateExecutionCosts } from "../../risk/executionCosts";
+import { calculatePositionSize } from "../../risk/positionSizing";
+import { performanceFromSignals } from "../../analytics/performance";
+import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/outcomeEngine";
+import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
+
+const CRT_STRATEGY_ID = "crt";
+const DEFAULT_MINIMUM_RR = 1.5;
+const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
+  XAUUSD: 0.8,
+  NAS100: 12,
+  EURUSD: 0.0002,
+  GBPUSD: 0.0002,
+  BTCUSD: 120
+};
+
+type CrtSetup = {
+  direction: TradeDirection;
+  manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
+  choch?: { level: number; candleIndex: number };
+  poi?: CrtPoi;
+  plan: TradePlan;
+  warnings: string[];
+  blockers: string[];
+  score: number;
+};
+
+function executionCandles(context: MarketContext): Candle[] {
+  return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
+}
+
+function directionFromContext(context: MarketContext): TradeDirection {
+  if (context.crt.selectedBias.direction === "long" || context.crt.selectedBias.direction === "short") return context.crt.selectedBias.direction;
+  return context.premiumDiscount.zone === "premium" ? "short" : "long";
+}
+
+function expectedPd(direction: TradeDirection) {
+  return direction === "short" ? "premium" : "discount";
+}
+
+function expectedSweepSide(direction: TradeDirection) {
+  return direction === "short" ? "buy-side" : "sell-side";
+}
+
+function latestByIndex<T extends { candleIndex: number }>(items: T[]): T | undefined {
+  return [...items].sort((a, b) => b.candleIndex - a.candleIndex)[0];
+}
+
+function reclaimSweepFromCandles(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
+  const candles = executionCandles(context);
+  const expectedSide = expectedSweepSide(direction);
+  const rangeLevel = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
+  const rangeSweep = candles
+    .map((candle, candleIndex) => ({ candle, candleIndex }))
+    .filter(({ candle }) => direction === "short"
+      ? candle.high > rangeLevel && candle.close < rangeLevel
+      : candle.low < rangeLevel && candle.close > rangeLevel)
+    .sort((a, b) => b.candleIndex - a.candleIndex)[0];
+  if (rangeSweep) {
+    return {
+      side: expectedSide,
+      level: direction === "short" ? rangeSweep.candle.high : rangeSweep.candle.low,
+      candleIndex: rangeSweep.candleIndex,
+      reclaimed: true
+    };
+  }
+
+  const swingSide = direction === "short" ? "high" : "low";
+  const swingSweeps = context.swingPoints
+    .filter((point) => point.side === swingSide)
+    .flatMap((point) => candles
+      .map((candle, candleIndex) => ({ point, candle, candleIndex }))
+      .filter(({ candleIndex }) => candleIndex > point.candleIndex)
+      .filter(({ candle }) => direction === "short"
+        ? candle.high > point.level && candle.close < point.level
+        : candle.low < point.level && candle.close > point.level)
+      .map(({ point, candle, candleIndex }) => ({
+        side: expectedSide as "buy-side" | "sell-side",
+        level: direction === "short" ? candle.high : candle.low,
+        candleIndex,
+        reclaimed: true,
+        distance: Math.abs(candleIndex - point.candleIndex)
+      })));
+
+  const fallback = swingSweeps
+    .sort((a, b) => b.candleIndex - a.candleIndex || a.distance - b.distance)[0];
+  return fallback
+    ? { side: fallback.side, level: fallback.level, candleIndex: fallback.candleIndex, reclaimed: fallback.reclaimed }
+    : undefined;
+}
+
+function symbolBuffer(context: MarketContext): number {
+  return Math.max(context.volatility.atr * 0.2, context.volatility.averageRange * 0.15, SYMBOL_MIN_BUFFER[context.symbol]);
+}
+
+function priceTouchesPoi(candles: Candle[], poi: CrtPoi): boolean {
+  const start = typeof poi.candleIndex === "number" ? Math.max(0, poi.candleIndex) : Math.max(0, candles.length - 24);
+  return candles.slice(start).some((candle) => candle.low <= poi.high && candle.high >= poi.low);
+}
+
+function selectPoi(context: MarketContext, direction: TradeDirection): CrtPoi | undefined {
+  const candles = executionCandles(context);
+  const priority: Record<CrtPoi["type"], number> = { fvg: 0, ob: 1, breaker: 2, ote: 3 };
+  return context.crt.pois
+    .filter((poi) => poi.direction === direction)
+    .filter((poi) => priceTouchesPoi(candles, poi))
+    .sort((a, b) => priority[a.type] - priority[b.type] || (b.candleIndex ?? 0) - (a.candleIndex ?? 0))[0];
+}
+
+function manipulationSweep(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
+  return latestByIndex(context.sweeps.filter((sweep) => sweep.side === expectedSweepSide(direction) && sweep.reclaimed))
+    ?? reclaimSweepFromCandles(context, direction);
+}
+
+function chochConfirmation(context: MarketContext, direction: TradeDirection, manipulation?: CrtSetup["manipulation"]): CrtSetup["choch"] {
+  const candles = executionCandles(context);
+  const startIndex = manipulation?.candleIndex ?? Math.max(0, candles.length - 12);
+  const swingSide = direction === "short" ? "low" : "high";
+  const swing = [...context.swingPoints]
+    .filter((point) => point.side === swingSide && point.candleIndex < startIndex)
+    .sort((a, b) => b.candleIndex - a.candleIndex)[0];
+  const fallbackShift = latestByIndex(context.marketStructureShifts.filter((shift) => shift.direction === direction && shift.candleIndex >= startIndex));
+  const level = swing?.level ?? fallbackShift?.level;
+  if (typeof level !== "number") return undefined;
+  const confirmIndex = candles.findIndex((candle, index) => {
+    if (index <= startIndex) return false;
+    return direction === "short" ? candle.close < level : candle.close > level;
+  });
+  if (confirmIndex < 0) return undefined;
+  return { level, candleIndex: confirmIndex };
+}
+
+function targetDol(context: MarketContext, direction: TradeDirection, entry: number, riskDistance: number): number {
+  const dol = context.crt.selectedBias.drawLevel;
+  const dolIsUseful = direction === "short" ? dol < entry : dol > entry;
+  if (dolIsUseful) return dol;
+  const rangeTarget = direction === "short" ? context.crt.activeRange.low : context.crt.activeRange.high;
+  const rangeIsUseful = direction === "short" ? rangeTarget < entry : rangeTarget > entry;
+  if (rangeIsUseful) return rangeTarget;
+  return direction === "short" ? entry - riskDistance * 2 : entry + riskDistance * 2;
+}
+
+function executionCostStress(settings: StrategyInput["settings"]): ExecutionCostStress {
+  if (settings.useExecutionCosts === false) return "off";
+  return settings.slippageStress === "high" ? "high" : "normal";
+}
+
+function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
+  const candles = executionCandles(context);
+  const latest = candles[candles.length - 1];
+  const buffer = symbolBuffer(context);
+  const entry = choch
+    ? executableClose(candles[choch.candleIndex] ?? latest, direction === "short" ? "sell" : "buy")
+    : poi?.midpoint ?? latest.close;
+  const stopSource: StopSource = manipulation ? "manipulation" : "swing";
+  const stopLoss = manipulation
+    ? direction === "short" ? manipulation.level + buffer : manipulation.level - buffer
+    : direction === "short" ? context.crt.activeRange.high + buffer : context.crt.activeRange.low - buffer;
+  const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
+  const tp1 = context.crt.activeRange.midpoint;
+  const tp2 = targetDol(context, direction, entry, riskDistance);
+  const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
+  const entryStatus = choch ? "confirmed" : poi ? "pending" : "fallback";
+  const entrySource = choch ? "choch-close" : poi ? "poi-retest" : "fallback-close";
+  const planWarnings = [
+    `CRT range minimum ${context.crt.rangeTimeframe}; aktif range ${formatPrice(context.crt.activeRange.low)}-${formatPrice(context.crt.activeRange.high)}.`,
+    `TP1/EQ yönetim seviyesi ${formatPrice(tp1)}; TP2/DOL ${formatPrice(tp2)}.`,
+    `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
+    ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
+    ...(entryStatus !== "confirmed" ? ["ChoCH/Just mum kapanışı bekleniyor."] : [])
+  ];
+
+  return {
+    entry,
+    entrySource,
+    entryStatus,
+    entryModel: {
+      source: entrySource,
+      status: entryStatus,
+      level: entry,
+      retested: Boolean(poi),
+      cisdConfirmed: Boolean(choch),
+      fairValueGap: poi?.type === "fvg" || poi?.type === "breaker"
+        ? {
+            direction: poi.direction,
+            low: poi.low,
+            high: poi.high,
+            midpoint: poi.midpoint,
+            candleIndex: poi.candleIndex ?? 0,
+            mitigated: poi.mitigated
+          }
+        : undefined,
+      warnings: entryStatus === "confirmed" ? [] : ["POI teması sonrası ChoCH/Just kapanışı bekleniyor."]
+    },
+    stopLoss,
+    targets: [tp1, tp2],
+    invalidation: stopLoss,
+    rr: costs.netRR,
+    grossRR: costs.grossRR,
+    riskDistance,
+    stopSource,
+    stopBuffer: buffer,
+    targetSource: "crt-dol",
+    executionCosts: costs,
+    planWarnings
+  };
+}
+
+function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings"]): CrtSetup {
+  const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
+  const direction = directionFromContext(context);
+  const manipulation = manipulationSweep(context, direction);
+  const choch = chochConfirmation(context, direction, manipulation);
+  const poi = selectPoi(context, direction);
+  const plan = buildCrtPlan(context, direction, manipulation, choch, poi, minimumRR, executionCostStress(settings));
+  const pdAligned = context.premiumDiscount.zone === expectedPd(direction);
+  const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
+  const inSession = isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside");
+  const blockers = [
+    context.crt.selectedBias.direction === "neutral" ? "HTF CRT bias/DOL neutral; trade yönü net değil." : undefined,
+    !context.crt.validPullback ? context.crt.pullbackSummary : undefined,
+    !pdAligned ? `${direction.toUpperCase()} için ${expectedPd(direction)} gerekir; şu an ${context.premiumDiscount.zone}.` : undefined,
+    !poi ? "POI teması yok: FVG, OB, Breaker veya OTE bekleniyor." : undefined,
+    !manipulation ? "Manipulation sweep + reclaim yok." : undefined,
+    !choch ? "ChoCH/Just mum kapanışı yok." : undefined,
+    plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
+    context.eventRisk.noTrade && settings.avoidNews !== false ? context.eventRisk.summary : undefined,
+    context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
+  ].filter((item): item is string => Boolean(item));
+  const warnings = [
+    !inSession ? "Session dışı; FX/endeks için kalite düşer. Crypto için session hard gate değil." : undefined,
+    !smtAligned ? "SMT yok; hard şart değil, sadece kalite notu." : undefined,
+    context.regime.tradeability !== "good" ? context.regime.summary : undefined,
+    ...plan.planWarnings
+  ].filter((item): item is string => Boolean(item));
+  const score = Math.max(0, Math.min(100,
+    18
+    + (context.crt.selectedBias.direction !== "neutral" ? 18 : 0)
+    + (context.crt.validPullback ? 10 : 0)
+    + (pdAligned ? 12 : 0)
+    + (poi ? 12 : 0)
+    + (manipulation ? 16 : 0)
+    + (choch ? 16 : 0)
+    + (plan.rr >= minimumRR ? 10 : 0)
+    + (smtAligned ? 4 : 0)
+    + (inSession ? 2 : 0)
+    + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
+  ));
+  return { direction, manipulation, choch, poi, plan: { ...plan, planWarnings: Array.from(new Set(warnings)) }, warnings, blockers, score };
+}
+
+function gradeFromScore(score: number): QualityGrade {
+  if (score >= 90) return "A+";
+  if (score >= 78) return "A";
+  if (score >= 64) return "B";
+  if (score >= 48) return "C";
+  return "D";
+}
+
+function crtChecklist(context: MarketContext, setup: CrtSetup) {
+  const direction = setup.direction;
+  const pdAligned = context.premiumDiscount.zone === expectedPd(direction);
+  const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
+  return [
+    checklistItem("CRT Bias / DOL", context.crt.selectedBias.direction === direction ? "pass" : "fail", context.crt.selectedBias.summary),
+    checklistItem("4H+ Range", context.crt.rangeTimeframe === "4h" || context.crt.rangeTimeframe === "1d" ? "pass" : "fail", context.crt.activeRange.source),
+    checklistItem("Valid Pullback", context.crt.validPullback ? "pass" : "neutral", context.crt.pullbackSummary),
+    checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için ${expectedPd(direction)}; price ${context.premiumDiscount.zone}.`),
+    checklistItem("POI Touch", setup.poi ? "pass" : "fail", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "FVG/OB/Breaker/OTE teması yok."),
+    checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} sweep ${formatPrice(setup.manipulation.level)}.` : "Sweep + reclaim bekleniyor."),
+    checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `Mum kapanışı ${formatPrice(setup.choch.level)} seviyesini kırdı.` : "Manipulation start level kapanışla kırılmalı."),
+    checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
+    checklistItem("RR to DOL", setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "fail", `TP2/DOL net RR ${formatR(setup.plan.rr)}.`),
+    checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
+  ];
+}
+
+function crtDecisionSummary(context: MarketContext, setup: CrtSetup, grade: QualityGrade, riskWarnings: string[]): DecisionSummary {
+  const checklist = crtChecklist(context, setup);
+  const side = setup.direction === "short" ? "Bearish" : "Bullish";
+  const fullReasoning = [
+    `${context.symbol} ${side} CRT setup.`,
+    context.crt.selectedBias.summary,
+    `Aktif CRT range ${formatPrice(context.crt.activeRange.low)}-${formatPrice(context.crt.activeRange.high)}, EQ ${formatPrice(context.crt.activeRange.midpoint)}.`,
+    setup.poi ? `POI: ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "POI bekleniyor.",
+    setup.manipulation ? `Manipulation: ${setup.manipulation.side} ${formatPrice(setup.manipulation.level)} sweep.` : "Manipulation bekleniyor.",
+    setup.choch ? `ChoCH/Just close ${formatPrice(setup.choch.level)} kırdı.` : "ChoCH/Just kapanışı bekleniyor.",
+    `Entry ${formatPrice(setup.plan.entry)}, SL ${formatPrice(setup.plan.stopLoss)}, EQ/TP1 ${formatPrice(setup.plan.targets[0])}, DOL/TP2 ${formatPrice(setup.plan.targets[1])}.`,
+    `Grade ${grade}, net RR ${formatR(setup.plan.rr)}.`,
+    ...riskWarnings
+  ].join(" ");
+  return {
+    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} CRT ${setup.plan.entryStatus === "confirmed" ? "plan" : "watch"} · RR ${formatR(setup.plan.rr)}.`,
+    fullReasoning,
+    checklist,
+    warnings: Array.from(new Set([...setup.warnings, ...riskWarnings])).slice(0, 8),
+    invalidation: [`${formatPrice(setup.plan.stopLoss)} stop/invalidation görülürse CRT setup geçersiz olur.`],
+    confidence: Math.max(0, Math.min(100, setup.score - setup.blockers.length * 8))
+  };
+}
+
+function governanceFor(context: MarketContext, setup: CrtSetup): SignalGovernance {
+  const status: SignalGovernance["status"] = setup.blockers.length ? "caution" : "allow";
+  return {
+    status,
+    scoreImpact: setup.blockers.length ? -12 : 6,
+    blockers: setup.blockers,
+    warnings: setup.warnings,
+    checklist: crtChecklist(context, setup),
+    summary: setup.blockers[0] ?? "CRT SOP tamam: bias, POI, manipulation, ChoCH ve DOL planı okunabilir."
+  };
+}
+
+function lifecycle(context: MarketContext, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
+  const startIndex = setup.manipulation?.candleIndex ?? Math.max(0, executionCandles(context).length - 1);
+  const outcome = evaluateSignalOutcome(context, setup.direction, setup.plan, startIndex);
+  if (outcome.status === "stopped") {
+    return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
+  }
+  if (outcome.status === "tp1" || outcome.status === "tp2" || outcome.status === "missed") {
+    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
+  }
+  const stage = readyCandidate ? "ready" : "watch";
+  return { stage, outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, stage) };
+}
+
+function evidenceFor(context: MarketContext, setup: CrtSetup): SignalEvidenceItem[] {
+  return [
+    { id: "crt-bias", label: "CRT Bias / DOL", status: context.crt.selectedBias.direction === setup.direction ? "pass" : "fail", detail: context.crt.selectedBias.summary, timeframe: context.crt.selectedBias.timeframe, price: context.crt.selectedBias.drawLevel },
+    { id: "crt-range", label: "4H+ Candle Range", status: "pass", detail: `${context.crt.rangeTimeframe} range high/low/mid used.`, timeframe: context.crt.rangeTimeframe, price: context.crt.activeRange.midpoint },
+    { id: "valid-pullback", label: "Valid Pullback", status: context.crt.validPullback ? "pass" : "neutral", detail: context.crt.pullbackSummary, timeframe: context.crt.rangeTimeframe },
+    { id: "poi", label: "POI", status: setup.poi ? "pass" : "fail", detail: setup.poi ? `${setup.poi.label} touched.` : "FVG/OB/Breaker/OTE touch bekleniyor.", timeframe: "15m", candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
+    { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${setup.manipulation.side} sweep + reclaim.` : "Sweep + reclaim yok.", timeframe: "15m", candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
+    { id: "choch", label: "ChoCH / Just", status: setup.choch ? "pass" : "fail", detail: setup.choch ? `Close broke manipulation start ${formatPrice(setup.choch.level)}.` : "Manipulation start level kapanışla kırılmadı.", timeframe: "15m", candleIndex: setup.choch?.candleIndex, price: setup.choch?.level },
+    { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `0.5 range management: ${formatPrice(setup.plan.targets[0])}.`, timeframe: context.crt.rangeTimeframe, price: setup.plan.targets[0] },
+    { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: context.crt.selectedBias.timeframe, price: setup.plan.targets[1] }
+  ];
+}
+
+function signalFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal {
+  const setup = buildCrtSetup(context, settings);
+  const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
+  const readyCandidate = setup.blockers.length === 0 && setup.plan.entryStatus === "confirmed" && setup.plan.rr >= minimumRR;
+  const life = lifecycle(context, setup, readyCandidate);
+  const grade = gradeFromScore(setup.score);
+  const position = calculatePositionSize({
+    account: defaultAccountModel,
+    symbol: context.symbol,
+    entry: setup.plan.entry,
+    stopLoss: setup.plan.stopLoss,
+    target: setup.plan.targets[1] ?? setup.plan.targets[0]
+  });
+  return {
+    id: `${context.symbol}-${setup.direction}-${executionCandles(context).at(-1)?.time ?? Date.now()}-crt`,
+    strategyId: CRT_STRATEGY_ID,
+    symbol: context.symbol,
+    direction: setup.direction,
+    stage: life.stage,
+    grade,
+    score: setup.score,
+    createdAt: Date.now(),
+    timeframe: "15m",
+    plan: setup.plan,
+    context,
+    decisionSummary: crtDecisionSummary(context, setup, grade, position.warnings),
+    evidence: evidenceFor(context, setup),
+    riskWarnings: position.warnings,
+    outcome: life.outcome,
+    governance: governanceFor(context, setup),
+    actionWindow: life.actionWindow
+  };
+}
 
 export const crtStrategy: StrategyModule = {
-  id: "crt",
-  name: "CRT Setups",
-  description: "Placeholder for future Candle Range Theory modules.",
-  requiredTimeframes: ["1d", "4h", "1h", "15m"],
-  defaultSettings: {},
-  scan: () => ({ signals: [], rejectedSetups: [] }),
-  backtest: emptyBacktestResult
+  id: CRT_STRATEGY_ID,
+  name: "CRT Candle Range",
+  description: "Candle Range Theory: 4H+ range, HTF DOL, POI, manipulation, ChoCH and EQ/DOL risk plan.",
+  requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m"],
+  defaultSettings: {
+    minimumRR: 1.5,
+    mode: "watch_ready",
+    useExecutionCosts: true,
+    slippageStress: "normal",
+    noAutoExecution: true
+  },
+  scan(input: StrategyInput): StrategyResult {
+    const signal = signalFromContext(input.context, input.settings);
+    return {
+      signals: [signal],
+      rejectedSetups: signal.stage === "ready"
+        ? []
+        : [{ symbol: input.context.symbol, strategyId: this.id, reason: signal.governance.blockers[0] ?? signal.plan.planWarnings[0] ?? "CRT confirmation bekleniyor.", score: signal.score }]
+    };
+  },
+  backtest(input: BacktestInput) {
+    return performanceFromSignals(input.contexts.map((context) => signalFromContext(context, input.settings)));
+  }
 };

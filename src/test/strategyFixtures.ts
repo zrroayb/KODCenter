@@ -1,4 +1,5 @@
 import type { Candle, MarketContext } from "../lib/ict/types";
+import { buildCrtContext } from "../lib/intelligence/crtEngine";
 
 function makeExecutionCandles(): Candle[] {
   const now = Date.UTC(2026, 5, 30, 12, 0);
@@ -17,6 +18,8 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
   const base: MarketContext = {
     symbol: "XAUUSD",
     timeframes: {
+      monthly: candles,
+      weekly: candles,
       daily: candles,
       h4: candles,
       h1: candles,
@@ -24,6 +27,8 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
       m5: candles
     },
     bias: {
+      monthly: "bearish",
+      weekly: "bearish",
       daily: "bearish",
       h4: "bearish",
       h1: "bearish"
@@ -101,19 +106,41 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
       source: "mid-only",
       executionPrice: "mid",
       note: "fixture"
-    }
+    },
+    crt: buildCrtContext({
+      monthly: candles,
+      weekly: candles,
+      daily: candles,
+      h4: candles,
+      fairValueGaps: [],
+      orderBlocks: []
+    })
+  };
+
+  const mergedFairValueGaps = overrides.fairValueGaps ?? base.fairValueGaps;
+  const mergedOrderBlocks = overrides.orderBlocks ?? base.orderBlocks;
+  const mergedTimeframes = {
+    ...base.timeframes,
+    ...overrides.timeframes
   };
 
   return {
     ...base,
     ...overrides,
-    timeframes: {
-      ...base.timeframes,
-      ...overrides.timeframes
-    },
+    timeframes: mergedTimeframes,
     bias: {
       ...base.bias,
       ...overrides.bias
-    }
+    },
+    fairValueGaps: mergedFairValueGaps,
+    orderBlocks: mergedOrderBlocks,
+    crt: overrides.crt ?? buildCrtContext({
+      monthly: mergedTimeframes.monthly,
+      weekly: mergedTimeframes.weekly,
+      daily: mergedTimeframes.daily,
+      h4: mergedTimeframes.h4,
+      fairValueGaps: mergedFairValueGaps,
+      orderBlocks: mergedOrderBlocks
+    })
   };
 }

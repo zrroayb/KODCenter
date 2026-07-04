@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
 import { buildLiquidityPools, detectSweeps } from "../lib/intelligence/liquidityMapEngine";
 import { buildStructureRiskPlan, kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 import { getStrategy, strategyRegistry } from "../lib/strategies/registry";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("KOD strategy module", () => {
-  it("is the first registered strategy and can be resolved by id", () => {
-    expect(strategyRegistry[0].id).toBe("kod-turtle-soup-reclaim");
-    expect(getStrategy("missing-strategy").id).toBe(kodStrategy.id);
+  it("keeps CRT as the active default while KOD remains resolvable as legacy", () => {
+    expect(strategyRegistry[0].id).toBe("crt");
+    expect(getStrategy("missing-strategy").id).toBe(crtStrategy.id);
+    expect(getStrategy(kodStrategy.id).id).toBe(kodStrategy.id);
   });
 
   it("emits visible watch or ready signals with decision summaries", () => {
@@ -40,7 +42,7 @@ describe("KOD strategy module", () => {
 
   it("places long stops below sell-side sweep structure plus buffer", () => {
     const context = createStructureContext({
-      bias: { daily: "bullish", h4: "bullish", h1: "bullish" },
+      bias: { monthly: "bullish", weekly: "bullish", daily: "bullish", h4: "bullish", h1: "bullish" },
       premiumDiscount: { zone: "discount", positionPct: 0.25, midpoint: 100 },
       sweeps: [{ side: "sell-side", level: 99, candleIndex: 23, reclaimed: true }],
       fairValueGaps: [{ direction: "long", low: 99.8, high: 100.2, midpoint: 100, candleIndex: 22, mitigated: false }]
@@ -120,7 +122,7 @@ describe("KOD strategy module", () => {
 
   it("selects long when long structure is cleaner even if a buy-side sweep also exists", () => {
     const context = createStructureContext({
-      bias: { daily: "bullish", h4: "bullish", h1: "bullish" },
+      bias: { monthly: "bullish", weekly: "bullish", daily: "bullish", h4: "bullish", h1: "bullish" },
       premiumDiscount: { zone: "discount", positionPct: 0.25, midpoint: 100 },
       dealingRange: { high: 105, low: 97, midpoint: 101, source: "Long selection fixture" },
       liquidityPools: [

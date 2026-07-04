@@ -13,8 +13,8 @@ type ChartTab = "m15" | "h1" | "h4" | "daily";
 const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string; mode: "execution" | "confirmation" | "context" | "daily" }> = [
   { id: "m15", label: "15m", caption: "execution", mode: "execution" },
   { id: "h1", label: "1h", caption: "confirmation", mode: "confirmation" },
-  { id: "h4", label: "4h", caption: "structure", mode: "context" },
-  { id: "daily", label: "1D", caption: "Dealing Range", mode: "daily" }
+  { id: "h4", label: "4h", caption: "CRT Range", mode: "context" },
+  { id: "daily", label: "1D", caption: "DOL", mode: "daily" }
 ];
 
 function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
@@ -35,12 +35,14 @@ function MarketContextPanel({ context, signals }: { context: MarketContext; sign
           <span className="eyebrow">Market Özeti</span>
           <h2>{context.symbol}</h2>
         </div>
-        <span className="badge">{context.bias.h4}</span>
+        <span className="badge">{context.crt.selectedBias.direction}</span>
       </header>
       <div className="detail-grid">
+        <div><span>Monthly</span><strong>{context.bias.monthly}</strong></div>
+        <div><span>Weekly</span><strong>{context.bias.weekly}</strong></div>
         <div><span>Daily</span><strong>{context.bias.daily}</strong></div>
         <div><span>H4</span><strong>{context.bias.h4}</strong></div>
-        <div><span>H1</span><strong>{context.bias.h1}</strong></div>
+        <div><span>DOL</span><strong>{formatPrice(context.crt.selectedBias.drawLevel)}</strong></div>
         <div><span>PD Zone</span><strong>{context.premiumDiscount.zone}</strong></div>
         <div><span>Killzone</span><strong>{activeKillzone}</strong></div>
         <div><span>SMT</span><strong>{smt ? `${smt.direction} vs ${smt.partner}` : "yok"}</strong></div>
@@ -50,8 +52,9 @@ function MarketContextPanel({ context, signals }: { context: MarketContext; sign
         <div><span>Veri güveni</span><strong>{context.dataConfidence.grade} · {context.dataConfidence.score}</strong></div>
       </div>
       <section className="details-section">
-        <h3>Dealing Range</h3>
-        <p>High {formatPrice(context.dealingRange.high)} · EQ {formatPrice(context.dealingRange.midpoint)} · Low {formatPrice(context.dealingRange.low)}</p>
+        <h3>CRT Range</h3>
+        <p>High {formatPrice(context.crt.activeRange.high)} · EQ {formatPrice(context.crt.activeRange.midpoint)} · Low {formatPrice(context.crt.activeRange.low)}</p>
+        <p>{context.crt.selectedBias.summary}</p>
         <p>{context.regime.summary}</p>
         <p>{context.eventRisk.summary}</p>
       </section>
@@ -120,7 +123,7 @@ export function ChartsView({
           candles={candlesForTab(market, activeTab)}
           title={`${market.symbol} · ${tab.label} ${tab.caption}`}
           mode={tab.mode}
-          range={context.dealingRange}
+          range={context.crt.activeRange}
           context={context}
           signals={symbolSignals}
           selectedSignal={activeSelectedSignal}

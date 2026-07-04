@@ -62,8 +62,8 @@ describe("chart trade plan overlay", () => {
 
       expect(markup).toContain("HTF GİRİŞ");
       expect(markup).toContain("HTF STOP");
-      expect(markup).toContain("HTF TP1");
-      expect(markup).toContain("HTF TP2");
+      expect(markup).toContain("HTF EQ/TP1");
+      expect(markup).toContain("HTF DOL/TP2");
       expect(markup).not.toContain("RİSK ALANI");
     }
   });

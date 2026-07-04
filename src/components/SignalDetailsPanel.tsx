@@ -17,6 +17,7 @@ function stopSourceText(signal: TradingSignal) {
   if (signal.plan.stopSource === "sweep") return signal.direction === "short" ? "Sweep high üstü" : "Sweep low altı";
   if (signal.plan.stopSource === "fvg") return signal.direction === "short" ? "FVG üstü" : "FVG altı";
   if (signal.plan.stopSource === "swing") return signal.direction === "short" ? "Swing high üstü" : "Swing low altı";
+  if (signal.plan.stopSource === "manipulation") return signal.direction === "short" ? "Manipulation wick üstü" : "Manipulation wick altı";
   return "Volatility floor";
 }
 
@@ -83,11 +84,11 @@ export function SignalDetailsPanel({
   const lifecycle = signalLifecycleState(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const setupTime = new Date(signalAnchorTime(signal)).toLocaleString();
-  const planGapLabel = signal.plan.entrySource === "ifvg-retest" ? "iFVG" : "FVG";
+  const planGapLabel = signal.plan.entrySource === "ifvg-retest" ? "iFVG" : signal.plan.entrySource === "fvg-retest" ? "FVG" : "POI";
   const fvgRetest: DecisionChecklistItem = {
-    label: "FVG Retest",
+    label: "POI Retest",
     status: annotations.fairValueGap ? (annotations.fairValueGap.mitigated ? "pass" : "neutral") : "neutral",
-    explanation: annotations.fairValueGap ? `Entry modeli seçilen ${planGapLabel} üzerinden map edildi.` : "Bu plan FVG/iFVG kullanmıyor; kapanış/onay modeli izleniyor."
+    explanation: annotations.fairValueGap ? `Entry modeli seçilen ${planGapLabel} üzerinden map edildi.` : "Bu plan seçili FVG kutusu kullanmıyor; POI/ChoCH kapanış modeli izleniyor."
   };
   const htfBias = signal.decisionSummary.checklist.find((item) => item.label === "HTF Alignment");
   const checklist = [...signal.decisionSummary.checklist, fvgRetest].map((item) =>
@@ -175,8 +176,8 @@ export function SignalDetailsPanel({
       <div className="signal-ticket-levels">
         <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
         <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
-        <div><span>TP1</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
-        <div><span>RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
+        <div><span>EQ / TP1</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
+        <div><span>DOL RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
       </div>
       <section className="ticket-structure">
         <h3>Yapı okuması</h3>
@@ -197,7 +198,7 @@ export function SignalDetailsPanel({
         <h3>AI chart mentoru</h3>
         <p>
           {aiLoading
-            ? "Gemini chartı ICT mentor gibi okuyor..."
+            ? "Gemini chartı CRT mentor gibi okuyor..."
             : aiCommentary.status === "ready" || aiCommentary.status === "fallback"
               ? aiCommentary.commentary
               : aiCommentary.status === "disabled"
@@ -215,7 +216,7 @@ export function SignalDetailsPanel({
           <div><span>Zone</span><strong>{signal.context.premiumDiscount.zone}</strong></div>
           <div><span>Session</span><strong>{activeKillzone}</strong></div>
           <div><span>Retest</span><strong>{signal.plan.entryModel.retested ? "var" : "bekliyor"}</strong></div>
-          <div><span>MSS/CISD</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
+          <div><span>ChoCH/Just</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
           <div><span>Friction</span><strong>{signal.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(signal.plan.executionCosts.total)}</strong></div>
           <div><span>RR durumu</span><strong>{rrStatusText(signal)}</strong></div>
           <div><span>Rejim</span><strong>{signal.context.regime.type}</strong></div>

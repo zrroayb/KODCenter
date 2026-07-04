@@ -83,8 +83,12 @@ function timeframesAt(market: DemoMarket, time: number): MarketTimeframes {
   const h1 = sliceByTime(market.timeframes.h1, time, 180);
   const h4 = sliceByTime(market.timeframes.h4, time, 140);
   const daily = sliceByTime(market.timeframes.daily, time, 220);
+  const weekly = sliceByTime(market.timeframes.weekly, time, 80);
+  const monthly = sliceByTime(market.timeframes.monthly, time, 24);
   const m5 = sliceByTime(market.timeframes.m5, time, 220);
   return {
+    monthly: monthly.length ? monthly : trimCandles(aggregateCandles(daily, "1M"), 24),
+    weekly: weekly.length ? weekly : trimCandles(aggregateCandles(daily, "1w"), 80),
     daily,
     h4: h4.length ? h4 : trimCandles(aggregateCandles(h1, "4h"), 140),
     h1: h1.length ? h1 : trimCandles(aggregateCandles(m15, "1h"), 180),
@@ -94,11 +98,11 @@ function timeframesAt(market: DemoMarket, time: number): MarketTimeframes {
 }
 
 function enoughWarmup(context: MarketContext): boolean {
-  return context.timeframes.m15.length >= 80 && context.timeframes.h1.length >= 30 && context.timeframes.h4.length >= 12 && context.timeframes.daily.length >= 20;
+  return context.timeframes.m15.length >= 80 && context.timeframes.h1.length >= 30 && context.timeframes.h4.length >= 12 && context.timeframes.daily.length >= 20 && context.timeframes.weekly.length >= 3;
 }
 
 function enoughWarmupTimeframes(timeframes: MarketTimeframes): boolean {
-  return timeframes.m15.length >= 80 && timeframes.h1.length >= 30 && timeframes.h4.length >= 12 && timeframes.daily.length >= 20;
+  return timeframes.m15.length >= 80 && timeframes.h1.length >= 30 && timeframes.h4.length >= 12 && timeframes.daily.length >= 20 && timeframes.weekly.length >= 3;
 }
 
 function replayTimes(markets: DemoMarket[], startedAt: number, endedAt: number, scanEveryCandles: number): number[] {
@@ -176,6 +180,26 @@ function targetR(signal: TradingSignal, targetIndex: 0 | 1): number {
   return Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001));
 }
 
+function stopHit(signal: TradingSignal, candle: Candle): boolean {
+  return signal.direction === "short"
+    ? executableHigh(candle, "buy") >= signal.plan.stopLoss
+    : executableLow(candle, "sell") <= signal.plan.stopLoss;
+}
+
+function targetHit(signal: TradingSignal, candle: Candle, targetIndex: 0 | 1): boolean {
+  const target = signal.plan.targets[targetIndex];
+  if (typeof target !== "number") return false;
+  return signal.direction === "short"
+    ? executableLow(candle, "buy") <= target
+    : executableHigh(candle, "sell") >= target;
+}
+
+function breakevenHit(signal: TradingSignal, candle: Candle): boolean {
+  return signal.direction === "short"
+    ? executableHigh(candle, "buy") >= signal.plan.entry
+    : executableLow(candle, "sell") <= signal.plan.entry;
+}
+
 function expectedBias(signal: TradingSignal) {
   return signal.direction === "short" ? "bearish" : "bullish";
 }
@@ -187,19 +211,26 @@ function expectedPd(signal: TradingSignal) {
 function tradeTags(signal: TradingSignal): string[] {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const expected = expectedBias(signal);
+  const crtDirection = signal.context.crt.selectedBias.direction;
+  const crtAligned = crtDirection === signal.direction;
   return Array.from(new Set([
     `grade:${signal.grade}`,
     `entry:${signal.plan.entrySource}`,
     `entry-status:${signal.plan.entryStatus}`,
     `stop:${signal.plan.stopSource}`,
     `target:${signal.plan.targetSource}`,
+    `crt:${signal.context.crt.selectedBias.kind}`,
+    signal.context.crt.validPullback ? "pullback:valid" : "pullback:invalid",
+    signal.evidence.find((item) => item.id === "poi")?.status === "pass" ? "poi:touched" : "poi:missing",
+    signal.evidence.find((item) => item.id === "manipulation")?.status === "pass" ? "manipulation:yes" : "manipulation:no",
+    signal.evidence.find((item) => item.id === "choch")?.status === "pass" ? "choch:yes" : "choch:no",
     `session:${activeSession}`,
     `pd:${signal.context.premiumDiscount.zone}`,
     `regime:${signal.context.regime.type}`,
     `event:${signal.context.eventRisk.level}`,
     signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? "smt:aligned" : "smt:none",
     signal.context.premiumDiscount.zone === expectedPd(signal) ? "pd:aligned" : "pd:mismatch",
-    signal.context.bias.daily === expected || signal.context.bias.h4 === expected ? "htf:aligned" : "htf:conflict",
+    crtAligned || signal.context.bias.daily === expected || signal.context.bias.h4 === expected ? "htf:aligned" : "htf:conflict",
     signal.plan.rr >= 2 ? "rr:2plus" : signal.plan.rr >= 1.5 ? "rr:ok" : "rr:low",
     signal.governance.status === "allow" ? "governance:allow" : `governance:${signal.governance.status}`
   ]));
@@ -238,9 +269,106 @@ function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"
 function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeReplayOutcomeReason {
   if (signal.context.eventRisk.level !== "clear") return "event-risk";
   if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
-  if (signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
+  if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
   if (signal.plan.stopSource === "volatility-floor" || maxFavorableR < 0.25) return "stop-too-tight";
   return "unknown";
+}
+
+function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[]): ReplayOutcome {
+  let maxFavorableR = 0;
+  let maxAdverseR = 0;
+  let eqHitIndex = -1;
+  const eqR = targetR(signal, 0);
+  const dolR = targetR(signal, 1);
+
+  for (let index = 0; index < afterEntry.length; index += 1) {
+    const candle = afterEntry[index];
+    const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
+    const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
+    maxFavorableR = Math.max(maxFavorableR, highR, lowR);
+    maxAdverseR = Math.min(maxAdverseR, highR, lowR);
+
+    if (eqHitIndex < 0) {
+      if (stopHit(signal, candle)) {
+        return {
+          status: "stopped",
+          rMultiple: -1,
+          maxFavorableR,
+          maxAdverseR,
+          candlesHeld: index + 1,
+          outcomeReason: stoppedReason(signal, maxFavorableR),
+          tags,
+          note: "CRT entry sonrası stop, EQ görülmeden önce çalıştı."
+        };
+      }
+      if (targetHit(signal, candle, 1)) {
+        return {
+          status: "tp2",
+          rMultiple: Number((0.5 * eqR + 0.5 * dolR).toFixed(2)),
+          maxFavorableR,
+          maxAdverseR,
+          candlesHeld: index + 1,
+          outcomeReason: "clean-model",
+          tags: Array.from(new Set([...tags, "crt:eq", "crt:dol"])),
+          note: "CRT DOL görüldü; EQ yönetimi + kalan pozisyon final hedef."
+        };
+      }
+      if (targetHit(signal, candle, 0)) {
+        eqHitIndex = index;
+        continue;
+      }
+      continue;
+    }
+
+    if (targetHit(signal, candle, 1)) {
+      return {
+        status: "tp2",
+        rMultiple: Number((0.5 * eqR + 0.5 * dolR).toFixed(2)),
+        maxFavorableR,
+        maxAdverseR,
+        candlesHeld: index + 1,
+        outcomeReason: "clean-model",
+        tags: Array.from(new Set([...tags, "crt:eq", "crt:dol"])),
+        note: "CRT EQ sonrası DOL görüldü."
+      };
+    }
+    if (breakevenHit(signal, candle)) {
+      return {
+        status: "tp1",
+        rMultiple: Number((0.5 * eqR).toFixed(2)),
+        maxFavorableR,
+        maxAdverseR,
+        candlesHeld: index + 1,
+        outcomeReason: "eq-then-be",
+        tags: Array.from(new Set([...tags, "crt:eq", "crt:be"])),
+        note: "CRT EQ görüldü; yarı realize, kalan pozisyon BE."
+      };
+    }
+  }
+
+  if (eqHitIndex >= 0) {
+    return {
+      status: "tp1",
+      rMultiple: Number((0.5 * eqR).toFixed(2)),
+      maxFavorableR,
+      maxAdverseR,
+      candlesHeld: afterEntry.length,
+      outcomeReason: "dol-missed",
+      tags: Array.from(new Set([...tags, "crt:eq", "crt:dol-missed"])),
+      note: "CRT EQ görüldü fakat DOL süre içinde gelmedi; kalan BE kabul edildi."
+    };
+  }
+
+  return {
+    status: "open",
+    rMultiple: Math.max(-1, Math.min(maxFavorableR, 0.25)),
+    maxFavorableR,
+    maxAdverseR,
+    candlesHeld: afterEntry.length,
+    outcomeReason: "expired",
+    tags,
+    note: `CRT süre doldu; EQ/DOL görülmedi. Max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
+  };
 }
 
 function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], tagsExtra: string[] = []): ReplayOutcome {
@@ -267,6 +395,7 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
   let maxFavorableR = 0;
   let maxAdverseR = 0;
   const afterEntry = futureCandles.slice(entryIndex);
+  if (signal.strategyId === "crt") return evaluateCrtForwardOutcome(signal, afterEntry, tags);
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
     const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
@@ -274,17 +403,11 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
     maxFavorableR = Math.max(maxFavorableR, highR, lowR);
     maxAdverseR = Math.min(maxAdverseR, highR, lowR);
 
-    const stopHit = signal.direction === "short"
-      ? executableHigh(candle, "buy") >= signal.plan.stopLoss
-      : executableLow(candle, "sell") <= signal.plan.stopLoss;
-    const tp2Hit = typeof signal.plan.targets[1] === "number" && (signal.direction === "short"
-      ? executableLow(candle, "buy") <= signal.plan.targets[1]
-      : executableHigh(candle, "sell") >= signal.plan.targets[1]);
-    const tp1Hit = typeof signal.plan.targets[0] === "number" && (signal.direction === "short"
-      ? executableLow(candle, "buy") <= signal.plan.targets[0]
-      : executableHigh(candle, "sell") >= signal.plan.targets[0]);
+    const currentStopHit = stopHit(signal, candle);
+    const tp2Hit = targetHit(signal, candle, 1);
+    const tp1Hit = targetHit(signal, candle, 0);
 
-    if (stopHit) {
+    if (currentStopHit) {
       const reason = stoppedReason(signal, maxFavorableR);
       return {
         status: "stopped",
@@ -413,7 +536,7 @@ function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeRepl
     score: signal.score,
     entry: signal.plan.entry,
     stopLoss: signal.plan.stopLoss,
-    target: signal.plan.targets[0] ?? signal.plan.entry,
+    target: signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry,
     rr: signal.plan.rr,
     entrySource: signal.plan.entrySource,
     entryStatus: signal.plan.entryStatus,
@@ -448,9 +571,9 @@ function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean
   if (signal.plan.entrySource === "fallback-close") return false;
   if (signal.plan.stopSource === "volatility-floor") return false;
   if (signal.context.premiumDiscount.zone !== expectedPd(signal)) return false;
-  if (signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return false;
-  if (!evidencePassed(signal, "sweep")) return false;
-  if (!evidencePassed(signal, "mss")) return false;
+  if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return false;
+  if (!evidencePassed(signal, "manipulation") && !evidencePassed(signal, "sweep")) return false;
+  if (!evidencePassed(signal, "choch") && !evidencePassed(signal, "mss")) return false;
   if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") return false;
   return true;
 }
@@ -604,6 +727,8 @@ function tagLabel(tag: string): string {
   const [group, value] = tag.split(":");
   if (group === "reason") {
     if (value === "clean-model") return "Temiz model";
+    if (value === "eq-then-be") return "EQ sonra BE";
+    if (value === "dol-missed") return "DOL gelmedi";
     if (value === "stop-too-tight") return "Stop dar";
     if (value === "event-risk") return "Event riski";
     if (value === "range-chop") return "Range/chop";
@@ -615,6 +740,11 @@ function tagLabel(tag: string): string {
   if (group === "pd") return value === "mismatch" ? "PD mismatch" : value === "aligned" ? "PD aligned" : `PD ${value}`;
   if (group === "htf") return value === "conflict" ? "HTF conflict" : "HTF aligned";
   if (group === "smt") return value === "none" ? "SMT yok" : "SMT aligned";
+  if (group === "crt") return `CRT ${value}`;
+  if (group === "pullback") return value === "valid" ? "Valid pullback" : "Pullback invalid";
+  if (group === "poi") return value === "touched" ? "POI touched" : "POI missing";
+  if (group === "manipulation") return value === "yes" ? "Manipulation var" : "Manipulation yok";
+  if (group === "choch") return value === "yes" ? "ChoCH var" : "ChoCH yok";
   if (group === "rr") return value === "2plus" ? "RR 2+" : value === "ok" ? "RR uygun" : "RR düşük";
   if (group === "entry-status") return `Entry ${value}`;
   return `${group} ${value}`;
@@ -627,7 +757,7 @@ function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number
       label: "READY üretimi",
       value: "0",
       detail: watchAlerts > 0
-        ? `${watchAlerts} WATCH var ama READY yok. Entry/MSS/FVG şartları fazla sıkı veya son 1 ay model gelmemiş.`
+        ? `${watchAlerts} WATCH var ama READY yok. POI/manipulation/ChoCH şartları fazla sıkı veya son 1 ay CRT model gelmemiş.`
         : "Son pencerede model setup üretmedi; veri ve market koşulu bekleniyor.",
       verdict: "investigate"
     });
@@ -790,6 +920,8 @@ function failureDiagnosis(trade: RuntimeReplayTrade): string {
   if (trade.outcomeReason === "range-chop") return "Range/chop içinde hedefe akış yok; rejim filtresi sıkılaşmalı.";
   if (trade.outcomeReason === "stop-too-tight") return "MFE düşük veya volatility-floor stop çalışmış; stop modeli/entry chase kontrolü incelenmeli.";
   if (trade.outcomeReason === "event-risk") return "Event riski trade'i bozmuş; haber/saat filtresi hard gate olmalı.";
+  if (trade.outcomeReason === "eq-then-be") return "EQ yönetimi çalışmış ama DOL akışı yok; bu koşul final hedef için zayıf olabilir.";
+  if (trade.outcomeReason === "dol-missed") return "EQ geldi fakat DOL süre içinde gelmedi; target seçimi veya session momentum filtresi incelenmeli.";
   if (trade.maxFavorableR < 0.35 && trade.rMultiple < 0) return "Trade neredeyse hiç doğru yöne gitmeden stop olmuş; entry modeli erken veya yanlış yönde.";
   if (trade.maxFavorableR >= 1 && trade.rMultiple < 0) return "1R üstü fırsat verip stop olmuş; partial/BE yönetimi incelenmeli.";
   return "Kayıp trade; tag kırılımında hangi koşul tekrarlıyor bakılmalı.";
@@ -968,7 +1100,7 @@ export function runMonthlyRuntimeReplay({
         score: candidate.signal.score,
         entry: candidate.signal.plan.entry,
         stopLoss: candidate.signal.plan.stopLoss,
-        target: candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
+        target: candidate.signal.plan.targets[1] ?? candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
         ...measuredOutcome
       });
       applyReplayRisk(dayState, candidate.signal, measuredOutcome);
@@ -1053,3 +1185,7 @@ export function runMonthlyRuntimeReplay({
     }
   };
 }
+
+export const __runtimeReplayInternals = {
+  evaluateForwardOutcome
+};

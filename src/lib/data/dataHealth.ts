@@ -8,8 +8,8 @@ export type DataHealthRow = {
   symbol: MarketSymbol;
   source: MarketDataSource;
   feedMode: MarketFeedMode;
-  latest: Record<"m5" | "m15" | "h1" | "h4" | "daily", number | undefined>;
-  counts: Record<"m5" | "m15" | "h1" | "h4" | "daily", number>;
+  latest: Record<"m5" | "m15" | "h1" | "h4" | "daily" | "weekly" | "monthly", number | undefined>;
+  counts: Record<"m5" | "m15" | "h1" | "h4" | "daily" | "weekly" | "monthly", number>;
   maxLagMinutes: number;
   executionLagMinutes: number;
   htfAgeMinutes: number;
@@ -32,7 +32,9 @@ const MAX_LAG_MINUTES = {
   m15: 45,
   h1: 180,
   h4: 720,
-  daily: 60 * 60
+  daily: 60 * 60,
+  weekly: 8 * 24 * 60,
+  monthly: 35 * 24 * 60
 };
 
 function latestTime(candles: Candle[]): number | undefined {
@@ -45,7 +47,8 @@ function lagMinutes(time: number | undefined, now: number): number {
 }
 
 function issueForTimeframe(label: keyof typeof MAX_LAG_MINUTES, candles: Candle[], now: number): string | undefined {
-  if (candles.length < 20) return `${label}: candle sayısı düşük (${candles.length})`;
+  const minimumCandles = label === "monthly" ? 2 : label === "weekly" ? 3 : 20;
+  if (candles.length < minimumCandles) return `${label}: candle sayısı düşük (${candles.length})`;
   const lag = lagMinutes(latestTime(candles), now);
   if (lag > MAX_LAG_MINUTES[label]) return `${label}: veri gecikmiş (${lag} dk)`;
   return undefined;
@@ -58,14 +61,18 @@ export function buildDataHealthReport(markets: DemoMarket[], state: Omit<MarketD
       m15: latestTime(market.timeframes.m15),
       h1: latestTime(market.timeframes.h1),
       h4: latestTime(market.timeframes.h4),
-      daily: latestTime(market.timeframes.daily)
+      daily: latestTime(market.timeframes.daily),
+      weekly: latestTime(market.timeframes.weekly),
+      monthly: latestTime(market.timeframes.monthly)
     };
     const counts = {
       m5: market.timeframes.m5.length,
       m15: market.timeframes.m15.length,
       h1: market.timeframes.h1.length,
       h4: market.timeframes.h4.length,
-      daily: market.timeframes.daily.length
+      daily: market.timeframes.daily.length,
+      weekly: market.timeframes.weekly.length,
+      monthly: market.timeframes.monthly.length
     };
     const source: MarketDataSource = state.errors.some((error) => error.startsWith(`${market.symbol}:`)) ? "demo" : state.source;
     const feedMode: MarketFeedMode = source === "demo" ? "demo" : state.feedMode;
@@ -74,12 +81,14 @@ export function buildDataHealthReport(markets: DemoMarket[], state: Omit<MarketD
       issueForTimeframe("m15", market.timeframes.m15, now),
       issueForTimeframe("h1", market.timeframes.h1, now),
       issueForTimeframe("h4", market.timeframes.h4, now),
-      issueForTimeframe("daily", market.timeframes.daily, now)
+      issueForTimeframe("daily", market.timeframes.daily, now),
+      issueForTimeframe("weekly", market.timeframes.weekly, now),
+      issueForTimeframe("monthly", market.timeframes.monthly, now)
     ].filter((issue): issue is string => Boolean(issue));
     const executionLagMinutes = Math.max(...[latest.m5, latest.m15].map((time) => lagMinutes(time, now)));
     const htfAgeMinutes = Math.max(...[latest.h1, latest.h4].map((time) => lagMinutes(time, now)));
     const maxIntradayLagMinutes = Math.max(executionLagMinutes, htfAgeMinutes);
-    const dailyAgeMinutes = lagMinutes(latest.daily, now);
+    const dailyAgeMinutes = Math.max(lagMinutes(latest.daily, now), lagMinutes(latest.weekly, now), lagMinutes(latest.monthly, now));
     const maxLagMinutes = Math.max(maxIntradayLagMinutes, dailyAgeMinutes);
     return {
       symbol: market.symbol,

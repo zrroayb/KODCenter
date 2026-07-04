@@ -16,7 +16,7 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
         <span className="brand-mark"><BarChart3 size={22} /></span>
         <div>
           <strong>Tradebot</strong>
-          <span>ICT karar masası</span>
+          <span>CRT karar masası</span>
         </div>
       </div>
       <nav>
@@ -40,8 +40,8 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
         })}
       </nav>
       <div className="sidebar-note">
-        <span>KOD</span>
-        <strong>Watch + Ready</strong>
+        <span>CRT</span>
+        <strong>Range + DOL</strong>
       </div>
     </aside>
   );

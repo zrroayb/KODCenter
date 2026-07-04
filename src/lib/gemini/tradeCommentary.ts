@@ -31,9 +31,13 @@ export type GeminiTradeCommentaryPayload = {
     };
   };
   context: {
+    monthlyBias: string;
+    weeklyBias: string;
     dailyBias: string;
     h4Bias: string;
     h1Bias: string;
+    crtBias: string;
+    dol: number;
     premiumDiscount: string;
     session: string;
     dataFeed: string;
@@ -132,7 +136,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
     `Karar: ${audit.headline}`,
     `Neden: ${audit.decision}`,
     `Beklenen: ${firstIssue?.detail ?? "Plan aktif; sadece entry disiplinini koru."}`,
-    `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · TP1 ${formatPrice(signal.plan.targets[0])}.`
+    `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}.`
   ].join("\n");
   return {
     status: "fallback",
@@ -151,8 +155,8 @@ function candleRole(signal: TradingSignal, index: number): string | undefined {
   const roles = [
     annotations.sweep?.candleIndex === index ? "liquidity sweep / reclaim referansı" : undefined,
     annotations.displacement?.candleIndex === index ? "displacement candle" : undefined,
-    annotations.marketStructureShift?.candleIndex === index ? "MSS/CISD referansı" : undefined,
-    annotations.fairValueGap?.candleIndex === index ? "planlı FVG/iFVG candle" : undefined,
+    annotations.marketStructureShift?.candleIndex === index ? "ChoCH/Just referansı" : undefined,
+    annotations.fairValueGap?.candleIndex === index ? "planlı POI/FVG candle" : undefined,
     annotations.smtDivergence?.candleIndex === index ? "SMT divergence candle" : undefined
   ].filter((item): item is string => Boolean(item));
   return roles.length ? roles.join(", ") : undefined;
@@ -173,7 +177,7 @@ function buildDecisionLine(signal: TradingSignal): string {
       : `Fiyat ${formatPrice(signal.plan.entry)} entry seviyesine gelip kapanışla onay vermeli.`;
   }
   if (signal.stage === "ready") {
-    return `READY plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, TP1 ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}.`;
+    return `READY plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}, DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`;
   }
   return signal.plan.planWarnings[0] ?? "Setup izleniyor; READY olmadan işlem yok.";
 }
@@ -211,26 +215,27 @@ function buildChartMentorContext(signal: TradingSignal): GeminiTradeCommentaryPa
   keyLevels.push(
     { label: "ENTRY", price: signal.plan.entry, reason: `${signal.plan.entrySource}/${signal.plan.entryStatus}` },
     { label: "STOP", price: signal.plan.stopLoss, reason: `${signal.plan.stopSource} + buffer` },
-    { label: "TP1", price: signal.plan.targets[0], reason: signal.plan.targetSource },
-    { label: "TP2", price: signal.plan.targets[1], reason: signal.plan.targetSource },
-    { label: "DRH", price: signal.context.dealingRange.high, reason: signal.context.dealingRange.source },
-    { label: "EQ", price: signal.context.dealingRange.midpoint, reason: "dealing range midpoint" },
-    { label: "DRL", price: signal.context.dealingRange.low, reason: signal.context.dealingRange.source }
+    { label: "EQ / TP1", price: signal.plan.targets[0], reason: "CRT 0.5 management" },
+    { label: "DOL / TP2", price: signal.plan.targets[1], reason: signal.plan.targetSource },
+    { label: "CRT HIGH", price: signal.context.crt.activeRange.high, reason: signal.context.crt.activeRange.source },
+    { label: "CRT MID", price: signal.context.crt.activeRange.midpoint, reason: "CRT range 0.5" },
+    { label: "CRT LOW", price: signal.context.crt.activeRange.low, reason: signal.context.crt.activeRange.source },
+    { label: "DOL", price: signal.context.crt.selectedBias.drawLevel, reason: signal.context.crt.selectedBias.summary }
   );
   if (annotations.sweep) {
     keyLevels.push({ label: "SWEEP", price: annotations.sweep.level, reason: `${annotations.sweep.side}, reclaimed=${annotations.sweep.reclaimed}` });
   }
   if (annotations.marketStructureShift) {
-    keyLevels.push({ label: "MSS/CISD", price: annotations.marketStructureShift.level, reason: `${annotations.marketStructureShift.direction} structure shift` });
+    keyLevels.push({ label: "ChoCH / Just", price: annotations.marketStructureShift.level, reason: `${annotations.marketStructureShift.direction} structure shift` });
   }
   if (closeRequirement) {
     keyLevels.push({ label: "KAPANIŞ ONAYI", price: closeRequirement.level, reason: closeRequirement.reason });
   }
   if (annotations.fairValueGap) {
     keyLevels.push({
-      label: signal.plan.entrySource === "ifvg-retest" ? "iFVG BOX" : "FVG BOX",
+      label: signal.plan.entrySource === "ifvg-retest" ? "iFVG BOX" : signal.plan.entrySource === "fvg-retest" ? "FVG BOX" : "POI BOX",
       zone: [annotations.fairValueGap.low, annotations.fairValueGap.high],
-      reason: `planlı gap, mitigated=${annotations.fairValueGap.mitigated}`
+      reason: `planlı POI, mitigated=${annotations.fairValueGap.mitigated}`
     });
   }
 
@@ -279,7 +284,7 @@ function buildChartMentorContext(signal: TradingSignal): GeminiTradeCommentaryPa
 
 export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): GeminiTradeCommentaryPayload {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
-  const planGap = (signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") ? signal.plan.entryModel.fairValueGap : undefined;
+  const planGap = signal.plan.entryModel.fairValueGap;
   const structureAudit = buildStructureAudit(signal);
   return {
     id: signal.id,
@@ -310,9 +315,13 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
         : undefined
     },
     context: {
+      monthlyBias: signal.context.bias.monthly,
+      weeklyBias: signal.context.bias.weekly,
       dailyBias: signal.context.bias.daily,
       h4Bias: signal.context.bias.h4,
       h1Bias: signal.context.bias.h1,
+      crtBias: signal.context.crt.selectedBias.kind,
+      dol: signal.context.crt.selectedBias.drawLevel,
       premiumDiscount: signal.context.premiumDiscount.zone,
       session: activeSession,
       dataFeed: signal.context.dataFeed.source

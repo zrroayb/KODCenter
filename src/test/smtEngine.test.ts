@@ -23,8 +23,8 @@ describe("SMT engine", () => {
     const eurCandles = candlesWithLatest({ high: 101.2, close: 100.2 });
     const gbpCandles = candlesWithLatest({ high: 100.35, close: 100.1 });
     const contexts = attachSmtDivergences([
-      createStructureContext({ symbol: "EURUSD", timeframes: { daily: eurCandles, h4: eurCandles, h1: eurCandles, m15: eurCandles, m5: eurCandles } }),
-      createStructureContext({ symbol: "GBPUSD", timeframes: { daily: gbpCandles, h4: gbpCandles, h1: gbpCandles, m15: gbpCandles, m5: gbpCandles } })
+      createStructureContext({ symbol: "EURUSD", timeframes: { monthly: eurCandles, weekly: eurCandles, daily: eurCandles, h4: eurCandles, h1: eurCandles, m15: eurCandles, m5: eurCandles } }),
+      createStructureContext({ symbol: "GBPUSD", timeframes: { monthly: gbpCandles, weekly: gbpCandles, daily: gbpCandles, h4: gbpCandles, h1: gbpCandles, m15: gbpCandles, m5: gbpCandles } })
     ]);
 
     expect(contexts[0].smtDivergences[0]).toMatchObject({
@@ -38,8 +38,8 @@ describe("SMT engine", () => {
     const eurCandles = candlesWithLatest({ low: 98.8, close: 99.9 });
     const gbpCandles = candlesWithLatest({ low: 99.65, close: 100 });
     const contexts = attachSmtDivergences([
-      createStructureContext({ symbol: "EURUSD", timeframes: { daily: eurCandles, h4: eurCandles, h1: eurCandles, m15: eurCandles, m5: eurCandles } }),
-      createStructureContext({ symbol: "GBPUSD", timeframes: { daily: gbpCandles, h4: gbpCandles, h1: gbpCandles, m15: gbpCandles, m5: gbpCandles } })
+      createStructureContext({ symbol: "EURUSD", timeframes: { monthly: eurCandles, weekly: eurCandles, daily: eurCandles, h4: eurCandles, h1: eurCandles, m15: eurCandles, m5: eurCandles } }),
+      createStructureContext({ symbol: "GBPUSD", timeframes: { monthly: gbpCandles, weekly: gbpCandles, daily: gbpCandles, h4: gbpCandles, h1: gbpCandles, m15: gbpCandles, m5: gbpCandles } })
     ]);
 
     expect(contexts[0].smtDivergences[0]).toMatchObject({

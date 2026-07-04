@@ -67,7 +67,7 @@ function priceBucket(value: number | undefined): string {
 }
 
 export function readyTelegramDedupeKey(signal: TradingSignal): string {
-  const anchors = ["sweep", "mss", "fvg", "liquidity-objective"].map((id) => {
+  const anchors = ["crt-bias", "crt-range", "poi", "manipulation", "choch", "dol-target"].map((id) => {
     const evidence = signal.evidence.find((item) => item.id === id);
     return `${id}:${evidence?.time ?? evidence?.candleIndex ?? "na"}:${priceBucket(evidence?.price)}`;
   });
@@ -78,18 +78,20 @@ export function readyTelegramDedupeKey(signal: TradingSignal): string {
     signal.direction,
     ...anchors,
     `sl:${priceBucket(signal.plan.stopLoss)}`,
-    `tp1:${priceBucket(signal.plan.targets[0])}`
+    `eq:${priceBucket(signal.plan.targets[0])}`,
+    `dol:${priceBucket(signal.plan.targets[1])}`
   ].join("|");
 }
 
 function readyReasons(signal: TradingSignal): string[] {
   const passed = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
   const reasons = [
-    signal.plan.entryStatus === "confirmed" ? "Entry modeli onaylı" : null,
-    passed.has("Liquidity Sweep") ? "Liquidity sweep + reclaim var" : null,
-    signal.plan.entryModel.cisdConfirmed || passed.has("MSS") || passed.has("BOS / CHOCH") ? "BOS/CHOCH · MSS / CISD kapanışı var" : null,
-    passed.has("FVG") ? "FVG / iFVG planı map edildi" : null,
-    passed.has("SMT") ? "SMT pair teyidi var" : null,
+    passed.has("CRT Bias / DOL") ? "CRT bias ve DOL net" : null,
+    passed.has("Premium / Discount") ? "Doğru premium/discount bölgesi" : null,
+    passed.has("POI Touch") ? "POI teması var" : null,
+    passed.has("Manipulation") ? "Manipulation sweep + reclaim var" : null,
+    passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
+    passed.has("SMT") ? "SMT kalite teyidi var" : null,
     `Net RR ${formatR(signal.plan.rr)}`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 5);

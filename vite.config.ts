@@ -54,9 +54,13 @@ type GeminiTradePayload = {
     };
   };
   context?: {
+    monthlyBias?: string;
+    weeklyBias?: string;
     dailyBias?: string;
     h4Bias?: string;
     h1Bias?: string;
+    crtBias?: string;
+    dol?: number;
     premiumDiscount?: string;
     session?: string;
     dataFeed?: string;
@@ -226,7 +230,8 @@ function formatTelegramR(value: unknown) {
 
 function telegramCaption(payload: ReadyTelegramPayload) {
   const reasons = (payload.reasons ?? []).slice(0, 5).map((reason) => `- ${escapeHtml(reason)}`).join("\n");
-  const target = payload.targets?.[0];
+  const eqTarget = payload.targets?.[0];
+  const dolTarget = payload.targets?.[1] ?? payload.targets?.[0];
   const aiCommentary = payload.aiCommentary?.trim()
     ? ["", "<b>AI Yorumu</b>", escapeHtml(payload.aiCommentary.trim())]
     : [];
@@ -236,7 +241,8 @@ function telegramCaption(payload: ReadyTelegramPayload) {
     "",
     `Entry: <b>${formatTelegramPrice(payload.entry)}</b>`,
     `Stop: <b>${formatTelegramPrice(payload.stopLoss)}</b>`,
-    `TP1: <b>${formatTelegramPrice(target)}</b>`,
+    `EQ / TP1: <b>${formatTelegramPrice(eqTarget)}</b>`,
+    `DOL / TP2: <b>${formatTelegramPrice(dolTarget)}</b>`,
     "",
     "<b>Neden READY?</b>",
     reasons || "- Entry/SL/TP planı aktif",
@@ -274,7 +280,7 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
           ? "Setup bozulmuş; yeni model bekle."
           : input.entryModel?.status === "confirmed"
             ? "Entry modeli var ama kalite/RR/filtreler için bekle."
-            : "Retest ve MSS/CISD kapanış onayı bekle.";
+            : "POI retest ve ChoCH/Just mum kapanış onayı bekle.";
   return {
     status: "fallback" as const,
     commentary: clampText([
@@ -291,8 +297,8 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
 function buildGeminiPrompt(input: GeminiTradePayload) {
   const plannedGap = input.entryModel?.fairValueGap;
   const plannedGapText = plannedGap
-    ? `${plannedGap.source ?? "fvg"} ${plannedGap.direction ?? ""} ${plannedGap.low}-${plannedGap.high}, midpoint=${plannedGap.midpoint}, mitigated=${plannedGap.mitigated}`
-    : "planlı FVG/iFVG yok; FVG kelimesini kullanma";
+    ? `${plannedGap.source ?? "poi"} ${plannedGap.direction ?? ""} ${plannedGap.low}-${plannedGap.high}, midpoint=${plannedGap.midpoint}, mitigated=${plannedGap.mitigated}`
+    : "planlı POI/FVG yok; olmayan zone uydurma";
   const checklist = (input.checklist ?? [])
     .slice(0, 10)
     .map((item) => `${item.label}: ${item.status} - ${item.explanation}`)
@@ -323,14 +329,14 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
   const structureAudit = JSON.stringify(input.structureAudit ?? {}, null, 0);
 
   return clampText(`
-Sen kullanıcının net ve doğrudan konuşan ICT/KOD chart akıl hocasısın.
+Sen kullanıcının net ve doğrudan konuşan CRT chart akıl hocasısın.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
 Türkçe yaz. Teknik terimleri koru. Tam 4 kısa satır yaz.
 StructureAudit gerçek kaynak. Audit ile çelişme, audit dışı pattern uydurma.
-Chartı gerçekten oku: son mum dizilimi, sweep, MSS/CISD, entry, stop ve TP mesafesini beraber değerlendir.
+Chartı gerçekten oku: CRT range high/low/mid, DOL, POI, manipulation sweep, ChoCH/Just, entry, stop ve TP mesafesini beraber değerlendir.
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
-Eğer StructureAudit FVG/iFVG yok diyorsa FVG/iFVG kelimesini kullanma.
-Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta FVG yok", "entry chase olur", "stop zaten görülmüş" gibi.
+Eğer StructureAudit POI/FVG yok diyorsa zone varmış gibi konuşma.
+Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta POI teması yok", "entry chase olur", "stop zaten görülmüş" gibi.
 
 Format:
 Karar: ...
@@ -349,9 +355,11 @@ Stop=${input.stopLoss}
 TP=${(input.targets ?? []).join(", ")}
 NetRR=${input.rr}
 GrossRR=${input.grossRR}
-EntryModel=${input.entryModel?.source}/${input.entryModel?.status}, retest=${input.entryModel?.retested}, MSS/CISD=${input.entryModel?.cisdConfirmed}
-PlannedFVG=${plannedGapText}
-Bias D/H4/H1=${input.context?.dailyBias}/${input.context?.h4Bias}/${input.context?.h1Bias}
+EntryModel=${input.entryModel?.source}/${input.entryModel?.status}, retest=${input.entryModel?.retested}, ChoCH/Just=${input.entryModel?.cisdConfirmed}
+PlannedPOI=${plannedGapText}
+Bias M/W/D/H4/H1=${input.context?.monthlyBias}/${input.context?.weeklyBias}/${input.context?.dailyBias}/${input.context?.h4Bias}/${input.context?.h1Bias}
+CRTBias=${input.context?.crtBias}
+DOL=${input.context?.dol}
 PD=${input.context?.premiumDiscount}
 Session=${input.context?.session}
 Feed=${input.context?.dataFeed}
@@ -392,7 +400,7 @@ ${invalidation || "-"}
 
 function buildGeminiReplayPrompt(input: GeminiReplayPayload) {
   return clampText(`
-Sen bir yatırım şirketinde çalışan kıdemli technical analyst ve ICT/KOD strateji kalibrasyon danışmanısın.
+Sen bir yatırım şirketinde çalışan kıdemli technical analyst ve CRT strateji kalibrasyon danışmanısın.
 Bu otomatik emir sistemi değildir; yatırım tavsiyesi verme, kesinlik konuşma.
 Türkçe yaz. Az ama öz ol. Replay datasına göre setup mantığını düzeltmeye odaklan.
 WATCH-promoted ile live READY aynı şey değildir; bunu özellikle ayır.

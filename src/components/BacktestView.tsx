@@ -6,6 +6,8 @@ import { formatPrice } from "../lib/ict/format";
 
 function reasonText(reason: string) {
   if (reason === "clean-model") return "Temiz model";
+  if (reason === "eq-then-be") return "EQ sonra BE";
+  if (reason === "dol-missed") return "DOL gelmedi";
   if (reason === "stop-too-tight") return "Stop / risk problemi";
   if (reason === "event-risk") return "Event riski";
   if (reason === "range-chop") return "Range / chop";
@@ -44,7 +46,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
     ["Replay entry", replay.readyAlerts],
     ["Live / promoted", `${replay.liveReadyEntries} / ${replay.watchPromotedEntries}`],
     ["WATCH setup", replay.watchAlerts],
-    ["TP / SL", `${replay.tp1Trades + replay.tp2Trades} / ${replay.stoppedTrades}`],
+    ["EQ/DOL / SL", `${replay.tp1Trades}/${replay.tp2Trades} / ${replay.stoppedTrades}`],
     ["Toplam R", `${replay.totalR.toFixed(2)}R`]
   ] : [];
   const runAiReview = async () => {
@@ -171,7 +173,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               <div key={trade.id}>
                 <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE READY" : "WATCH PROMOTED"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
                 <span>{new Date(trade.signalTime).toLocaleString()} · grade {trade.grade} · score {trade.score} · {trade.entrySource}/{trade.stopSource}</span>
-                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · {reasonText(trade.outcomeReason)} · {trade.note}</small>
+                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · DOL {formatPrice(trade.target)} · MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
             {!replay.trades.length && <p className="muted-note">Son 1 ayda replay entry tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
@@ -182,7 +184,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               <div key={candidate.id}>
                 <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · {candidate.grade} · Score {candidate.score}</strong>
                 <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
-                <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · TP1 {formatPrice(candidate.target)} · {candidate.decision}</small>
+                <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · DOL {formatPrice(candidate.target)} · {candidate.decision}</small>
                 {candidate.reasons.length > 0 && <small>Eksik: {candidate.reasons.slice(0, 3).join(" · ")}</small>}
               </div>
             ))}

@@ -33,7 +33,6 @@ function latestByIndex<T extends { candleIndex: number }>(items: T[]): T | undef
 }
 
 function planFairValueGap(signal: TradingSignal): FairValueGap | undefined {
-  if (signal.plan.entrySource !== "fvg-retest" && signal.plan.entrySource !== "ifvg-retest") return undefined;
   return signal.plan.entryModel.fairValueGap;
 }
 

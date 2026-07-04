@@ -34,6 +34,46 @@ export type DealingRange = {
   source: string;
 };
 
+export type CrtBiasKind = "bullish-continuation" | "bearish-continuation" | "bullish-reversal" | "bearish-reversal" | "neutral";
+
+export type CrtBiasContext = {
+  timeframe: Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+  kind: CrtBiasKind;
+  direction: TradeDirection | "neutral";
+  drawLevel: number;
+  drawSide: "buy-side" | "sell-side" | "none";
+  rangeHigh: number;
+  rangeLow: number;
+  midpoint: number;
+  previousHigh?: number;
+  previousLow?: number;
+  currentHigh?: number;
+  currentLow?: number;
+  strength: "strong" | "moderate" | "weak";
+  summary: string;
+};
+
+export type CrtPoi = {
+  type: "fvg" | "ob" | "breaker" | "ote";
+  direction: TradeDirection;
+  low: number;
+  high: number;
+  midpoint: number;
+  candleIndex?: number;
+  mitigated: boolean;
+  label: string;
+};
+
+export type CrtContext = {
+  rangeTimeframe: Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+  activeRange: DealingRange;
+  selectedBias: CrtBiasContext;
+  macroBiases: CrtBiasContext[];
+  validPullback: boolean;
+  pullbackSummary: string;
+  pois: CrtPoi[];
+};
+
 export type PremiumDiscountContext = {
   zone: "premium" | "discount" | "equilibrium";
   positionPct: number;
@@ -188,15 +228,17 @@ export type DataConfidenceContext = {
   warnings: string[];
 };
 
-export type StopSource = "sweep" | "fvg" | "swing" | "volatility-floor";
-export type TargetSource = "dealing-range" | "liquidity" | "projection";
+export type StopSource = "sweep" | "fvg" | "swing" | "manipulation" | "volatility-floor";
+export type TargetSource = "dealing-range" | "liquidity" | "crt-dol" | "equilibrium" | "projection";
 export type ExecutionCostStress = "off" | "normal" | "high";
-export type EntrySource = "fvg-retest" | "ifvg-retest" | "mss-close" | "fallback-close";
+export type EntrySource = "fvg-retest" | "ifvg-retest" | "mss-close" | "choch-close" | "poi-retest" | "fallback-close";
 export type EntryStatus = "confirmed" | "pending" | "fallback";
 
 export type MarketContext = {
   symbol: MarketSymbol;
   timeframes: {
+    monthly: Candle[];
+    weekly: Candle[];
     daily: Candle[];
     h4: Candle[];
     h1: Candle[];
@@ -204,6 +246,8 @@ export type MarketContext = {
     m5: Candle[];
   };
   bias: {
+    monthly: ICTBias;
+    weekly: ICTBias;
     daily: ICTBias;
     h4: ICTBias;
     h1: ICTBias;
@@ -231,6 +275,7 @@ export type MarketContext = {
     executionPrice: "bid-ask" | "mid";
     note: string;
   };
+  crt: CrtContext;
 };
 
 export type TradePlan = {

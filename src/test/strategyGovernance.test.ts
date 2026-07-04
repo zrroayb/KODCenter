@@ -102,7 +102,7 @@ describe("strategy governance engines", () => {
       candle(1, 100, 100.3, 98.8, 99.2)
     ];
     const context = createStructureContext({
-      timeframes: { daily: candles, h4: candles, h1: candles, m15: candles, m5: candles }
+      timeframes: { monthly: candles, weekly: candles, daily: candles, h4: candles, h1: candles, m15: candles, m5: candles }
     });
     const outcome = evaluateSignalOutcome(context, "long", plan(), 0);
     expect(outcome.status).toBe("stopped");

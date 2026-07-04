@@ -24,11 +24,11 @@ describe("structure audit", () => {
     });
 
     const audit = buildStructureAudit(signal);
-    const fvg = audit.items.find((item) => item.label === "FVG/iFVG");
+    const poi = audit.items.find((item) => item.label === "POI");
 
-    expect(fvg?.status).not.toBe("pass");
-    expect(fvg?.detail).toContain("FVG/iFVG kullanmıyor");
-    expect(fvg?.detail).toContain("FVG varmış gibi konuşma");
+    expect(poi?.status).not.toBe("pass");
+    expect(poi?.detail).toContain("POI teması yok");
+    expect(poi?.detail).toContain("zone varmış gibi konuşma");
   });
 
   it("explains the exact candle close needed when MSS/CISD is missing", () => {
@@ -40,7 +40,7 @@ describe("structure audit", () => {
     });
 
     const audit = buildStructureAudit(signal);
-    const mss = audit.items.find((item) => item.label === "MSS/CISD");
+    const mss = audit.items.find((item) => item.label === "ChoCH/Just");
 
     expect(mss?.status).toBe("wait");
     expect(mss?.detail).toContain("mum");

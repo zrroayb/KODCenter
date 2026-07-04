@@ -144,6 +144,8 @@ async function loadYahooMarket(item: (typeof YAHOO_SYMBOLS)[number], signal?: Ab
     symbol: item.symbol,
     name: item.name,
     timeframes: {
+      monthly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1M"), 24), item.symbol),
+      weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1w"), 80), item.symbol),
       daily: enrichWithSyntheticBidAsk(trimCandles(daily, 180), item.symbol),
       h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(h1, "4h"), 180), item.symbol),
       h1: enrichWithSyntheticBidAsk(trimCandles(h1, 780), item.symbol),

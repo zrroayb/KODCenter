@@ -1,5 +1,6 @@
 import { latestClosed } from "../ict/candles";
 import type { Candle, MarketContext, MarketSymbol } from "../ict/types";
+import { buildCrtContext } from "./crtEngine";
 import { detectBias } from "./biasEngine";
 import { buildDataConfidence } from "./dataConfidenceEngine";
 import { buildEventRisk } from "./eventRiskEngine";
@@ -13,6 +14,8 @@ import { buildRetracementContext, detectDisplacements, detectFairValueGaps, dete
 import { buildVolatilityContext } from "./volatilityEngine";
 
 export type MarketTimeframes = {
+  monthly: Candle[];
+  weekly: Candle[];
   daily: Candle[];
   h4: Candle[];
   h1: Candle[];
@@ -41,6 +44,7 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
   const swingPoints = detectSwingPoints(execution);
   const marketStructureShifts = detectMarketStructureShifts(execution);
   const orderBlocks = detectOrderBlocks(execution, swingPoints);
+  const fairValueGaps = detectFairValueGaps(execution);
   const retracement = buildRetracementContext(execution, swingPoints);
   const feed = latest.feed ?? "mid-only";
   const dataFeed = {
@@ -58,6 +62,8 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     symbol,
     timeframes,
     bias: {
+      monthly: detectBias(timeframes.monthly),
+      weekly: detectBias(timeframes.weekly),
       daily: detectBias(timeframes.daily),
       h4: detectBias(timeframes.h4),
       h1: detectBias(timeframes.h1)
@@ -76,7 +82,7 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     })),
     displacements: detectDisplacements(execution),
     marketStructureShifts,
-    fairValueGaps: detectFairValueGaps(execution),
+    fairValueGaps,
     orderBlocks,
     retracement,
     smtDivergences: [],
@@ -84,6 +90,14 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     regime: classifyMarketRegime(execution),
     eventRisk: buildEventRisk(symbol, latest.time),
     dataConfidence: buildDataConfidence({ timeframes, dataFeed, now: latest.time }),
-    dataFeed
+    dataFeed,
+    crt: buildCrtContext({
+      monthly: timeframes.monthly,
+      weekly: timeframes.weekly,
+      daily: timeframes.daily,
+      h4: timeframes.h4,
+      fairValueGaps,
+      orderBlocks
+    })
   };
 }

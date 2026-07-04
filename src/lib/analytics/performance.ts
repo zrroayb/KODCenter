@@ -22,6 +22,8 @@ export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggere
 export type RuntimeReplayTradeOrigin = "live-ready" | "watch-promoted";
 export type RuntimeReplayOutcomeReason =
   | "clean-model"
+  | "eq-then-be"
+  | "dol-missed"
   | "stop-too-tight"
   | "event-risk"
   | "range-chop"

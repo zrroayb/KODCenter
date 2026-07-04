@@ -1,6 +1,7 @@
 import type { MarketContext } from "../ict/types";
-import { kodStrategy } from "../strategies/kod/kod.strategy";
+import { getStrategy, strategyRegistry } from "../strategies/registry";
 
 export function runDemoBacktest(contexts: MarketContext[]) {
-  return kodStrategy.backtest({ contexts, settings: kodStrategy.defaultSettings });
+  const strategy = getStrategy(strategyRegistry[0].id);
+  return strategy.backtest({ contexts, settings: strategy.defaultSettings });
 }

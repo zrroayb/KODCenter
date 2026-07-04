@@ -21,11 +21,14 @@ const SYMBOLS: Array<{ symbol: MarketSymbol; name: string; base: number; trend: 
 export function createDemoMarkets(now = Date.UTC(2026, 5, 30, 8, 45)): DemoMarket[] {
   return SYMBOLS.map((item, symbolIndex) => {
     const m5Base = candles(9000, now, 5 * 60 * 1000, item.base, item.trend * 0.12, symbolIndex, true);
+    const daily = candles(180, now, 24 * 60 * 60 * 1000, item.base, item.trend * 20, symbolIndex);
     return {
       symbol: item.symbol,
       name: item.name,
       timeframes: {
-        daily: enrichWithSyntheticBidAsk(candles(90, now, 24 * 60 * 60 * 1000, item.base, item.trend * 20, symbolIndex), item.symbol),
+        monthly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1M"), 24), item.symbol),
+        weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1w"), 80), item.symbol),
+        daily: enrichWithSyntheticBidAsk(trimCandles(daily, 180), item.symbol),
         h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(m5Base, "4h"), 180), item.symbol),
         h1: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(m5Base, "1h"), 780), item.symbol),
         m15: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(m5Base, "15m"), 3000), item.symbol),

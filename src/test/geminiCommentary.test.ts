@@ -27,12 +27,12 @@ describe("Gemini trade commentary", () => {
 
     expect(payload.chart.timeframe).toBe("15m");
     expect(payload.chart.decisionLine).toBeTruthy();
-    expect(payload.chart.keyLevels.map((level) => level.label)).toEqual(expect.arrayContaining(["ENTRY", "STOP", "TP1", "SWEEP", "MSS/CISD", "FVG BOX"]));
+    expect(payload.chart.keyLevels.map((level) => level.label)).toEqual(expect.arrayContaining(["ENTRY", "STOP", "EQ / TP1", "DOL / TP2", "SWEEP", "ChoCH / Just", "FVG BOX"]));
     expect(payload.chart.recentCandles.length).toBeGreaterThan(0);
     expect(payload.chart.recentCandles.some((candle) => candle.role?.includes("liquidity sweep"))).toBe(true);
     expect(payload.chart.annotations.fairValueGap?.low).toBe(100.2);
     expect(payload.structureAudit.headline).toBeTruthy();
-    expect(payload.structureAudit.items.map((item) => item.label)).toContain("MSS/CISD");
+    expect(payload.structureAudit.items.map((item) => item.label)).toContain("ChoCH/Just");
   });
 
   it("does not invent a chart FVG when the selected plan has no gap", () => {
@@ -51,7 +51,7 @@ describe("Gemini trade commentary", () => {
     expect(payload.entryModel.fairValueGap).toBeUndefined();
     expect(payload.chart.annotations.fairValueGap).toBeUndefined();
     expect(payload.chart.keyLevels.map((level) => level.label)).not.toContain("FVG BOX");
-    expect(payload.structureAudit.items.find((item) => item.label === "FVG/iFVG")?.detail).toContain("FVG varmış gibi konuşma");
+    expect(payload.structureAudit.items.find((item) => item.label === "POI")?.detail).toContain("zone varmış gibi konuşma");
   });
 
   it("falls back to a local commentary when Gemini times out", async () => {

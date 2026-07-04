@@ -57,7 +57,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
     return {
       status: "invalidated",
       label: "STOP OLDU",
-      nextAction: "Bu setup kapanmış. Yeni sweep/MSS dizilimi bekle.",
+      nextAction: "Bu setup kapanmış. Yeni CRT range, Yeni sweep/manipulation ve ChoCH bekle.",
       severity: "danger"
     };
   }
@@ -111,7 +111,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
     return {
       status: "close-wait",
       label: "KAPANIŞ BEKLE",
-      nextAction: "Yön değişimi mum kapanışıyla netleşmeden entry yok.",
+      nextAction: "ChoCH/Just mum kapanışı netleşmeden entry yok.",
       severity: "watch"
     };
   }
