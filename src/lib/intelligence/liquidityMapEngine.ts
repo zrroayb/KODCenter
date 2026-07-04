@@ -97,10 +97,18 @@ export function detectSweeps(candles: Candle[], pools: LiquidityPool[]): Sweep[]
       }
     }
     if (touchOffset < 0) continue;
-    const reclaimed = pool.side === "buy-side" ? latest.close < pool.level : latest.close > pool.level;
+    const touchCandle = recent[touchOffset];
+    // The sweep level is the manipulation wick extreme, not the resting pool level:
+    // a stop anchored to the pool level would sit inside the manipulation wick.
+    const wickLevel = pool.side === "buy-side"
+      ? executableHigh(touchCandle, "buy")
+      : executableLow(touchCandle, "sell");
+    const reclaimed = pool.side === "buy-side"
+      ? touchCandle.close < pool.level || latest.close < pool.level
+      : touchCandle.close > pool.level || latest.close > pool.level;
     sweeps.push({
       side: pool.side,
-      level: pool.level,
+      level: wickLevel,
       candleIndex: windowStart + touchOffset,
       reclaimed
     });

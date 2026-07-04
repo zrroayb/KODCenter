@@ -7,13 +7,14 @@ describe("session clock", () => {
     const outsideBeforeLondon = buildSessionClock(Date.UTC(2026, 6, 1, 6, 0));
     const afterNewYorkPm = buildSessionClock(Date.UTC(2026, 6, 1, 20, 1));
 
+    // July = BST/EDT: London killzone 07:00-10:00 BST is 06:00-09:00 UTC.
     expect(asia.activeSession).toBe("Asia");
     expect(asia.nextSession).toBe("London");
-    expect(asia.minutesToNext).toBe(300);
+    expect(asia.minutesToNext).toBe(240);
 
-    expect(outsideBeforeLondon.activeSession).toBe("Outside");
-    expect(outsideBeforeLondon.nextSession).toBe("London");
-    expect(outsideBeforeLondon.minutesToNext).toBe(60);
+    expect(outsideBeforeLondon.activeSession).toBe("London");
+    expect(outsideBeforeLondon.nextSession).toBe("New York AM");
+    expect(outsideBeforeLondon.minutesToNext).toBe(330);
 
     expect(afterNewYorkPm.activeSession).toBe("Outside");
     expect(afterNewYorkPm.nextSession).toBe("Asia");

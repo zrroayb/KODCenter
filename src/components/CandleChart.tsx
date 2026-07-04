@@ -1,3 +1,4 @@
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, type FocusedTimeRange } from "../lib/charts/selectedSignal";
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
@@ -184,6 +185,7 @@ export function CandleChart({
   showSignalMarkers = true,
   onSelectSignal
 }: CandleChartProps) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const visible = visibleCandles(candles, focusedTimeRange, mode);
   if (!visible.length) {
     return (
@@ -723,10 +725,25 @@ export function CandleChart({
         })
     : null;
 
+  const hovered = hoverIndex !== null && hoverIndex >= 0 && hoverIndex < visible.length ? visible[hoverIndex] : null;
+  const hudCandle = hovered ?? latest;
+  const hudChangePct = hudCandle.open !== 0 ? ((hudCandle.close - hudCandle.open) / hudCandle.open) * 100 : 0;
+  const handleChartMove = (event: ReactMouseEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width) return;
+    const chartX = ((event.clientX - rect.left) / rect.width) * width;
+    if (chartX < plot.left || chartX > plotRight) {
+      setHoverIndex(null);
+      return;
+    }
+    const index = Math.round((chartX - plot.left - step / 2) / step);
+    setHoverIndex(index >= 0 && index < visible.length ? index : null);
+  };
+
   return (
     <figure className={selectedIsExecution ? "chart-panel tradingview-chart selected" : "chart-panel tradingview-chart"}>
       <figcaption>{title}</figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} onMouseMove={handleChartMove} onMouseLeave={() => setHoverIndex(null)}>
         <rect width={width} height={height} rx="8" fill={chartBackground} />
         <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill={plotBackground} />
         <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill="none" stroke="rgba(76, 91, 110, 0.46)" strokeWidth="1" />
@@ -842,10 +859,44 @@ export function CandleChart({
         {markers}
         {selectedOverlay}
         {higherTimeframePlanOverlay}
+        {hovered && hoverIndex !== null && (
+          <g pointerEvents="none">
+            <line
+              x1={snap(xAtVisibleIndex(hoverIndex))}
+              x2={snap(xAtVisibleIndex(hoverIndex))}
+              y1={plot.top}
+              y2={plotBottom}
+              stroke="#191D24"
+              strokeWidth="1"
+              strokeDasharray="3 4"
+              opacity="0.4"
+            />
+            <line
+              x1={plot.left}
+              x2={plotRight}
+              y1={snap(scaleY(hovered.close))}
+              y2={snap(scaleY(hovered.close))}
+              stroke="#191D24"
+              strokeWidth="1"
+              strokeDasharray="3 4"
+              opacity="0.4"
+            />
+            {priceTag(hovered.close, "#191D24", "", "#E8E5E0", formatPrice(hovered.close))}
+            <rect x={Math.max(plot.left, Math.min(plotRight - 84, xAtVisibleIndex(hoverIndex) - 42))} y={plotBottom + 3} width="84" height="17" rx="3" fill="#191D24" />
+            <text x={Math.max(plot.left + 42, Math.min(plotRight - 42, xAtVisibleIndex(hoverIndex)))} y={plotBottom + 15} fill="#E8E5E0" fontSize="10" fontWeight="700" textAnchor="middle">
+              {timeLabel(hovered.time, mode)}
+            </text>
+          </g>
+        )}
         <g className="chart-hud compact">
           <rect x={plot.left + 8} y="14" width={plotRight - plot.left - 16} height="25" rx="4" fill={hudFill} stroke="rgba(25, 29, 36, 0.16)" />
           <text x={plot.left + 18} y="31" fill={hudText} fontSize="11" fontWeight="900">
-            {title} · O {formatPrice(latest.open)} H {formatPrice(latest.high)} L {formatPrice(latest.low)} C {formatPrice(latest.close)}
+            {title} · O {formatPrice(hudCandle.open)} H {formatPrice(hudCandle.high)} L {formatPrice(hudCandle.low)} C {formatPrice(hudCandle.close)}
+            {" "}
+            <tspan fill={hudCandle.close >= hudCandle.open ? "#0a7d5c" : "#c22f3d"}>
+              {`${hudChangePct >= 0 ? "+" : ""}${hudChangePct.toFixed(2)}%`}
+            </tspan>
+            {hovered ? <tspan fill="#555A62">{` · ${timeLabel(hovered.time, mode)}`}</tspan> : null}
           </text>
           <text x={plotRight - 12} y="31" fill={selectedSignal ? stageColor(selectedSignal) : "#555A62"} fontSize="11" fontWeight="900" textAnchor="end">
             {selectedSignal ? setupStatus(selectedSignal) : `PD ${context?.premiumDiscount.zone ?? "-"}`}

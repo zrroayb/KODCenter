@@ -14,14 +14,30 @@ function mergeBucket(bucket: Candle[], bucketTime: number): Candle {
   };
 }
 
+function bucketStart(time: number, targetTimeframe: Timeframe): number {
+  // Weekly and monthly candles must align to the calendar: epoch-based 7d buckets start on
+  // Thursdays and fixed 30d "months" drift across real month boundaries, which corrupts any
+  // HTF bias read from those candles.
+  if (targetTimeframe === "1w") {
+    const date = new Date(time);
+    const daysFromMonday = (date.getUTCDay() + 6) % 7;
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysFromMonday);
+  }
+  if (targetTimeframe === "1M") {
+    const date = new Date(time);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  }
+  const bucketSize = timeframeToMs(targetTimeframe);
+  return Math.floor(time / bucketSize) * bucketSize;
+}
+
 export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe): Candle[] {
   if (candles.length === 0) return [];
-  const bucketSize = timeframeToMs(targetTimeframe);
   const sorted = [...candles].sort((a, b) => a.time - b.time);
   const buckets = new Map<number, Candle[]>();
 
   for (const candle of sorted) {
-    const bucketTime = Math.floor(candle.time / bucketSize) * bucketSize;
+    const bucketTime = bucketStart(candle.time, targetTimeframe);
     const bucket = buckets.get(bucketTime) ?? [];
     bucket.push(candle);
     buckets.set(bucketTime, bucket);

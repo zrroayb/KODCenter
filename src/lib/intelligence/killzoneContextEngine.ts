@@ -1,12 +1,10 @@
 import type { Killzone } from "../ict/types";
 import { sessionWindows } from "../session/sessionClock";
 
-const WINDOWS: Killzone[] = sessionWindows();
-
 export function buildKillzoneContext(timestamp: number): Killzone[] {
   const date = new Date(timestamp);
   const hour = date.getUTCHours() + date.getUTCMinutes() / 60;
-  const zones = WINDOWS.map((zone) => ({
+  const zones = sessionWindows(timestamp).map((zone) => ({
     ...zone,
     active: hour >= zone.startHourUtc && hour < zone.endHourUtc
   }));
