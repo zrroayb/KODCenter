@@ -342,14 +342,52 @@ export function CandleChart({
     );
   };
 
+  // Right-edge price tags are collected and laid out together so ENTRY/STOP/TP/LAST/CRT
+  // labels never stack on top of each other when their prices are close.
+  type EdgeTag = { price: number; color: string; fill: string; text: string; key: string };
+  const edgeTags: EdgeTag[] = [];
+  const registerEdgeTag = (price: number, color: string, label: string, fill = "#191D24", text = `${label} ${formatPrice(price)}`) => {
+    edgeTags.push({ price, color, fill, text, key: `${label}-${price}` });
+    return null;
+  };
+  const renderEdgeTags = () => {
+    const minGap = 26;
+    const laidOut = edgeTags
+      .filter((tag, index) => edgeTags.findIndex((item) => item.key === tag.key) === index)
+      .map((tag) => ({ ...tag, lineY: scaleY(tag.price), y: Math.min(plotBottom - 12, Math.max(plot.top + 12, scaleY(tag.price))) }))
+      .sort((a, b) => a.y - b.y);
+    for (let index = 1; index < laidOut.length; index += 1) {
+      if (laidOut[index].y - laidOut[index - 1].y < minGap) laidOut[index].y = laidOut[index - 1].y + minGap;
+    }
+    for (let index = laidOut.length - 1; index >= 0; index -= 1) {
+      if (laidOut[index].y > plotBottom - 12) laidOut[index].y = plotBottom - 12;
+      if (index < laidOut.length - 1 && laidOut[index + 1].y - laidOut[index].y < minGap) {
+        laidOut[index].y = laidOut[index + 1].y - minGap;
+      }
+    }
+    return laidOut.map((tag) => {
+      const tagWidth = tagWidthFor(tag.text);
+      const tagX = width - tagWidth - 8;
+      return (
+        <g key={`edge-${tag.key}`}>
+          {Math.abs(tag.y - tag.lineY) > 3 && (
+            <line x1={plotRight} x2={tagX} y1={tag.lineY} y2={tag.y} stroke={tag.color} strokeWidth="1" opacity="0.55" />
+          )}
+          <rect x={tagX} y={tag.y - 12} width={tagWidth} height="24" rx="4" fill={tag.fill} stroke={tag.color} strokeWidth="1" />
+          <text x={tagX + tagWidth / 2} y={tag.y + 4} fill={tag.fill === cleanCandleUp ? "#191D24" : "#f8fafc"} fontSize="10" fontWeight="800" textAnchor="middle">{tag.text}</text>
+        </g>
+      );
+    });
+  };
+
   const levelLine = (price: number, color: string, label: string, dashed = true, opacity = 1, tagFill = "#111827") => {
     const text = `${label} ${formatPrice(price)}`;
     const tagWidth = tagWidthFor(text);
     const tagX = width - tagWidth - 8;
+    registerEdgeTag(price, color, label, tagFill, text);
     return (
       <g key={`${label}-${price}`}>
         <line x1={plot.left} x2={Math.max(plot.left + 30, tagX - 6)} y1={scaleY(price)} y2={scaleY(price)} stroke={color} strokeWidth="1.2" strokeDasharray={dashed ? "4 5" : "0"} opacity={opacity} />
-        {priceTag(price, color, label, tagFill, text)}
       </g>
     );
   };
@@ -569,14 +607,11 @@ export function CandleChart({
               strokeDasharray="5 6"
               opacity="0.95"
             />
-            <rect x={waitLabelX} y={waitLabelY - 12} width="156" height="24" rx="4" fill="rgba(15, 23, 42, 0.9)" stroke="#f59e0b" strokeWidth="1.1" />
-            <text x={waitLabelX + 78} y={waitLabelY + 4} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
-              kapanış onayı
+            <rect x={waitLabelX} y={waitLabelY - 17} width="216" height="34" rx="4" fill="rgba(15, 23, 42, 0.9)" stroke="#f59e0b" strokeWidth="1.1" />
+            <text x={waitLabelX + 108} y={waitLabelY - 3} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
+              kapanış onayı · {closeRequirement.timeframe} {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}
             </text>
-            <text x={plot.left + 10} y={Math.max(plot.top + 14, waitLineY - 10)} fill="#f59e0b" fontSize="10" fontWeight="900">
-              {closeRequirement.timeframe} KAPANIŞ {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}
-            </text>
-            <text x={plot.left + 10} y={Math.min(plotBottom - 8, waitLineY + 15)} fill="#fbbf24" fontSize="9" fontWeight="800">
+            <text x={waitLabelX + 108} y={waitLabelY + 11} fill="#fbbf24" fontSize="9" fontWeight="800" textAnchor="middle">
               {closeRequirement.reference === "last-closed-high" ? "Son mum high kırılırsa onay" : "Son mum low kırılırsa onay"}
             </text>
           </g>
@@ -854,11 +889,45 @@ export function CandleChart({
             </g>
           );
         })}
+        {mode === "context" && range && visible.length >= 2 && (() => {
+          const rangeCandle = visible[visible.length - 2];
+          const liveCandle = visible[visible.length - 1];
+          const rangeX = xAtVisibleIndex(visible.length - 2);
+          const liveX = xAtVisibleIndex(visible.length - 1);
+          const boxTop = scaleY(rangeCandle.high);
+          const boxBottom = scaleY(rangeCandle.low);
+          return (
+            <g className="crt-range-highlight">
+              <rect
+                x={rangeX - candleWidth / 2 - 6}
+                y={boxTop - 6}
+                width={candleWidth + 12}
+                height={Math.max(16, boxBottom - boxTop + 12)}
+                fill="none"
+                stroke="#7c3aed"
+                strokeWidth="1.8"
+                strokeDasharray="5 4"
+              />
+              <rect x={rangeX - 58} y={Math.max(plot.top + 4, boxTop - 26)} width="116" height="17" rx="3" fill="#2e1065" stroke="#7c3aed" strokeWidth="1" />
+              <text x={rangeX} y={Math.max(plot.top + 16, boxTop - 13)} fill="#ddd6fe" fontSize="9.5" fontWeight="900" textAnchor="middle">
+                CRT RANGE MUMU
+              </text>
+              <rect x={liveX - 66} y={Math.min(plotBottom - 21, scaleY(liveCandle.low) + 8)} width="132" height="17" rx="3" fill="#3b2508" stroke="#f59e0b" strokeWidth="1" />
+              <text x={liveX} y={Math.min(plotBottom - 8, scaleY(liveCandle.low) + 21)} fill="#fde68a" fontSize="9.5" fontWeight="900" textAnchor="middle">
+                MANIPULATION MUMU
+              </text>
+            </g>
+          );
+        })()}
+        {(mode === "daily" || mode === "context") && context && context.crt.selectedBias.drawSide !== "none"
+          && context.crt.selectedBias.drawLevel >= low && context.crt.selectedBias.drawLevel <= high
+          && levelLine(context.crt.selectedBias.drawLevel, "#7c3aed", "DOL", true, 0.85, "#2e1065")}
         <line x1={plot.left} x2={plotRight} y1={scaleY(latest.close)} y2={scaleY(latest.close)} stroke={lastPriceColor} strokeWidth="1" strokeDasharray="2 5" opacity="0.78" />
-        {!selectedIsHigherTimeframe && priceTag(latest.close, lastPriceColor, "LAST", latest.close >= latest.open ? cleanCandleUp : cleanCandleDown, formatPrice(latest.close))}
+        {!selectedIsHigherTimeframe && registerEdgeTag(latest.close, lastPriceColor, "LAST", latest.close >= latest.open ? cleanCandleUp : cleanCandleDown, formatPrice(latest.close))}
         {markers}
         {selectedOverlay}
         {higherTimeframePlanOverlay}
+        {renderEdgeTags()}
         {hovered && hoverIndex !== null && (
           <g pointerEvents="none">
             <line

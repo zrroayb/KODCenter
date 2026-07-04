@@ -151,8 +151,11 @@ function selectPoi(context: MarketContext, direction: TradeDirection): CrtPoi | 
 }
 
 function manipulationSweep(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
+  // The true CRT manipulation is the sweep of the range candle's extreme; minor liquidity-pool
+  // sweeps are a fallback only — their wick can sit anywhere and break the stop geometry.
   const freshnessStart = Math.max(0, executionCandles(context).length - SWEEP_FRESHNESS_CANDLES);
-  return latestByIndex(context.sweeps.filter((sweep) => sweep.side === expectedSweepSide(direction) && sweep.reclaimed && sweep.candleIndex >= freshnessStart))
+  return rangeExtremeSweep(context, direction)
+    ?? latestByIndex(context.sweeps.filter((sweep) => sweep.side === expectedSweepSide(direction) && sweep.reclaimed && sweep.candleIndex >= freshnessStart))
     ?? reclaimSweepFromCandles(context, direction);
 }
 
@@ -204,9 +207,16 @@ function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipul
     ? (poi && insideRange(poi.midpoint) && (direction === "short" ? poi.midpoint > choch.level : poi.midpoint < choch.level) ? poi.midpoint : choch.level)
     : undefined;
   const entry = retestLevel ?? poi?.midpoint ?? latest.close;
-  const stopSource: StopSource = manipulation ? "manipulation" : "swing";
-  const stopLoss = manipulation
+  // Stop must sit on the loss side of the entry: a pool-sweep wick can be anywhere, and a
+  // "long" with the stop above the entry is not a plan, it is a rendering of a bug.
+  const manipulationStop = manipulation
     ? direction === "short" ? manipulation.level + buffer : manipulation.level - buffer
+    : undefined;
+  const manipulationStopValid = typeof manipulationStop === "number"
+    && (direction === "short" ? manipulationStop > entry : manipulationStop < entry);
+  const stopSource: StopSource = manipulationStopValid ? "manipulation" : "swing";
+  const stopLoss = manipulationStopValid && typeof manipulationStop === "number"
+    ? manipulationStop
     : direction === "short" ? context.crt.activeRange.high + buffer : context.crt.activeRange.low - buffer;
   const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
   const tp1 = context.crt.activeRange.midpoint;
@@ -275,6 +285,7 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
   const inSession = isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside");
   const tp1Valid = direction === "short" ? plan.targets[0] < plan.entry : plan.targets[0] > plan.entry;
+  const stopValid = direction === "short" ? plan.stopLoss > plan.entry : plan.stopLoss < plan.entry;
   const hasRealTarget = typeof targetDol(context, direction, plan.entry) === "number";
   // A range candle smaller than the average 4H range is noise, not a CRT range; and a stop
   // inside the m15 noise band turns every entry into a coin flip regardless of gross RR.
@@ -305,6 +316,7 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
     stopInNoise ? "Stop mesafesi m15 gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız." : undefined,
     fullHtfConflict ? "Daily ve 4H bias birlikte ters yönde; tam HTF conflict'te reversal alınmaz." : undefined,
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
+    !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !inSession ? "Killzone dışı; CRT zamanlama stratejisidir, FX/endeks için session hard gate." : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
@@ -331,7 +343,9 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
     + (inSession ? 2 : 0)
     + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
   ));
-  return { direction, manipulation, choch, poi, plan: { ...plan, planWarnings: Array.from(new Set(warnings)) }, warnings, blockers, score };
+  // A setup with open blockers is not A-grade material no matter how many boxes it ticks.
+  const cappedScore = blockers.length ? Math.min(score, 72) : score;
+  return { direction, manipulation, choch, poi, plan: { ...plan, planWarnings: Array.from(new Set(warnings)) }, warnings, blockers, score: cappedScore };
 }
 
 function gradeFromScore(score: number): QualityGrade {

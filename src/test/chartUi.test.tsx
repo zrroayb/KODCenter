@@ -151,7 +151,7 @@ describe("chart trade plan overlay", () => {
     );
 
     expect(signal.stage).toBe("watch");
-    expect(markup).toContain("15m KAPANIŞ");
+    expect(markup).toContain("kapanış onayı · 15m");
     expect(markup).toContain("98.80");
     expect(markup).toContain("referans mum");
     expect(markup).toContain("kapanış onayı");

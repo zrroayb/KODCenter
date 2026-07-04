@@ -135,7 +135,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
   const commentary = [
     `Karar: ${audit.headline}`,
     `Neden: ${audit.decision}`,
-    `Beklenen: ${firstIssue?.detail ?? "Plan aktif; sadece entry disiplinini koru."}`,
+    `Beklenen: ${firstIssue?.detail ?? "CRT sırası tamam; retest disiplinini koru, displacement kovalanmaz."}`,
     `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}.`
   ].join("\n");
   return {
