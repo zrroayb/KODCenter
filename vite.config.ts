@@ -164,6 +164,7 @@ type GeminiReplayPayload = {
   };
   bySymbol?: unknown[];
   calibration?: unknown[];
+  filterScenarios?: unknown[];
   setupBreakdowns?: unknown[];
   failureReasons?: unknown[];
   failureCases?: unknown[];
@@ -419,6 +420,9 @@ ${JSON.stringify((input.bySymbol ?? []).slice(0, 8), null, 2)}
 LocalCalibration:
 ${JSON.stringify((input.calibration ?? []).slice(0, 10), null, 2)}
 
+FilterScenarios:
+${JSON.stringify((input.filterScenarios ?? []).slice(0, 8), null, 2)}
+
 SetupBreakdowns:
 ${JSON.stringify((input.setupBreakdowns ?? []).slice(0, 14), null, 2)}
 
@@ -534,8 +538,11 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
   const totals = input.totals ?? {};
   const setupBreakdowns = (input.setupBreakdowns ?? []) as Array<Record<string, unknown>>;
   const failureReasons = (input.failureReasons ?? []) as Array<Record<string, unknown>>;
+  const filterScenarios = (input.filterScenarios ?? []) as Array<Record<string, unknown>>;
   const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid");
   const topFailure = failureReasons[0];
+  const bestFilter = filterScenarios.find((item) => item.verdict === "edge")
+    ?? [...filterScenarios].sort((a, b) => Number(b.expectancyR ?? 0) - Number(a.expectancyR ?? 0))[0];
   const expectancy = typeof totals.expectancyR === "number" ? totals.expectancyR : 0;
   const profitFactor = typeof totals.profitFactor === "number" ? totals.profitFactor : 0;
   const watchPromoted = typeof totals.watchPromotedEntries === "number" ? totals.watchPromotedEntries : 0;
@@ -546,7 +553,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
       `Karar: Replay edge zayıf; expectancy ${expectancy.toFixed(2)}R, PF ${profitFactor.toFixed(2)}.`,
       `Ana problem: ${topFailure ? `${String(topFailure.reason)} ${String(topFailure.count)} kez / ${String(topFailure.totalR)}R` : "ana kayıp bucket'ı net değil"}; WATCH-promoted ${watchPromoted}, live READY ${liveReady}.`,
       `Kural değişikliği: ${worstSetup ? `${String(worstSetup.label)} READY'den WATCH'a düşsün (${String(worstSetup.expectancyR)}R).` : "WATCH-promoted sonuçları canlı READY performansı gibi okunmasın."}`,
-      "Sonraki ölçüm: Aynı replay'i live READY, HTF aligned, PD aligned ve session içi filtrelerle ayrı çalıştır."
+      `Sonraki ölçüm: ${bestFilter ? `${String(bestFilter.label)} filtresini tekrar ölç (${String(bestFilter.expectancyR)}R, PF ${String(bestFilter.profitFactor)}).` : "Aynı replay'i live READY, HTF aligned, PD aligned ve session içi filtrelerle ayrı çalıştır."}`
     ].join("\n"), 1200),
     model: "local-fallback",
     reason

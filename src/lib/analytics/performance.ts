@@ -162,6 +162,22 @@ export type RuntimeReplayFailureCase = {
   diagnosis: string;
 };
 
+export type RuntimeReplayFilterScenario = {
+  id: string;
+  label: string;
+  description: string;
+  sample: number;
+  triggered: number;
+  wins: number;
+  losses: number;
+  totalR: number;
+  expectancyR: number;
+  winRate: number;
+  profitFactor: number;
+  maxDrawdown: number;
+  verdict: "edge" | "avoid" | "neutral" | "needs-data";
+};
+
 export type RuntimeReplaySummary = {
   mode: "runtime-replay";
   strategyId: string;
@@ -185,6 +201,7 @@ export type RuntimeReplaySummary = {
   expectancyR: number;
   bySymbol: RuntimeReplaySymbolSummary[];
   calibration: RuntimeReplayCalibration[];
+  filterScenarios: RuntimeReplayFilterScenario[];
   setupBreakdowns: RuntimeReplaySetupBreakdown[];
   failureCases: RuntimeReplayFailureCase[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;

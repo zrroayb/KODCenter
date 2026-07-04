@@ -90,6 +90,16 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               </div>
             ))}
           </div>
+          <div className="strategy-learning-list replay-filter-list">
+            <strong>Filtre denemesi</strong>
+            {replay.filterScenarios.map((item) => (
+              <div key={item.id}>
+                <span>{item.label}</span>
+                <b>{verdictText(item.verdict)} · {item.expectancyR.toFixed(2)}R · PF {item.profitFactor.toFixed(2)}</b>
+                <small>{item.triggered}/{item.sample} tetik · WR {item.winRate.toFixed(1)}% · DD {item.maxDrawdown.toFixed(2)}R · {item.description}</small>
+              </div>
+            ))}
+          </div>
           <div className="strategy-learning-list replay-symbol-list">
             <strong>Symbol bazlı sonuç</strong>
             {replay.bySymbol.map((row) => (

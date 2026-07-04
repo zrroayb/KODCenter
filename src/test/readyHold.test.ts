@@ -10,7 +10,7 @@ function structureContext() {
       { id: "buy-side", side: "buy-side", level: 105, label: "Buy-side", strength: "strong" },
       { id: "sell-side", side: "sell-side", level: 97, label: "Sell-side", strength: "strong" }
     ],
-    sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
+    sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
     displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
     marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
     fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]

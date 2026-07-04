@@ -6,6 +6,7 @@ import {
   type RuntimeReplayCalibration,
   type RuntimeReplayCandidate,
   type RuntimeReplayFailureCase,
+  type RuntimeReplayFilterScenario,
   type RuntimeReplayOutcomeReason,
   type RuntimeReplaySetupBreakdown,
   type RuntimeReplayTrade
@@ -431,8 +432,7 @@ function evidencePassed(signal: TradingSignal, id: string): boolean {
 function replayEntryRank(signal: TradingSignal): number {
   const gradeBonus = signal.grade === "A+" ? 20 : signal.grade === "A" ? 12 : signal.grade === "B" ? 5 : 0;
   const actionBonus = signal.actionWindow.status === "valid" ? 12 : signal.actionWindow.status === "waiting" ? 4 : -10;
-  const smtBonus = signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? 6 : 0;
-  return signal.score + Math.min(signal.plan.rr, 5) * 5 + gradeBonus + actionBonus + smtBonus;
+  return signal.score + Math.min(signal.plan.rr, 5) * 5 + gradeBonus + actionBonus;
 }
 
 function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean {
@@ -446,6 +446,7 @@ function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean
   if (signal.plan.rr < Math.max(minimumRR, REPLAY_READY_MIN_RR)) return false;
   if (signal.plan.entryStatus === "fallback") return false;
   if (signal.plan.entrySource === "fallback-close") return false;
+  if (signal.plan.stopSource === "volatility-floor") return false;
   if (signal.context.premiumDiscount.zone !== expectedPd(signal)) return false;
   if (signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return false;
   if (!evidencePassed(signal, "sweep")) return false;
@@ -492,6 +493,99 @@ function failureReasonSummary(trades: RuntimeReplayTrade[]) {
   return [...reasons.entries()]
     .map(([reason, value]) => ({ reason, ...value }))
     .sort((a, b) => b.count - a.count || a.totalR - b.totalR);
+}
+
+function sessionIsActive(trade: RuntimeReplayTrade): boolean {
+  return trade.symbol === "BTCUSD" || trade.session !== "Outside";
+}
+
+function scenarioStats(
+  id: string,
+  label: string,
+  description: string,
+  trades: RuntimeReplayTrade[],
+  predicate: (trade: RuntimeReplayTrade) => boolean
+): RuntimeReplayFilterScenario {
+  const sample = trades.filter(predicate);
+  const triggered = sample.filter((trade) => trade.status !== "not-triggered");
+  const wins = triggered.filter((trade) => trade.rMultiple > 0);
+  const losses = triggered.filter((trade) => trade.rMultiple < 0);
+  const grossWin = wins.reduce((sum, trade) => sum + trade.rMultiple, 0);
+  const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.rMultiple, 0));
+  const totalR = Number(sample.reduce((sum, trade) => sum + trade.rMultiple, 0).toFixed(2));
+  const expectancyR = triggered.length ? totalR / triggered.length : 0;
+  const winRate = triggered.length ? (wins.length / triggered.length) * 100 : 0;
+  const profitFactor = grossLoss ? grossWin / grossLoss : grossWin;
+  const drawdown = maxDrawdown(equityCurveFromReturns(sample.map((trade) => trade.rMultiple)));
+  const verdict: RuntimeReplayFilterScenario["verdict"] = triggered.length < 4
+    ? "needs-data"
+    : expectancyR <= -0.15 || profitFactor < 0.9
+      ? "avoid"
+      : expectancyR >= 0.15 && profitFactor >= 1.15
+        ? "edge"
+        : "neutral";
+  return {
+    id,
+    label,
+    description,
+    sample: sample.length,
+    triggered: triggered.length,
+    wins: wins.length,
+    losses: losses.length,
+    totalR,
+    expectancyR: Number(expectancyR.toFixed(2)),
+    winRate: Number(winRate.toFixed(1)),
+    profitFactor: Number(profitFactor.toFixed(2)),
+    maxDrawdown: Number(drawdown.toFixed(2)),
+    verdict
+  };
+}
+
+function filterScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayFilterScenario[] {
+  return [
+    scenarioStats(
+      "live-ready",
+      "Sadece canlı READY",
+      "WATCH sonradan entry gibi sayılmadan, bot gerçekten READY dediği işlemler.",
+      trades,
+      (trade) => trade.origin === "live-ready"
+    ),
+    scenarioStats(
+      "htf-aligned",
+      "HTF uyumlu",
+      "Daily veya H4 trade yönüyle aynı olan işlemler.",
+      trades,
+      (trade) => trade.tags.includes("htf:aligned")
+    ),
+    scenarioStats(
+      "pd-aligned",
+      "PD doğru",
+      "Short premium, long discount bölgesinden gelen işlemler.",
+      trades,
+      (trade) => trade.tags.includes("pd:aligned")
+    ),
+    scenarioStats(
+      "session-active",
+      "Session içi",
+      "FX/endeks için London veya New York; BTC için session filtresi yok.",
+      trades,
+      sessionIsActive
+    ),
+    scenarioStats(
+      "strict-core",
+      "Sıkı çekirdek",
+      "Canlı READY + HTF uyumlu + PD doğru + session içi.",
+      trades,
+      (trade) => trade.origin === "live-ready" && trade.tags.includes("htf:aligned") && trade.tags.includes("pd:aligned") && sessionIsActive(trade)
+    ),
+    scenarioStats(
+      "smt-aligned",
+      "SMT aligned",
+      "SMT artık bonus değil; bu satır gerçekten edge veriyor mu diye izlenir.",
+      trades,
+      (trade) => trade.tags.includes("smt:aligned")
+    )
+  ];
 }
 
 function watchReasonSummary(candidates: RuntimeReplayCandidate[]) {
@@ -947,6 +1041,7 @@ export function runMonthlyRuntimeReplay({
       expectancyR: triggered.length ? totalR / triggered.length : 0,
       bySymbol,
       calibration: calibrationFromTrades(trades, watchAlerts),
+      filterScenarios: filterScenarios(trades),
       setupBreakdowns: breakdowns,
       failureCases: failures,
       failureReasons: failureReasonSummary(trades),

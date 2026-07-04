@@ -50,6 +50,21 @@ function replayResult(): BacktestResult {
         totalR: 0,
         winRate: 0
       }],
+      filterScenarios: [{
+        id: "live-ready",
+        label: "Sadece canlı READY",
+        description: "WATCH sonradan entry gibi sayılmadan.",
+        sample: 0,
+        triggered: 0,
+        wins: 0,
+        losses: 0,
+        totalR: 0,
+        expectancyR: 0,
+        winRate: 0,
+        profitFactor: 0,
+        maxDrawdown: 0,
+        verdict: "needs-data"
+      }],
       calibration: [{
         label: "READY üretimi",
         value: "0",
@@ -108,6 +123,8 @@ describe("BacktestView replay visibility", () => {
     expect(markup).toContain("WATCH neden kaldı?");
     expect(markup).toContain("Aylık setup akışı");
     expect(markup).toContain("AI replay yorumu");
+    expect(markup).toContain("Filtre denemesi");
+    expect(markup).toContain("Sadece canlı READY");
     expect(markup).toContain("Setup kırılımı");
     expect(markup).toContain("12 WATCH");
     expect(markup).toContain("GBPUSD SHORT");

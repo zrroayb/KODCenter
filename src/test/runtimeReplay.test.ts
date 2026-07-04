@@ -24,6 +24,8 @@ describe("monthly runtime replay", () => {
     expect(result.replay?.bySymbol.length).toBeLessThanOrEqual(5);
     expect(result.replay?.candidates.length).toBeGreaterThan(0);
     expect(result.replay?.calibration.length).toBeGreaterThan(0);
+    expect(result.replay?.filterScenarios.length).toBeGreaterThan(0);
+    expect(result.replay?.filterScenarios.map((item) => item.id)).toContain("strict-core");
     expect(result.replay?.failureReasons).toBeDefined();
     expect(result.replay?.watchReasonSummary).toBeDefined();
     expect(result.replay?.setupBreakdowns).toBeDefined();

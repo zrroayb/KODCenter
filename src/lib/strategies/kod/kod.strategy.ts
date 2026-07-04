@@ -101,7 +101,6 @@ function directionFitScore(context: MarketContext, direction: TradeDirection): n
   const mss = latestByIndex(context.marketStructureShifts.filter((item) => item.direction === direction));
   const fvg = latestByIndex(context.fairValueGaps.filter((item) => item.direction === direction && !item.mitigated));
   const orderBlock = latestByIndex(context.orderBlocks.filter((item) => item.direction === direction && !item.mitigated));
-  const smt = latestByIndex(context.smtDivergences.filter((item) => item.direction === direction));
   const execution = executionCandles(context);
   const latestIndex = latestDirectionalIndex(context, direction);
   const retracementBias = context.retracement.direction === "bullish" ? "long" : context.retracement.direction === "bearish" ? "short" : undefined;
@@ -116,7 +115,6 @@ function directionFitScore(context: MarketContext, direction: TradeDirection): n
   score += mss ? 14 : -4;
   score += fvg ? 8 : -2;
   score += orderBlock ? 6 : 0;
-  score += smt ? 4 : 0;
   score += retracementBias === direction ? 4 : retracementBias ? -3 : 0;
 
   if (oppositeSweep && (!wantedSweep || oppositeSweep.candleIndex > wantedSweep.candleIndex)) score -= 12;
@@ -639,11 +637,17 @@ function signalFromContext(context: MarketContext, settings: StrategyInput["sett
   });
   const score = Math.max(0, Math.min(100, baseScore + governance.scoreImpact));
   const grade = kodGrade(score);
-  const readyCandidate = governance.status !== "block" && sequence.ready && rawPlan.rr >= minimumRR && rawPlan.entryStatus === "confirmed";
+  const structuralStopReady = rawPlan.stopSource !== "volatility-floor";
+  const readyCandidate = governance.status !== "block"
+    && sequence.ready
+    && rawPlan.rr >= minimumRR
+    && rawPlan.entryStatus === "confirmed"
+    && structuralStopReady;
   const lifecycle = evaluateSignalLifecycle(context, direction, rawPlan, readyCandidate);
   const actionWindow = buildActionWindow(context, rawPlan, outcome, lifecycle.stage);
   const planWarnings = Array.from(new Set([
     ...rawPlan.planWarnings,
+    ...(structuralStopReady ? [] : ["Stop sadece volatility-floor fallback; structure stop yoksa READY değil."]),
     ...sequence.warnings,
     ...sequence.hardBlockers,
     ...governance.blockers,

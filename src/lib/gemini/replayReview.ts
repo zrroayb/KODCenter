@@ -24,6 +24,7 @@ export type GeminiReplayReviewPayload = {
   };
   bySymbol: RuntimeReplaySummary["bySymbol"];
   calibration: RuntimeReplaySummary["calibration"];
+  filterScenarios: RuntimeReplaySummary["filterScenarios"];
   setupBreakdowns: RuntimeReplaySummary["setupBreakdowns"];
   failureReasons: RuntimeReplaySummary["failureReasons"];
   failureCases: RuntimeReplaySummary["failureCases"];
@@ -43,6 +44,8 @@ export type GeminiReplayReviewResponse = {
 function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string): GeminiReplayReviewResponse {
   const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid");
   const topFailure = payload.failureReasons[0];
+  const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge")
+    ?? [...payload.filterScenarios].sort((a, b) => b.expectancyR - a.expectancyR)[0];
   const promotedNote = payload.totals.watchPromotedEntries > payload.totals.liveReadyEntries
     ? `Replay'in çoğu WATCH-promoted: ${payload.totals.watchPromotedEntries}/${payload.totals.readyEntries}.`
     : `Live READY örneği ${payload.totals.liveReadyEntries}.`;
@@ -54,7 +57,7 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
       `Karar: Sistem şu an pozitif edge göstermiyor; expectancy ${payload.totals.expectancyR.toFixed(2)}R, PF ${payload.totals.profitFactor.toFixed(2)}.`,
       `Ana sorun: ${topFailure ? `${topFailure.reason} ${topFailure.count} kez / ${topFailure.totalR.toFixed(2)}R` : "net kayıp bucket'ı yok"}. ${promotedNote}`,
       `Değiştir: ${worst ? `${worst.label} koşulunu READY'den WATCH'a indir (${worst.expectancyR.toFixed(2)}R).` : "önce live READY ile WATCH-promoted istatistiğini ayrı oku."}`,
-      "Sonraki test: minimum 30 gün daha veriyle sadece live READY, HTF uyumlu, PD doğru ve session içi setup'ı ölç."
+      `Sonraki test: ${bestFilter ? `${bestFilter.label} filtresini öne al (${bestFilter.expectancyR.toFixed(2)}R, PF ${bestFilter.profitFactor.toFixed(2)}).` : "sadece live READY, HTF uyumlu, PD doğru ve session içi setup'ı ayrı ölç."}`
     ].join("\n")
   };
 }
@@ -86,6 +89,7 @@ export function buildGeminiReplayReviewPayload(result: BacktestResult): GeminiRe
     },
     bySymbol: replay.bySymbol.slice(0, 8),
     calibration: replay.calibration.slice(0, 10),
+    filterScenarios: replay.filterScenarios.slice(0, 8),
     setupBreakdowns: replay.setupBreakdowns.slice(0, 14),
     failureReasons: replay.failureReasons.slice(0, 8),
     failureCases: replay.failureCases.slice(0, 12),

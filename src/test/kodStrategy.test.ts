@@ -67,7 +67,7 @@ describe("KOD strategy module", () => {
   it("changes structure stop distance by selected stop profile and emits replay evidence", () => {
     const context = createStructureContext({
       volatility: { atr: 10, averageRange: 10 },
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
+      sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
       fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]
     });
 
@@ -146,7 +146,7 @@ describe("KOD strategy module", () => {
 
   it("keeps a setup on watch when the only FVG is stale and outside the ICT sequence", () => {
     const context = createStructureContext({
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
+      sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
       displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1.2 }],
       marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
       fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 8, mitigated: false }]
@@ -166,7 +166,7 @@ describe("KOD strategy module", () => {
         { id: "buy-side", side: "buy-side", level: 102, label: "Buy-side", strength: "strong" },
         { id: "sell-side", side: "sell-side", level: 99, label: "Sell-side", strength: "strong" }
       ],
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
+      sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
       displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
       marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
       fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]
@@ -187,7 +187,7 @@ describe("KOD strategy module", () => {
         { id: "buy-side", side: "buy-side", level: 105, label: "Buy-side", strength: "strong" },
         { id: "sell-side", side: "sell-side", level: 97, label: "Sell-side", strength: "strong" }
       ],
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
+      sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
       displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
       marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
       fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]
