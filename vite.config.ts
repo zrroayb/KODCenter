@@ -140,6 +140,38 @@ type GeminiTradePayload = {
   };
 };
 
+type GeminiReplayPayload = {
+  strategyId?: string;
+  windowDays?: number;
+  availableDays?: number;
+  scannedWindows?: number;
+  totals?: {
+    trades?: number;
+    triggeredTrades?: number;
+    winRate?: number;
+    profitFactor?: number;
+    expectancyR?: number;
+    totalR?: number;
+    maxDrawdownR?: number;
+    readyEntries?: number;
+    watchSetups?: number;
+    liveReadyEntries?: number;
+    watchPromotedEntries?: number;
+    tp?: number;
+    stopped?: number;
+    notTriggered?: number;
+    open?: number;
+  };
+  bySymbol?: unknown[];
+  calibration?: unknown[];
+  setupBreakdowns?: unknown[];
+  failureReasons?: unknown[];
+  failureCases?: unknown[];
+  watchReasonSummary?: unknown[];
+  replayDiagnosis?: string[];
+  sampleWarning?: string;
+};
+
 type TelegramEnv = {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
@@ -214,6 +246,17 @@ function telegramCaption(payload: ReadyTelegramPayload) {
 function clampText(value: unknown, max = 2800) {
   const text = typeof value === "string" ? value : "";
   return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+function cleanModelCommentary(value: string, max = 1200) {
+  return clampText(
+    value
+      .replace(/\*\*/g, "")
+      .replace(/^[-*]\s+/gm, "")
+      .replace(/\bkesinlikle\b/gi, "şimdilik")
+      .trim(),
+    max
+  );
 }
 
 function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
@@ -346,6 +389,53 @@ ${invalidation || "-"}
 `, 5000);
 }
 
+function buildGeminiReplayPrompt(input: GeminiReplayPayload) {
+  return clampText(`
+Sen bir yatırım şirketinde çalışan kıdemli technical analyst ve ICT/KOD strateji kalibrasyon danışmanısın.
+Bu otomatik emir sistemi değildir; yatırım tavsiyesi verme, kesinlik konuşma.
+Türkçe yaz. Az ama öz ol. Replay datasına göre setup mantığını düzeltmeye odaklan.
+WATCH-promoted ile live READY aynı şey değildir; bunu özellikle ayır.
+Eğer istatistik kötüyse net söyle, yumuşatma.
+
+Format:
+Karar: ...
+Ana problem: ...
+Kural değişikliği: ...
+Sonraki ölçüm: ...
+
+ReplaySummary:
+${JSON.stringify({
+    strategyId: input.strategyId,
+    windowDays: input.windowDays,
+    availableDays: input.availableDays,
+    scannedWindows: input.scannedWindows,
+    totals: input.totals,
+    sampleWarning: input.sampleWarning
+  }, null, 2)}
+
+SymbolStats:
+${JSON.stringify((input.bySymbol ?? []).slice(0, 8), null, 2)}
+
+LocalCalibration:
+${JSON.stringify((input.calibration ?? []).slice(0, 10), null, 2)}
+
+SetupBreakdowns:
+${JSON.stringify((input.setupBreakdowns ?? []).slice(0, 14), null, 2)}
+
+FailureReasons:
+${JSON.stringify((input.failureReasons ?? []).slice(0, 8), null, 2)}
+
+WorstFailureCases:
+${JSON.stringify((input.failureCases ?? []).slice(0, 10), null, 2)}
+
+WatchReasons:
+${JSON.stringify((input.watchReasonSummary ?? []).slice(0, 8), null, 2)}
+
+ReplayDiagnosis:
+${JSON.stringify(input.replayDiagnosis ?? [], null, 2)}
+`, 6500);
+}
+
 function extractGeminiText(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
   const record = body as Record<string, unknown>;
@@ -429,7 +519,7 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
       if (attempt === 0) continue;
       return fallbackTradeCommentary(input, lastError);
     }
-    return { status: "ready" as const, commentary: clampText(commentary, 900), model };
+    return { status: "ready" as const, commentary: cleanModelCommentary(commentary, 900), model };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       if (attempt === timeouts.length - 1) return fallbackTradeCommentary(input, lastError);
@@ -438,6 +528,77 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
     }
   }
   return fallbackTradeCommentary(input, lastError || "Gemini yorumu alınamadı.");
+}
+
+function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
+  const totals = input.totals ?? {};
+  const setupBreakdowns = (input.setupBreakdowns ?? []) as Array<Record<string, unknown>>;
+  const failureReasons = (input.failureReasons ?? []) as Array<Record<string, unknown>>;
+  const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid");
+  const topFailure = failureReasons[0];
+  const expectancy = typeof totals.expectancyR === "number" ? totals.expectancyR : 0;
+  const profitFactor = typeof totals.profitFactor === "number" ? totals.profitFactor : 0;
+  const watchPromoted = typeof totals.watchPromotedEntries === "number" ? totals.watchPromotedEntries : 0;
+  const liveReady = typeof totals.liveReadyEntries === "number" ? totals.liveReadyEntries : 0;
+  return {
+    status: "fallback" as const,
+    commentary: clampText([
+      `Karar: Replay edge zayıf; expectancy ${expectancy.toFixed(2)}R, PF ${profitFactor.toFixed(2)}.`,
+      `Ana problem: ${topFailure ? `${String(topFailure.reason)} ${String(topFailure.count)} kez / ${String(topFailure.totalR)}R` : "ana kayıp bucket'ı net değil"}; WATCH-promoted ${watchPromoted}, live READY ${liveReady}.`,
+      `Kural değişikliği: ${worstSetup ? `${String(worstSetup.label)} READY'den WATCH'a düşsün (${String(worstSetup.expectancyR)}R).` : "WATCH-promoted sonuçları canlı READY performansı gibi okunmasın."}`,
+      "Sonraki ölçüm: Aynı replay'i live READY, HTF aligned, PD aligned ve session içi filtrelerle ayrı çalıştır."
+    ].join("\n"), 1200),
+    model: "local-fallback",
+    reason
+  };
+}
+
+async function generateGeminiReplayReview(input: GeminiReplayPayload, env: TelegramEnv) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  if (!apiKey) {
+    return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
+  }
+
+  const timeouts = [20_000, 10_000];
+  let lastError = "";
+  for (let attempt = 0; attempt < timeouts.length; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), timeouts[attempt]);
+    try {
+      const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          model,
+          input: buildGeminiReplayPrompt(input)
+        }),
+        signal: controller.signal
+      });
+      const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
+      if (!upstream.ok) {
+        lastError = JSON.stringify(body).slice(0, 900);
+        if (attempt === 0 && (upstream.status === 429 || upstream.status >= 500)) continue;
+        return fallbackReplayReview(input, lastError);
+      }
+      const commentary = extractGeminiText(body)?.trim();
+      if (!commentary) {
+        lastError = "Gemini boş replay yorumu döndürdü.";
+        if (attempt === 0) continue;
+        return fallbackReplayReview(input, lastError);
+      }
+      return { status: "ready" as const, commentary: cleanModelCommentary(commentary, 1200), model };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt === timeouts.length - 1) return fallbackReplayReview(input, lastError);
+    } finally {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+  return fallbackReplayReview(input, lastError || "Gemini replay yorumu alınamadı.");
 }
 
 async function sendTelegramReadyAlert(payload: ReadyTelegramPayload, env: TelegramEnv) {
@@ -477,6 +638,20 @@ async function handleGeminiTradeCommentary(request: JsonRequest, response: Yahoo
   try {
     const payload = await readJsonBody(request) as GeminiTradePayload;
     const result = await generateGeminiTradeCommentary(payload, env);
+    jsonResponse(response, 200, result);
+  } catch (error) {
+    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+async function handleGeminiReplayReview(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "POST") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  try {
+    const payload = await readJsonBody(request) as GeminiReplayPayload;
+    const result = await generateGeminiReplayReview(payload, env);
     jsonResponse(response, 200, result);
   } catch (error) {
     jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
@@ -541,6 +716,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiTradeCommentary(request, response, env);
       });
+      server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiReplayReview(request, response, env);
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -551,6 +729,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiTradeCommentary(request, response, env);
+      });
+      server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiReplayReview(request, response, env);
       });
     }
   };

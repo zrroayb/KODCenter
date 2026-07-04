@@ -5,7 +5,9 @@ import {
   type BacktestResult,
   type RuntimeReplayCalibration,
   type RuntimeReplayCandidate,
+  type RuntimeReplayFailureCase,
   type RuntimeReplayOutcomeReason,
+  type RuntimeReplaySetupBreakdown,
   type RuntimeReplayTrade
 } from "../analytics/performance";
 import { aggregateCandles, trimCandles } from "../data/candleAggregation";
@@ -202,6 +204,36 @@ function tradeTags(signal: TradingSignal): string[] {
   ]));
 }
 
+function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"]) {
+  const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
+  return {
+    origin,
+    rr: signal.plan.rr,
+    entrySource: signal.plan.entrySource,
+    entryStatus: signal.plan.entryStatus,
+    stopSource: signal.plan.stopSource,
+    targetSource: signal.plan.targetSource,
+    session: activeSession,
+    premiumDiscount: signal.context.premiumDiscount.zone,
+    dailyBias: signal.context.bias.daily,
+    h4Bias: signal.context.bias.h4,
+    h1Bias: signal.context.bias.h1,
+    regime: signal.context.regime.type,
+    eventRisk: signal.context.eventRisk.level,
+    governance: signal.governance.status,
+    actionWindow: signal.actionWindow.status,
+    dataConfidence: signal.context.dataConfidence.score,
+    setupWarnings: Array.from(new Set([
+      ...signal.plan.planWarnings,
+      ...signal.riskWarnings,
+      ...signal.context.regime.warnings,
+      ...signal.context.eventRisk.warnings,
+      ...signal.context.dataConfidence.warnings
+    ])).slice(0, 8),
+    waitReasons: candidateReasons(signal)
+  };
+}
+
 function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeReplayOutcomeReason {
   if (signal.context.eventRisk.level !== "clear") return "event-risk";
   if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
@@ -299,6 +331,39 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
     outcomeReason: "expired",
     tags,
     note: `Süre doldu; max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
+  };
+}
+
+function noTriggerOutcome(signal: TradingSignal, tagsExtra: string[], note: string): ReplayOutcome {
+  return {
+    status: "not-triggered",
+    rMultiple: 0,
+    maxFavorableR: 0,
+    maxAdverseR: 0,
+    candlesHeld: 0,
+    outcomeReason: "entry-not-filled",
+    tags: Array.from(new Set([...tradeTags(signal), ...tagsExtra])),
+    note
+  };
+}
+
+function confirmationAdjustedFuture(signal: TradingSignal, futureCandles: Candle[]) {
+  const requirement = closeConfirmationRequirement(signal);
+  if (!requirement) return { candles: futureCandles, tags: ["confirm:already-valid"], missingNote: "" };
+  const confirmIndex = futureCandles.findIndex((candle) => requirement.side === "above"
+    ? candle.close > requirement.level
+    : candle.close < requirement.level);
+  if (confirmIndex < 0) {
+    return {
+      candles: [],
+      tags: ["confirm:not-seen"],
+      missingNote: `${requirement.label} kapanış onayı ileri mumlarda gelmedi; trade yok.`
+    };
+  }
+  return {
+    candles: futureCandles.slice(confirmIndex),
+    tags: ["confirm:future-close"],
+    missingNote: ""
   };
 }
 
@@ -516,12 +581,190 @@ function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number
     });
   }
 
+  const watchPromoted = trades.filter((trade) => trade.origin === "watch-promoted");
+  if (watchPromoted.length >= 3) {
+    const promotedTotal = watchPromoted.reduce((sum, trade) => sum + trade.rMultiple, 0);
+    const promotedExpectancy = promotedTotal / watchPromoted.length;
+    insights.push({
+      label: "WATCH replay entry",
+      value: `${promotedExpectancy.toFixed(2)}R`,
+      detail: promotedExpectancy < 0
+        ? `${watchPromoted.length} WATCH-promoted örneği negatif. Canlı mantıkta WATCH asla entry gibi davranmamalı; kapanış teyidi şart.`
+        : `${watchPromoted.length} WATCH-promoted örneği pozitif. Bu koşullar ayrı bir setup varyantı olarak incelenebilir.`,
+      verdict: promotedExpectancy < 0 ? "tighten" : "investigate"
+    });
+  }
+
   return insights
     .sort((a, b) => {
       const priority = { tighten: 0, investigate: 1, keep: 2, relax: 3 } as const;
       return priority[a.verdict] - priority[b.verdict];
     })
     .slice(0, 8);
+}
+
+function breakdownLabel(key: string): string {
+  const [group, value] = key.split(":");
+  if (group === "origin") return value === "live-ready" ? "Live READY" : "WATCH promoted";
+  if (group === "direction") return value === "long" ? "Long setup" : "Short setup";
+  if (group === "grade") return `Grade ${value}`;
+  if (group === "entry") return `Entry ${value}`;
+  if (group === "stop") return `Stop ${value}`;
+  if (group === "session") return `Session ${value}`;
+  if (group === "pd") return `PD ${value}`;
+  if (group === "regime") return `Regime ${value}`;
+  if (group === "htf") return value === "aligned" ? "HTF aligned" : "HTF conflict";
+  if (group === "smt") return value === "aligned" ? "SMT aligned" : "SMT yok";
+  return key;
+}
+
+function setupBreakdowns(trades: RuntimeReplayTrade[]): RuntimeReplaySetupBreakdown[] {
+  const groups = new Map<string, RuntimeReplayTrade[]>();
+  for (const trade of trades) {
+    const keys = [
+      `origin:${trade.origin}`,
+      `direction:${trade.direction}`,
+      `grade:${trade.grade}`,
+      `entry:${trade.entrySource}`,
+      `stop:${trade.stopSource}`,
+      `session:${trade.session}`,
+      `pd:${trade.premiumDiscount}`,
+      `regime:${trade.regime}`,
+      `htf:${trade.tags.includes("htf:aligned") ? "aligned" : "conflict"}`,
+      `smt:${trade.tags.includes("smt:aligned") ? "aligned" : "none"}`
+    ];
+    for (const key of keys) {
+      const current = groups.get(key) ?? [];
+      current.push(trade);
+      groups.set(key, current);
+    }
+  }
+
+  return [...groups.entries()]
+    .filter(([, sample]) => sample.length >= 2)
+    .map(([key, sample]) => {
+      const triggered = sample.filter((trade) => trade.status !== "not-triggered");
+      const wins = triggered.filter((trade) => trade.rMultiple > 0);
+      const losses = triggered.filter((trade) => trade.rMultiple < 0);
+      const stopped = triggered.filter((trade) => trade.status === "stopped");
+      const totalR = Number(sample.reduce((sum, trade) => sum + trade.rMultiple, 0).toFixed(2));
+      const expectancyR = triggered.length ? totalR / triggered.length : 0;
+      const winRate = triggered.length ? (wins.length / triggered.length) * 100 : 0;
+      const avgMfeR = sample.reduce((sum, trade) => sum + trade.maxFavorableR, 0) / sample.length;
+      const avgMaeR = sample.reduce((sum, trade) => sum + trade.maxAdverseR, 0) / sample.length;
+      const verdict: RuntimeReplaySetupBreakdown["verdict"] = sample.length < 4
+        ? "needs-data"
+        : expectancyR <= -0.25 || (stopped.length >= wins.length * 2 && losses.length > 0)
+          ? "avoid"
+          : expectancyR >= 0.35 && winRate >= 35
+            ? "edge"
+            : "neutral";
+      return {
+        key,
+        label: breakdownLabel(key),
+        sample: sample.length,
+        triggered: triggered.length,
+        wins: wins.length,
+        losses: losses.length,
+        stopped: stopped.length,
+        totalR,
+        expectancyR: Number(expectancyR.toFixed(2)),
+        winRate: Number(winRate.toFixed(1)),
+        avgMfeR: Number(avgMfeR.toFixed(2)),
+        avgMaeR: Number(avgMaeR.toFixed(2)),
+        verdict,
+        note: verdict === "avoid"
+          ? "Bu koşul altında setuplar negatife dönmüş; READY yerine WATCH veya blok adayı."
+          : verdict === "edge"
+            ? "Bu koşul pozitif ayrışıyor; skor ağırlığı korunabilir."
+            : verdict === "needs-data"
+              ? "Örnek az; karar için daha fazla replay lazım."
+              : "Net edge yok; tek başına karar filtresi olmasın."
+      };
+    })
+    .sort((a, b) => {
+      const priority = { avoid: 0, edge: 1, neutral: 2, "needs-data": 3 } as const;
+      return priority[a.verdict] - priority[b.verdict] || a.expectancyR - b.expectancyR || b.sample - a.sample;
+    })
+    .slice(0, 14);
+}
+
+function failureDiagnosis(trade: RuntimeReplayTrade): string {
+  if (trade.status === "not-triggered") return "Entry alanı dolmamış; bu setup trade değil, bekleme istatistiği.";
+  if (trade.origin === "watch-promoted" && trade.rMultiple < 0) return "WATCH iken trade'e çevrilmiş ve zarar etmiş; kapanış teyidi veya live READY şartı güçlendirilmeli.";
+  if (trade.outcomeReason === "htf-conflict") return "HTF bias ters; aynı yön D/H4 onayı olmadan READY zayıf kalıyor.";
+  if (trade.outcomeReason === "range-chop") return "Range/chop içinde hedefe akış yok; rejim filtresi sıkılaşmalı.";
+  if (trade.outcomeReason === "stop-too-tight") return "MFE düşük veya volatility-floor stop çalışmış; stop modeli/entry chase kontrolü incelenmeli.";
+  if (trade.outcomeReason === "event-risk") return "Event riski trade'i bozmuş; haber/saat filtresi hard gate olmalı.";
+  if (trade.maxFavorableR < 0.35 && trade.rMultiple < 0) return "Trade neredeyse hiç doğru yöne gitmeden stop olmuş; entry modeli erken veya yanlış yönde.";
+  if (trade.maxFavorableR >= 1 && trade.rMultiple < 0) return "1R üstü fırsat verip stop olmuş; partial/BE yönetimi incelenmeli.";
+  return "Kayıp trade; tag kırılımında hangi koşul tekrarlıyor bakılmalı.";
+}
+
+function failureCases(trades: RuntimeReplayTrade[]): RuntimeReplayFailureCase[] {
+  return trades
+    .filter((trade) => trade.rMultiple <= 0 || trade.status === "not-triggered")
+    .sort((a, b) => a.rMultiple - b.rMultiple || a.maxFavorableR - b.maxFavorableR)
+    .slice(0, 16)
+    .map((trade) => ({
+      id: trade.id,
+      symbol: trade.symbol,
+      direction: trade.direction,
+      signalTime: trade.signalTime,
+      status: trade.status,
+      rMultiple: trade.rMultiple,
+      outcomeReason: trade.outcomeReason,
+      origin: trade.origin,
+      entry: trade.entry,
+      stopLoss: trade.stopLoss,
+      target: trade.target,
+      rr: trade.rr,
+      grade: trade.grade,
+      score: trade.score,
+      entrySource: trade.entrySource,
+      entryStatus: trade.entryStatus,
+      stopSource: trade.stopSource,
+      targetSource: trade.targetSource,
+      session: trade.session,
+      premiumDiscount: trade.premiumDiscount,
+      dailyBias: trade.dailyBias,
+      h4Bias: trade.h4Bias,
+      h1Bias: trade.h1Bias,
+      regime: trade.regime,
+      eventRisk: trade.eventRisk,
+      governance: trade.governance,
+      actionWindow: trade.actionWindow,
+      dataConfidence: trade.dataConfidence,
+      maxFavorableR: trade.maxFavorableR,
+      maxAdverseR: trade.maxAdverseR,
+      candlesHeld: trade.candlesHeld,
+      setupWarnings: trade.setupWarnings.slice(0, 5),
+      waitReasons: trade.waitReasons.slice(0, 5),
+      tags: trade.tags.slice(0, 14),
+      diagnosis: failureDiagnosis(trade)
+    }));
+}
+
+function replayDiagnosis(trades: RuntimeReplayTrade[], breakdowns: RuntimeReplaySetupBreakdown[]): string[] {
+  if (!trades.length) return ["Replay entry yok; önce live READY şartları ve veri kapsamı kontrol edilmeli."];
+  const promoted = trades.filter((trade) => trade.origin === "watch-promoted");
+  const live = trades.filter((trade) => trade.origin === "live-ready");
+  const avoid = breakdowns.filter((item) => item.verdict === "avoid").slice(0, 3);
+  const notes = [
+    promoted.length > live.length
+      ? `Replay'in çoğu WATCH-promoted (${promoted.length}/${trades.length}); canlı strateji başarısı gibi okunmamalı.`
+      : undefined,
+    avoid.length
+      ? `Negatif koşullar: ${avoid.map((item) => `${item.label} ${item.expectancyR.toFixed(2)}R`).join(", ")}.`
+      : undefined,
+    trades.filter((trade) => trade.maxFavorableR >= 1 && trade.rMultiple < 0).length >= 2
+      ? "Bazı trade'ler 1R fırsat verip stop olmuş; BE/partial yönetimi ölçülmeli."
+      : undefined,
+    trades.filter((trade) => trade.outcomeReason === "htf-conflict").length >= 2
+      ? "HTF conflict tekrar ediyor; READY için D/H4 yön uyumu sertleşebilir."
+      : undefined
+  ].filter((item): item is string => Boolean(item));
+  return notes.length ? notes : ["Replay'de tek bir bariz bozukluk yok; sembol ve setup bazlı daha uzun örnek gerekli."];
 }
 
 function streak(returns: number[], winning: boolean): number {
@@ -557,6 +800,8 @@ export function runMonthlyRuntimeReplay({
   let scannedWindows = 0;
   let watchAlerts = 0;
   let readyAlerts = 0;
+  let liveReadyEntries = 0;
+  let watchPromotedEntries = 0;
 
   for (const time of replayTimes(markets, startedAt, endedAt, scanEveryCandles)) {
     const contexts = attachSmtDivergences(
@@ -603,27 +848,39 @@ export function runMonthlyRuntimeReplay({
 
       candidates.push(replayCandidate(candidate.signal, candidate.time, "ready"));
       const market = marketBySymbol.get(candidate.signal.symbol);
+      const origin: RuntimeReplayTrade["origin"] = candidate.signal.stage === "ready" ? "live-ready" : "watch-promoted";
+      const baseTags = origin === "live-ready"
+        ? ["replay:live-ready", "risk:daily-capped"]
+        : ["replay:watch-promoted", "risk:daily-capped"];
+      const adjustedFuture = confirmationAdjustedFuture(
+        candidate.signal,
+        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles) : []
+      );
       const outcome = evaluateForwardOutcome(
         candidate.signal,
-        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles) : [],
-        candidate.signal.stage === "ready"
-          ? ["replay:live-ready", "risk:daily-capped"]
-          : ["replay:watch-promoted", "risk:daily-capped"]
+        adjustedFuture.candles,
+        [...baseTags, ...adjustedFuture.tags]
       );
+      const measuredOutcome = adjustedFuture.missingNote
+        ? noTriggerOutcome(candidate.signal, [...baseTags, ...adjustedFuture.tags], adjustedFuture.missingNote)
+        : outcome;
       trades.push({
         id: `${candidate.signal.id}-${candidate.time}-replay`,
         symbol: candidate.signal.symbol,
         direction: candidate.signal.direction,
         signalTime: candidate.time,
+        ...tradeProfile(candidate.signal, origin),
         grade: candidate.signal.grade,
         score: candidate.signal.score,
         entry: candidate.signal.plan.entry,
         stopLoss: candidate.signal.plan.stopLoss,
         target: candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
-        ...outcome
+        ...measuredOutcome
       });
-      applyReplayRisk(dayState, candidate.signal, outcome);
+      applyReplayRisk(dayState, candidate.signal, measuredOutcome);
       readyAlerts += 1;
+      if (origin === "live-ready") liveReadyEntries += 1;
+      else watchPromotedEntries += 1;
       entriesThisScan += 1;
       candidate.state.countedReady = true;
     }
@@ -638,6 +895,8 @@ export function runMonthlyRuntimeReplay({
   const equityCurve = equityCurveFromReturns(returns);
   const totalR = Number(returns.reduce((sum, value) => sum + value, 0).toFixed(2));
   const bySymbol = symbolSummaries(trades, candidates);
+  const breakdowns = setupBreakdowns(trades);
+  const failures = failureCases(trades);
   const tp1Trades = trades.filter((trade) => trade.status === "tp1").length;
   const tp2Trades = trades.filter((trade) => trade.status === "tp2").length;
   const stoppedTrades = trades.filter((trade) => trade.status === "stopped").length;
@@ -676,6 +935,8 @@ export function runMonthlyRuntimeReplay({
       scannedWindows,
       readyAlerts,
       watchAlerts,
+      liveReadyEntries,
+      watchPromotedEntries,
       triggeredTrades: triggered.length,
       notTriggered,
       openTrades,
@@ -686,8 +947,11 @@ export function runMonthlyRuntimeReplay({
       expectancyR: triggered.length ? totalR / triggered.length : 0,
       bySymbol,
       calibration: calibrationFromTrades(trades, watchAlerts),
+      setupBreakdowns: breakdowns,
+      failureCases: failures,
       failureReasons: failureReasonSummary(trades),
       watchReasonSummary: watchReasonSummary(candidates),
+      replayDiagnosis: replayDiagnosis(trades, breakdowns),
       trades: trades.slice(-80).reverse(),
       candidates: candidates.slice(-120).reverse(),
       sampleWarning

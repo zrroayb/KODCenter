@@ -1201,6 +1201,13 @@ button:focus-visible {
   letter-spacing: 0.08em;
 }
 
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .replay-metric-grid {
   margin-top: 10px;
 }
@@ -1211,8 +1218,19 @@ button:focus-visible {
 
 .replay-calibration-list,
 .replay-failure-list,
-.replay-watch-reason-list {
+.replay-watch-reason-list,
+.replay-breakdown-list,
+.replay-failure-case-list {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.replay-ai-review p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.replay-diagnosis-list div {
+  min-height: auto;
 }
 
 .replay-symbol-list div {

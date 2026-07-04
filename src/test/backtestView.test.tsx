@@ -30,6 +30,8 @@ function replayResult(): BacktestResult {
       scannedWindows: 100,
       readyAlerts: 0,
       watchAlerts: 12,
+      liveReadyEntries: 0,
+      watchPromotedEntries: 0,
       triggeredTrades: 0,
       notTriggered: 0,
       openTrades: 0,
@@ -54,8 +56,26 @@ function replayResult(): BacktestResult {
         detail: "WATCH var ama READY yok.",
         verdict: "investigate"
       }],
+      setupBreakdowns: [{
+        key: "entry:mss-close",
+        label: "Entry mss-close",
+        sample: 4,
+        triggered: 4,
+        wins: 1,
+        losses: 3,
+        stopped: 3,
+        totalR: -2,
+        expectancyR: -0.5,
+        winRate: 25,
+        avgMfeR: 0.4,
+        avgMaeR: -0.8,
+        verdict: "avoid",
+        note: "Bu koşul altında setuplar negatife dönmüş."
+      }],
+      failureCases: [],
       failureReasons: [],
       watchReasonSummary: [{ reason: "15m mum kapanış onayı bekleniyor.", count: 12 }],
+      replayDiagnosis: ["Replay'in çoğu WATCH; canlı READY gibi okunmamalı."],
       trades: [],
       candidates: [{
         id: "candidate-1",
@@ -87,6 +107,8 @@ describe("BacktestView replay visibility", () => {
 
     expect(markup).toContain("WATCH neden kaldı?");
     expect(markup).toContain("Aylık setup akışı");
+    expect(markup).toContain("AI replay yorumu");
+    expect(markup).toContain("Setup kırılımı");
     expect(markup).toContain("12 WATCH");
     expect(markup).toContain("GBPUSD SHORT");
     expect(markup).toContain("15m mum kapanış onayı bekleniyor.");

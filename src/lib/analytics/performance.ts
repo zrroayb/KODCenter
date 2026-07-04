@@ -19,6 +19,7 @@ export type BacktestResult = {
 };
 
 export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggered" | "open";
+export type RuntimeReplayTradeOrigin = "live-ready" | "watch-promoted";
 export type RuntimeReplayOutcomeReason =
   | "clean-model"
   | "stop-too-tight"
@@ -34,17 +35,35 @@ export type RuntimeReplayTrade = {
   symbol: string;
   direction: string;
   signalTime: number;
+  origin: RuntimeReplayTradeOrigin;
   grade: string;
   score: number;
   entry: number;
   stopLoss: number;
   target: number;
+  rr: number;
+  entrySource: string;
+  entryStatus: string;
+  stopSource: string;
+  targetSource: string;
+  session: string;
+  premiumDiscount: string;
+  dailyBias: string;
+  h4Bias: string;
+  h1Bias: string;
+  regime: string;
+  eventRisk: string;
+  governance: string;
+  actionWindow: string;
+  dataConfidence: number;
   status: RuntimeReplayTradeStatus;
   rMultiple: number;
   maxFavorableR: number;
   maxAdverseR: number;
   candlesHeld: number;
   outcomeReason: RuntimeReplayOutcomeReason;
+  setupWarnings: string[];
+  waitReasons: string[];
   tags: string[];
   note: string;
 };
@@ -88,6 +107,61 @@ export type RuntimeReplayCalibration = {
   verdict: "keep" | "tighten" | "relax" | "investigate";
 };
 
+export type RuntimeReplaySetupBreakdown = {
+  key: string;
+  label: string;
+  sample: number;
+  triggered: number;
+  wins: number;
+  losses: number;
+  stopped: number;
+  totalR: number;
+  expectancyR: number;
+  winRate: number;
+  avgMfeR: number;
+  avgMaeR: number;
+  verdict: "edge" | "avoid" | "neutral" | "needs-data";
+  note: string;
+};
+
+export type RuntimeReplayFailureCase = {
+  id: string;
+  symbol: string;
+  direction: string;
+  signalTime: number;
+  status: RuntimeReplayTradeStatus;
+  rMultiple: number;
+  outcomeReason: RuntimeReplayOutcomeReason;
+  origin: RuntimeReplayTradeOrigin;
+  entry: number;
+  stopLoss: number;
+  target: number;
+  rr: number;
+  grade: string;
+  score: number;
+  entrySource: string;
+  entryStatus: string;
+  stopSource: string;
+  targetSource: string;
+  session: string;
+  premiumDiscount: string;
+  dailyBias: string;
+  h4Bias: string;
+  h1Bias: string;
+  regime: string;
+  eventRisk: string;
+  governance: string;
+  actionWindow: string;
+  dataConfidence: number;
+  maxFavorableR: number;
+  maxAdverseR: number;
+  candlesHeld: number;
+  setupWarnings: string[];
+  waitReasons: string[];
+  tags: string[];
+  diagnosis: string;
+};
+
 export type RuntimeReplaySummary = {
   mode: "runtime-replay";
   strategyId: string;
@@ -99,6 +173,8 @@ export type RuntimeReplaySummary = {
   scannedWindows: number;
   readyAlerts: number;
   watchAlerts: number;
+  liveReadyEntries: number;
+  watchPromotedEntries: number;
   triggeredTrades: number;
   notTriggered: number;
   openTrades: number;
@@ -109,8 +185,11 @@ export type RuntimeReplaySummary = {
   expectancyR: number;
   bySymbol: RuntimeReplaySymbolSummary[];
   calibration: RuntimeReplayCalibration[];
+  setupBreakdowns: RuntimeReplaySetupBreakdown[];
+  failureCases: RuntimeReplayFailureCase[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;
   watchReasonSummary: Array<{ reason: string; count: number }>;
+  replayDiagnosis: string[];
   trades: RuntimeReplayTrade[];
   candidates: RuntimeReplayCandidate[];
   sampleWarning?: string;

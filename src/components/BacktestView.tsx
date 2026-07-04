@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { RefreshCcw } from "lucide-react";
 import type { BacktestResult } from "../lib/analytics/performance";
+import { fetchGeminiReplayReview, type GeminiReplayReviewResponse } from "../lib/gemini/replayReview";
 import { formatPrice } from "../lib/ict/format";
 
 function reasonText(reason: string) {
@@ -14,6 +16,10 @@ function reasonText(reason: string) {
 }
 
 function verdictText(verdict: string) {
+  if (verdict === "edge") return "Edge";
+  if (verdict === "avoid") return "Uzak dur";
+  if (verdict === "neutral") return "Nötr";
+  if (verdict === "needs-data") return "Az veri";
   if (verdict === "tighten") return "Sıkılaştır";
   if (verdict === "keep") return "Koru";
   if (verdict === "relax") return "Gevşet";
@@ -21,6 +27,8 @@ function verdictText(verdict: string) {
 }
 
 export function BacktestView({ result, onRun }: { result: BacktestResult; onRun: () => void }) {
+  const [aiReview, setAiReview] = useState<GeminiReplayReviewResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
+  const [aiLoading, setAiLoading] = useState(false);
   const replay = result.replay;
   const metrics = [
     [replay ? "Tetiklenen trade" : "Toplam işlem", result.totalTrades],
@@ -34,10 +42,21 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
     ["Pencere", `${replay.availableDays.toFixed(1)} / ${replay.windowDays} gün · ${replay.scanEveryCandles}x15m`],
     ["Runtime scan", replay.scannedWindows],
     ["Replay entry", replay.readyAlerts],
+    ["Live / promoted", `${replay.liveReadyEntries} / ${replay.watchPromotedEntries}`],
     ["WATCH setup", replay.watchAlerts],
     ["TP / SL", `${replay.tp1Trades + replay.tp2Trades} / ${replay.stoppedTrades}`],
     ["Toplam R", `${replay.totalR.toFixed(2)}R`]
   ] : [];
+  const runAiReview = async () => {
+    if (!replay || aiLoading) return;
+    setAiLoading(true);
+    setAiReview({ status: "disabled", reason: "Gemini replay datasını okuyor." });
+    try {
+      setAiReview(await fetchGeminiReplayReview(result));
+    } finally {
+      setAiLoading(false);
+    }
+  };
   return (
     <article className="panel">
       <header className="panel-head">
@@ -45,7 +64,10 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
           <span className="eyebrow">Backtest</span>
           <h2>{replay ? "Son 1 ay runtime replay" : "Strategy bazlı runtime replay"}</h2>
         </div>
-        <button className="ghost-btn" onClick={onRun} type="button"><RefreshCcw size={15} /> Son 1 ayı replay et</button>
+        <div className="panel-actions">
+          {replay && <button className="ghost-btn" onClick={runAiReview} type="button" disabled={aiLoading}>{aiLoading ? "Gemini okuyor" : "AI replay yorumu"}</button>}
+          <button className="ghost-btn" onClick={onRun} type="button"><RefreshCcw size={15} /> Son 1 ayı replay et</button>
+        </div>
       </header>
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       {replay && (
@@ -54,6 +76,20 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             {replayMetrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
           </div>
           {replay.sampleWarning && <p className="provider-warning">{replay.sampleWarning}</p>}
+          <div className="strategy-learning-list replay-ai-review">
+            <strong>AI replay yorumu</strong>
+            {aiReview.commentary
+              ? <p>{aiReview.commentary}</p>
+              : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
+          </div>
+          <div className="strategy-learning-list replay-diagnosis-list">
+            <strong>Replay teşhisi</strong>
+            {replay.replayDiagnosis.map((item) => (
+              <div key={item}>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
           <div className="strategy-learning-list replay-symbol-list">
             <strong>Symbol bazlı sonuç</strong>
             {replay.bySymbol.map((row) => (
@@ -64,6 +100,17 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               </div>
             ))}
             {!replay.bySymbol.length && <p className="muted-note">Bu ay hiç setup adayı oluşmadı; veri/saat aralığı veya strateji filtresi kontrol edilmeli.</p>}
+          </div>
+          <div className="strategy-learning-list replay-breakdown-list">
+            <strong>Setup kırılımı</strong>
+            {replay.setupBreakdowns.slice(0, 10).map((item) => (
+              <div key={item.key}>
+                <span>{item.label}</span>
+                <b>{verdictText(item.verdict)} · {item.expectancyR.toFixed(2)}R · WR {item.winRate.toFixed(1)}%</b>
+                <small>{item.sample} örnek · MFE {item.avgMfeR.toFixed(2)}R · MAE {item.avgMaeR.toFixed(2)}R · {item.note}</small>
+              </div>
+            ))}
+            {!replay.setupBreakdowns.length && <p className="muted-note">Kırılım için yeterli replay trade yok.</p>}
           </div>
           <div className="strategy-learning-list replay-calibration-list">
             <strong>Kalibrasyon önerisi</strong>
@@ -97,12 +144,24 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             ))}
             {!replay.failureReasons.length && <p className="muted-note">Kayıp sebebi yok; ya trade yok ya da sonuçlar pozitif.</p>}
           </div>
+          <div className="journal-entry-list replay-failure-case-list">
+            <strong>Patlayan örnekler</strong>
+            {replay.failureCases.slice(0, 8).map((trade) => (
+              <div key={trade.id}>
+                <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE" : "WATCH→ENTRY"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
+                <span>{new Date(trade.signalTime).toLocaleString()} · {trade.entrySource}/{trade.entryStatus} · {trade.session} · PD {trade.premiumDiscount} · HTF {trade.dailyBias}/{trade.h4Bias}</span>
+                <small>MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · RR {trade.rr.toFixed(2)} · {reasonText(trade.outcomeReason)}</small>
+                <small>{trade.diagnosis}</small>
+              </div>
+            ))}
+            {!replay.failureCases.length && <p className="muted-note">Negatif örnek yok; daha uzun pencereyle doğrula.</p>}
+          </div>
           <div className="journal-entry-list replay-trade-list">
             {replay.trades.slice(0, 8).map((trade) => (
               <div key={trade.id}>
-                <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
-                <span>{new Date(trade.signalTime).toLocaleString()} · grade {trade.grade} · score {trade.score}</span>
-                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · {reasonText(trade.outcomeReason)} · {trade.note}</small>
+                <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE READY" : "WATCH PROMOTED"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
+                <span>{new Date(trade.signalTime).toLocaleString()} · grade {trade.grade} · score {trade.score} · {trade.entrySource}/{trade.stopSource}</span>
+                <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · TP1 {formatPrice(trade.target)} · MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
             {!replay.trades.length && <p className="muted-note">Son 1 ayda replay entry tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
