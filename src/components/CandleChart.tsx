@@ -43,9 +43,11 @@ const minorGrid = "rgba(25, 29, 36, 0.055)";
 const dayMs = 24 * 60 * 60 * 1000;
 
 function defaultVisibleCount(mode: ChartMode): number {
+  // TradingView-like zoom: ~50-70 readable bars instead of a wall of matchsticks.
   if (mode === "execution") return 72;
-  if (mode === "confirmation") return 96;
-  return 112;
+  if (mode === "confirmation") return 72;
+  if (mode === "context") return 48;
+  return 60;
 }
 
 function visibleCandles(candles: Candle[], range: FocusedTimeRange | undefined, mode: ChartMode): Candle[] {
@@ -397,7 +399,7 @@ export function CandleChart({
     return (
       <g key={`${label}-${price}-guide`}>
         <line x1={plot.left} x2={plotRight} y1={y} y2={y} stroke={color} strokeWidth="1" strokeDasharray={dashed ? "3 6" : "0"} opacity={opacity} />
-        <text x={plot.left + 8} y={y - 5} fill={color} fontSize="9" fontWeight="800" opacity={opacity + 0.12}>{label}</text>
+        {label && <text x={plot.left + 8} y={y - 5} fill={color} fontSize="9" fontWeight="800" opacity={opacity + 0.12}>{label}</text>}
       </g>
     );
   };
@@ -847,9 +849,9 @@ export function CandleChart({
             </g>
           );
         })}
-        {range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "CRT H", true, 0.24) : levelLine(range.high, "#94a3b8", "CRT H", true, 0.74))}
-        {range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "CRT EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "CRT EQ", true, 0.78))}
-        {range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "CRT L", true, 0.24) : levelLine(range.low, "#94a3b8", "CRT L", true, 0.74))}
+        {mode !== "context" && range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "", true, 0.24) : levelLine(range.high, "#94a3b8", "CRT H", true, 0.74))}
+        {mode !== "context" && range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "CRT EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "CRT EQ", true, 0.78))}
+        {mode !== "context" && range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "", true, 0.24) : levelLine(range.low, "#94a3b8", "CRT L", true, 0.74))}
         {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#7B5A16" : "#1D5C73", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.5, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
         {visible.map((candle, index) => {
           const centerX = snap(xAtVisibleIndex(index));
@@ -890,32 +892,50 @@ export function CandleChart({
           );
         })}
         {mode === "context" && range && visible.length >= 2 && (() => {
-          const rangeCandle = visible[visible.length - 2];
+          // TradingView-style CRT structure: full-width range band with H/EQ/L lines,
+          // the range candle and the live manipulation candle outlined — readable at a glance.
+          const rangeIndex = visible.length - 2;
+          const rangeCandle = visible[rangeIndex];
           const liveCandle = visible[visible.length - 1];
-          const rangeX = xAtVisibleIndex(visible.length - 2);
+          const rangeX = xAtVisibleIndex(rangeIndex);
           const liveX = xAtVisibleIndex(visible.length - 1);
-          const boxTop = scaleY(rangeCandle.high);
-          const boxBottom = scaleY(rangeCandle.low);
+          const yHigh = scaleY(range.high);
+          const yLow = scaleY(range.low);
+          const yEq = scaleY(range.midpoint);
           return (
-            <g className="crt-range-highlight">
+            <g className="crt-range-structure">
+              <rect x={plot.left} y={yHigh} width={plotRight - plot.left} height={Math.max(2, yLow - yHigh)} fill="rgba(124, 58, 237, 0.05)" />
+              <line x1={plot.left} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
+              <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
+              <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#7c3aed" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
+              <text x={plot.left + 8} y={yHigh + 15} fill="#7c3aed" fontSize="11" fontWeight="900" opacity="0.9">CRT RANGE</text>
               <rect
-                x={rangeX - candleWidth / 2 - 6}
-                y={boxTop - 6}
-                width={candleWidth + 12}
-                height={Math.max(16, boxBottom - boxTop + 12)}
+                x={rangeX - candleWidth / 2 - 4}
+                y={scaleY(rangeCandle.high) - 4}
+                width={candleWidth + 8}
+                height={Math.max(12, scaleY(rangeCandle.low) - scaleY(rangeCandle.high) + 8)}
                 fill="none"
                 stroke="#7c3aed"
                 strokeWidth="1.8"
-                strokeDasharray="5 4"
               />
-              <rect x={rangeX - 58} y={Math.max(plot.top + 4, boxTop - 26)} width="116" height="17" rx="3" fill="#2e1065" stroke="#7c3aed" strokeWidth="1" />
-              <text x={rangeX} y={Math.max(plot.top + 16, boxTop - 13)} fill="#ddd6fe" fontSize="9.5" fontWeight="900" textAnchor="middle">
-                CRT RANGE MUMU
-              </text>
-              <rect x={liveX - 66} y={Math.min(plotBottom - 21, scaleY(liveCandle.low) + 8)} width="132" height="17" rx="3" fill="#3b2508" stroke="#f59e0b" strokeWidth="1" />
-              <text x={liveX} y={Math.min(plotBottom - 8, scaleY(liveCandle.low) + 21)} fill="#fde68a" fontSize="9.5" fontWeight="900" textAnchor="middle">
-                MANIPULATION MUMU
-              </text>
+              <text x={rangeX} y={Math.max(plot.top + 12, scaleY(rangeCandle.high) - 8)} fill="#7c3aed" fontSize="10" fontWeight="900" textAnchor="middle">R</text>
+              <rect
+                x={liveX - candleWidth / 2 - 4}
+                y={scaleY(liveCandle.high) - 4}
+                width={candleWidth + 8}
+                height={Math.max(12, scaleY(liveCandle.low) - scaleY(liveCandle.high) + 8)}
+                fill="none"
+                stroke="#f59e0b"
+                strokeWidth="1.8"
+              />
+              <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#b45309" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
+              {!selectedSignal && (
+                <>
+                  {registerEdgeTag(range.high, "#7c3aed", "CRT H", "#2e1065")}
+                  {registerEdgeTag(range.midpoint, "#7c3aed", "CRT EQ", "#2e1065")}
+                  {registerEdgeTag(range.low, "#7c3aed", "CRT L", "#2e1065")}
+                </>
+              )}
             </g>
           );
         })()}

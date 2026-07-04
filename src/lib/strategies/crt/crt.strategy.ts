@@ -169,6 +169,10 @@ function chochConfirmation(context: MarketContext, direction: TradeDirection, ma
   const fallbackShift = latestByIndex(context.marketStructureShifts.filter((shift) => shift.direction === direction && shift.candleIndex >= startIndex));
   const level = swing?.level ?? fallbackShift?.level;
   if (typeof level !== "number") return undefined;
+  // The ChoCH reference must live inside the CRT range: a stale swing from prior structure
+  // outside the range produces entries far away from the actual setup.
+  const tolerance = symbolBuffer(context);
+  if (level > context.crt.activeRange.high + tolerance || level < context.crt.activeRange.low - tolerance) return undefined;
   const confirmIndex = candles.findIndex((candle, index) => {
     if (index <= startIndex) return false;
     return direction === "short" ? candle.close < level : candle.close > level;

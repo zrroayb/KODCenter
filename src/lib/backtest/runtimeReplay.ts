@@ -52,6 +52,9 @@ type ReplayEntryCandidate = {
 
 type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note">;
 
+// A retest limit order that has not filled within ~4 hours (m15 candles) is cancelled.
+const ENTRY_FILL_TIMEOUT_CANDLES = 16;
+
 export type RuntimeReplayInput = {
   markets: DemoMarket[];
   strategy: StrategyModule;
@@ -377,7 +380,10 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
     return { status: "open", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "expired", tags, note: "İleri mum yok; sonuç açık kaldı." };
   }
 
-  const immediateEntry = signal.plan.entryStatus === "confirmed";
+  // CRT entries are resting retest limit orders: they only fill when price actually returns
+  // to the level, and a fill hours later belongs to a different market — the order expires.
+  const isRetestEntry = signal.strategyId === "crt";
+  const immediateEntry = !isRetestEntry && signal.plan.entryStatus === "confirmed";
   const entryIndex = immediateEntry ? 0 : futureCandles.findIndex((candle) => priceTouched(candle, signal.plan.entry));
   if (entryIndex < 0) {
     return {
@@ -389,6 +395,18 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
       outcomeReason: "entry-not-filled",
       tags,
       note: "Entry alanı sonraki mumlarda tetiklenmedi."
+    };
+  }
+  if (isRetestEntry && entryIndex >= ENTRY_FILL_TIMEOUT_CANDLES) {
+    return {
+      status: "not-triggered",
+      rMultiple: 0,
+      maxFavorableR: 0,
+      maxAdverseR: 0,
+      candlesHeld: entryIndex,
+      outcomeReason: "entry-expired",
+      tags: Array.from(new Set([...tags, "entry:expired"])),
+      note: `Retest emri ${ENTRY_FILL_TIMEOUT_CANDLES} mum içinde dolmadı; emir iptal sayıldı.`
     };
   }
 

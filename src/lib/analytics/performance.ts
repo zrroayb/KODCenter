@@ -29,6 +29,7 @@ export type RuntimeReplayOutcomeReason =
   | "range-chop"
   | "htf-conflict"
   | "entry-not-filled"
+  | "entry-expired"
   | "expired"
   | "unknown";
 
