@@ -21,13 +21,30 @@ const DEFAULT_WINDOW_DAYS = 30;
 const DEFAULT_MAX_HOLD_CANDLES = 96;
 const DEFAULT_SCAN_EVERY_CANDLES = 4;
 const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-const REPLAY_READY_MIN_SCORE = 40;
+const REPLAY_READY_MIN_SCORE = 50;
 const REPLAY_READY_MIN_RR = 1;
+const REPLAY_MAX_DAILY_TRADES = 3;
+const REPLAY_MAX_SYMBOL_DAILY_TRADES = 1;
+const REPLAY_MAX_ENTRIES_PER_SCAN = 1;
+const REPLAY_DAILY_STOP_R = -2;
 
 type SetupState = {
   lastSeen: number;
   countedWatch: boolean;
   countedReady: boolean;
+};
+
+type DayRiskState = {
+  trades: number;
+  r: number;
+  symbols: Record<string, number>;
+};
+
+type ReplayEntryCandidate = {
+  signal: TradingSignal;
+  time: number;
+  state: SetupState;
+  rank: number;
 };
 
 type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note">;
@@ -108,6 +125,30 @@ function setupKey(signal: TradingSignal): string {
     signal.context.premiumDiscount.zone,
     signal.context.regime.type
   ].join("|");
+}
+
+function dayKey(time: number): string {
+  return new Date(time).toISOString().slice(0, 10);
+}
+
+function dayStateFor(states: Map<string, DayRiskState>, time: number): DayRiskState {
+  const key = dayKey(time);
+  const state = states.get(key) ?? { trades: 0, r: 0, symbols: {} };
+  states.set(key, state);
+  return state;
+}
+
+function canTakeReplayEntry(state: DayRiskState, signal: TradingSignal): boolean {
+  if (state.trades >= REPLAY_MAX_DAILY_TRADES) return false;
+  if (state.r <= REPLAY_DAILY_STOP_R) return false;
+  if ((state.symbols[signal.symbol] ?? 0) >= REPLAY_MAX_SYMBOL_DAILY_TRADES) return false;
+  return true;
+}
+
+function applyReplayRisk(state: DayRiskState, signal: TradingSignal, outcome: ReplayOutcome) {
+  state.trades += 1;
+  state.r = Number((state.r + outcome.rMultiple).toFixed(2));
+  state.symbols[signal.symbol] = (state.symbols[signal.symbol] ?? 0) + 1;
 }
 
 function futureCandlesForSignal(market: DemoMarket, signalTime: number, maxHoldCandles: number): Candle[] {
@@ -318,16 +359,32 @@ function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeRepl
   };
 }
 
+function evidencePassed(signal: TradingSignal, id: string): boolean {
+  return signal.evidence.find((item) => item.id === id)?.status === "pass";
+}
+
+function replayEntryRank(signal: TradingSignal): number {
+  const gradeBonus = signal.grade === "A+" ? 20 : signal.grade === "A" ? 12 : signal.grade === "B" ? 5 : 0;
+  const actionBonus = signal.actionWindow.status === "valid" ? 12 : signal.actionWindow.status === "waiting" ? 4 : -10;
+  const smtBonus = signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? 6 : 0;
+  return signal.score + Math.min(signal.plan.rr, 5) * 5 + gradeBonus + actionBonus + smtBonus;
+}
+
 function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean {
   if (signal.stage === "ready") return true;
   if (signal.stage !== "watch") return false;
   if (signal.governance.status === "block") return false;
-  if (signal.context.eventRisk.noTrade) return false;
-  if (signal.context.dataConfidence.score < 45) return false;
+  if (signal.context.eventRisk.level !== "clear") return false;
+  if (signal.context.regime.tradeability === "blocked") return false;
+  if (signal.context.dataConfidence.score < 68) return false;
   if (signal.score < REPLAY_READY_MIN_SCORE) return false;
-  if (signal.plan.rr < Math.min(minimumRR, REPLAY_READY_MIN_RR)) return false;
+  if (signal.plan.rr < Math.max(minimumRR, REPLAY_READY_MIN_RR)) return false;
   if (signal.plan.entryStatus === "fallback") return false;
   if (signal.plan.entrySource === "fallback-close") return false;
+  if (signal.context.premiumDiscount.zone !== expectedPd(signal)) return false;
+  if (signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return false;
+  if (!evidencePassed(signal, "sweep")) return false;
+  if (!evidencePassed(signal, "mss")) return false;
   if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") return false;
   return true;
 }
@@ -492,6 +549,7 @@ export function runMonthlyRuntimeReplay({
   const dataAvailableDays = endedAt > earliest ? (endedAt - earliest) / DAY_MS : 0;
   const replayedDays = endedAt > startedAt ? (endedAt - startedAt) / DAY_MS : 0;
   const setupStates = new Map<string, SetupState>();
+  const dayRiskStates = new Map<string, DayRiskState>();
   const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
   const trades: RuntimeReplayTrade[] = [];
   const candidates: RuntimeReplayCandidate[] = [];
@@ -509,6 +567,8 @@ export function runMonthlyRuntimeReplay({
         .filter(enoughWarmup)
     );
     scannedWindows += contexts.length;
+
+    const entryCandidates: ReplayEntryCandidate[] = [];
 
     for (const context of contexts) {
       const signal = strategy.scan({ context, settings }).signals[0];
@@ -529,30 +589,43 @@ export function runMonthlyRuntimeReplay({
 
       const replayEligible = replayEligibleSignal(signal, minimumRR);
       if (replayEligible && !state.countedReady) {
-        candidates.push(replayCandidate(signal, time, "ready"));
-        const market = marketBySymbol.get(signal.symbol);
-        const outcome = evaluateForwardOutcome(
-          signal,
-          market ? futureCandlesForSignal(market, time, maxHoldCandles) : [],
-          signal.stage === "ready" ? ["replay:live-ready"] : ["replay:watch-promoted"]
-        );
-        trades.push({
-          id: `${signal.id}-${time}-replay`,
-          symbol: signal.symbol,
-          direction: signal.direction,
-          signalTime: time,
-          grade: signal.grade,
-          score: signal.score,
-          entry: signal.plan.entry,
-          stopLoss: signal.plan.stopLoss,
-          target: signal.plan.targets[0] ?? signal.plan.entry,
-          ...outcome
-        });
-        readyAlerts += 1;
-        state.countedReady = true;
+        entryCandidates.push({ signal, time, state, rank: replayEntryRank(signal) });
       }
 
       setupStates.set(key, state);
+    }
+
+    let entriesThisScan = 0;
+    for (const candidate of entryCandidates.sort((a, b) => b.rank - a.rank)) {
+      if (entriesThisScan >= REPLAY_MAX_ENTRIES_PER_SCAN) break;
+      const dayState = dayStateFor(dayRiskStates, candidate.time);
+      if (!canTakeReplayEntry(dayState, candidate.signal)) continue;
+
+      candidates.push(replayCandidate(candidate.signal, candidate.time, "ready"));
+      const market = marketBySymbol.get(candidate.signal.symbol);
+      const outcome = evaluateForwardOutcome(
+        candidate.signal,
+        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles) : [],
+        candidate.signal.stage === "ready"
+          ? ["replay:live-ready", "risk:daily-capped"]
+          : ["replay:watch-promoted", "risk:daily-capped"]
+      );
+      trades.push({
+        id: `${candidate.signal.id}-${candidate.time}-replay`,
+        symbol: candidate.signal.symbol,
+        direction: candidate.signal.direction,
+        signalTime: candidate.time,
+        grade: candidate.signal.grade,
+        score: candidate.signal.score,
+        entry: candidate.signal.plan.entry,
+        stopLoss: candidate.signal.plan.stopLoss,
+        target: candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
+        ...outcome
+      });
+      applyReplayRisk(dayState, candidate.signal, outcome);
+      readyAlerts += 1;
+      entriesThisScan += 1;
+      candidate.state.countedReady = true;
     }
   }
 
@@ -570,9 +643,12 @@ export function runMonthlyRuntimeReplay({
   const stoppedTrades = trades.filter((trade) => trade.status === "stopped").length;
   const notTriggered = trades.filter((trade) => trade.status === "not-triggered").length;
   const openTrades = trades.filter((trade) => trade.status === "open").length;
-  const sampleWarning = dataAvailableDays + 0.5 < windowDays
-    ? `Mevcut data ${dataAvailableDays.toFixed(1)} gün; tam ${windowDays} gün için provider 15m geçmişi gerekir.`
-    : undefined;
+  const sampleWarning = [
+    dataAvailableDays + 0.5 < windowDays
+      ? `Mevcut data ${dataAvailableDays.toFixed(1)} gün; tam ${windowDays} gün için provider 15m geçmişi gerekir.`
+      : undefined,
+    `Replay risk capped: günde max ${REPLAY_MAX_DAILY_TRADES} entry, sembol başına ${REPLAY_MAX_SYMBOL_DAILY_TRADES}, günlük stop ${REPLAY_DAILY_STOP_R}R.`
+  ].filter((item): item is string => Boolean(item)).join(" ");
 
   return {
     totalTrades: triggered.length,
