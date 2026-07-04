@@ -40,48 +40,66 @@ def _format_r(value: Any) -> str:
 
 
 def _fallback_commentary(payload: dict[str, Any], reason: str | None = None) -> dict[str, Any]:
-    warnings = payload.get("warnings") if isinstance(payload.get("warnings"), list) else []
+    # CRT mentor fallback: address the first missing SOP step with distinct lines instead of
+    # echoing the same audit sentence into both Neden and Beklenen.
     invalidation = payload.get("invalidation") if isinstance(payload.get("invalidation"), list) else []
-    context = payload.get("context") if isinstance(payload.get("context"), dict) else {}
     entry_model = payload.get("entryModel") if isinstance(payload.get("entryModel"), dict) else {}
     chart = payload.get("chart") if isinstance(payload.get("chart"), dict) else {}
     audit = payload.get("structureAudit") if isinstance(payload.get("structureAudit"), dict) else {}
-    audit_items = audit.get("items") if isinstance(audit.get("items"), list) else []
-    audit_issue = next((item for item in audit_items if isinstance(item, dict) and item.get("status") != "pass"), None)
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), list) else []
     waiting_for = chart.get("waitingFor") if isinstance(chart.get("waitingFor"), list) else []
     stage = str(payload.get("stage") or "").lower()
-    if stage == "ready":
-        plan = "Plan hazır; giriş, stop ve TP seviyeleri belli."
+    direction = str(payload.get("direction") or "").lower()
+    entry = payload.get("entry")
+    stop = payload.get("stopLoss")
+
+    def evidence_status(label: str) -> str | None:
+        for item in evidence:
+            if isinstance(item, dict) and label in str(item.get("label", "")).lower():
+                return str(item.get("status"))
+        return None
+
+    geometry_broken = (
+        isinstance(entry, (int, float))
+        and isinstance(stop, (int, float))
+        and (stop <= entry if direction == "short" else stop >= entry)
+    )
+    decision_line = chart.get("decisionLine") if isinstance(chart.get("decisionLine"), str) else None
+    waiting = waiting_for[0] if waiting_for else None
+    audit_decision = audit.get("decision") if isinstance(audit.get("decision"), str) else None
+    invalidation_text = invalidation[0] if invalidation else f"Stop {_format_price(stop)}."
+    risk_line = f"Risk: {_format_r(payload.get('rr'))} · SL {_format_price(stop)} · {invalidation_text}"
+
+    if stage == "invalidated":
+        karar = "Karar: Setup geçersiz; stop görüldü."
+        neden = f"Neden: {_format_price(stop)} invalidation seviyesi çalıştı; manipulation senaryosu bozuldu."
+        beklenen = "Beklenen: Bu modelden uzak dur; yeni range mumu ve yeni manipulation sweep bekle."
     elif stage == "missed":
-        plan = "Entry kaçmış veya hedefe gitmiş; kovalamadan yeni setup bekle."
-    elif stage == "invalidated":
-        plan = "Setup bozulmuş; yeni model bekle."
-    elif entry_model.get("status") == "confirmed":
-        plan = "Entry modeli var ama kalite/RR/filtreler için bekle."
+        karar = "Karar: Kovalama yok; trade kaçtı."
+        neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı."
+        beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle."
+    elif geometry_broken:
+        karar = "Karar: Trade edilmez; plan geometrisi bozuk."
+        neden = f"Neden: Stop {_format_price(stop)}, entry {_format_price(entry)} seviyesinin yanlış tarafında duruyor."
+        beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle."
+    elif evidence_status("manipulation") == "fail":
+        karar = "Karar: Bekle; manipulation yok."
+        neden = "Neden: CRT range extremi henüz süpürülmedi; likidite alınmadan distribution başlamaz."
+        beklenen = f"Beklenen: {waiting or 'Range extremi süpürülüp reclaim kapanışı gelsin.'}"
+    elif evidence_status("choch") == "fail" or entry_model.get("status") != "confirmed":
+        karar = "Karar: Bekle; karakter değişimi onayı eksik."
+        neden = "Neden: Sweep tamam ama ChoCH/Just kapanışı yok; şimdilik bu sadece likidite avı."
+        beklenen = f"Beklenen: {decision_line or waiting or 'LTF kapanışın manipulation başlangıç seviyesini kırması gerekiyor.'}"
+    elif stage == "ready":
+        karar = "Karar: Plan hazır; disiplinle uygula."
+        neden = f"Neden: {audit_decision or 'CRT sırası tamam: bias, manipulation, ChoCH ve retest okunuyor.'}"
+        beklenen = f"Beklenen: Entry {_format_price(entry)}; EQ seviyesinde kısmi al, kalanı DOL'a taşı."
     else:
-        plan = "Retest ve MSS/CISD kapanış onayı bekle."
+        karar = "Karar: Onay geldi; retest bekle, displacement kovalanmaz."
+        neden = f"Neden: {audit_decision or decision_line or 'Kalite/RR filtreleri henüz READY vermiyor.'}"
+        beklenen = f"Beklenen: Fiyat {_format_price(entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok."
 
-    default_warning = (
-        f"PD {context.get('premiumDiscount', '-')}, "
-        f"HTF {context.get('dailyBias', '-')}/{context.get('h4Bias', '-')}/{context.get('h1Bias', '-')}"
-    )
-    warning_text = warnings[0] if warnings else default_warning
-    invalidation_text = invalidation[0] if invalidation else f"Stop {_format_price(payload.get('stopLoss'))}."
-    decision_line = chart.get("decisionLine") if isinstance(chart.get("decisionLine"), str) else plan
-    mentor_note = waiting_for[0] if waiting_for else plan
-    fallback_headline = f"{payload.get('symbol', '-')} {str(payload.get('direction', '')).upper()} {stage.upper()}"
-    headline = audit.get("headline") if isinstance(audit.get("headline"), str) else fallback_headline
-    decision = audit.get("decision") if isinstance(audit.get("decision"), str) else decision_line
-    issue_detail = audit_issue.get("detail") if isinstance(audit_issue, dict) and isinstance(audit_issue.get("detail"), str) else None
-
-    commentary = "\n".join(
-        [
-            f"Karar: {headline}.",
-            f"Neden: {decision}",
-            f"Beklenen: {issue_detail or mentor_note or warning_text}",
-            f"Risk: {_format_r(payload.get('rr'))} · SL {_format_price(payload.get('stopLoss'))} · {invalidation_text}",
-        ]
-    )
+    commentary = "\n".join([karar, neden, beklenen, risk_line])
     return {
         "status": "fallback",
         "commentary": commentary[:900],
@@ -124,6 +142,12 @@ Chartı gerçekten oku: son mum dizilimi, sweep, ChoCH/Just, entry, stop ve TP m
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
 Eğer StructureAudit POI/FVG yok diyorsa zone varmış gibi konuşma.
 Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta POI teması yok", "entry chase olur", "stop zaten görülmüş" gibi.
+Her satırın rolü farklıdır ve kopya satır yasaktır:
+Karar = tek hüküm + kısa gerekçe (Bekle / Trade edilmez / Plan hazır / Kovalama yok gibi).
+Neden = chart'taki mevcut kanıt; CRT sırasında hangi adımlar tamam, hangisi eksik.
+Beklenen = bir SONRAKİ somut adım; hangi seviye, hangi mumun kapanışı, hangi retest.
+Risk = plan seviyeleri ve RR yorumu.
+Neden ile Beklenen'e asla aynı cümleyi yazma; ikisi aynı bilgiyi taşıyorsa yanlış yazıyorsun demektir.
 
 Format:
 Karar: ...

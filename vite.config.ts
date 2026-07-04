@@ -267,28 +267,54 @@ function cleanModelCommentary(value: string, max = 1200) {
 }
 
 function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
-  const warning = input.warnings?.[0];
-  const invalidation = input.invalidation?.[0];
+  // CRT mentor fallback: address the first missing SOP step with distinct lines instead of
+  // echoing the same audit sentence into both Neden and Beklenen.
   const audit = input.structureAudit;
-  const auditIssue = audit?.items?.find((item) => item.status !== "pass");
-  const plan =
-    input.stage === "ready"
-      ? "Plan hazır; entry, stop ve TP seviyeleri belli."
-      : input.stage === "missed"
-        ? "Entry kaçmış veya hedefe gitmiş; kovalamadan yeni setup bekle."
-        : input.stage === "invalidated"
-          ? "Setup bozulmuş; yeni model bekle."
-          : input.entryModel?.status === "confirmed"
-            ? "Entry modeli var ama kalite/RR/filtreler için bekle."
-            : "POI retest ve ChoCH/Just mum kapanış onayı bekle.";
+  const evidenceStatus = (label: string) =>
+    input.evidence?.find((item) => (item.label ?? "").toLowerCase().includes(label))?.status;
+  const direction = (input.direction ?? "").toLowerCase();
+  const geometryBroken = typeof input.entry === "number" && typeof input.stopLoss === "number"
+    && (direction === "short" ? input.stopLoss <= input.entry : input.stopLoss >= input.entry);
+  const decisionLine = input.chart?.decisionLine;
+  const waiting = input.chart?.waitingFor?.[0];
+  const riskLine = `Risk: ${formatTelegramR(input.rr)} · SL ${formatTelegramPrice(input.stopLoss)} · ${input.invalidation?.[0] || "Invalidation stop seviyesi."}`;
+
+  let karar: string;
+  let neden: string;
+  let beklenen: string;
+  if (input.stage === "invalidated") {
+    karar = "Karar: Setup geçersiz; stop görüldü.";
+    neden = `Neden: ${formatTelegramPrice(input.stopLoss)} invalidation seviyesi çalıştı; manipulation senaryosu bozuldu.`;
+    beklenen = "Beklenen: Bu modelden uzak dur; yeni range mumu ve yeni manipulation sweep bekle.";
+  } else if (input.stage === "missed") {
+    karar = "Karar: Kovalama yok; trade kaçtı.";
+    neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı.";
+    beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle.";
+  } else if (geometryBroken) {
+    karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
+    neden = `Neden: Stop ${formatTelegramPrice(input.stopLoss)}, entry ${formatTelegramPrice(input.entry)} seviyesinin yanlış tarafında duruyor.`;
+    beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle.";
+  } else if (evidenceStatus("manipulation") === "fail") {
+    karar = "Karar: Bekle; manipulation yok.";
+    neden = "Neden: CRT range extremi henüz süpürülmedi; likidite alınmadan distribution başlamaz.";
+    beklenen = `Beklenen: ${waiting || "Range extremi süpürülüp reclaim kapanışı gelsin."}`;
+  } else if (evidenceStatus("choch") === "fail" || input.entryModel?.status !== "confirmed") {
+    karar = "Karar: Bekle; karakter değişimi onayı eksik.";
+    neden = "Neden: Sweep tamam ama ChoCH/Just kapanışı yok; şimdilik bu sadece likidite avı.";
+    beklenen = `Beklenen: ${decisionLine || waiting || "LTF kapanışın manipulation başlangıç seviyesini kırması gerekiyor."}`;
+  } else if (input.stage === "ready") {
+    karar = "Karar: Plan hazır; disiplinle uygula.";
+    neden = `Neden: ${audit?.decision || "CRT sırası tamam: bias, manipulation, ChoCH ve retest okunuyor."}`;
+    beklenen = `Beklenen: Entry ${formatTelegramPrice(input.entry)}; EQ seviyesinde kısmi al, kalanı DOL'a taşı.`;
+  } else {
+    karar = "Karar: Onay geldi; retest bekle, displacement kovalanmaz.";
+    neden = `Neden: ${audit?.decision || decisionLine || "Kalite/RR filtreleri henüz READY vermiyor."}`;
+    beklenen = `Beklenen: Fiyat ${formatTelegramPrice(input.entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok.`;
+  }
+
   return {
     status: "fallback" as const,
-    commentary: clampText([
-      `Karar: ${audit?.headline || `${input.symbol ?? "-"} ${(input.direction ?? "").toUpperCase()} ${(input.stage ?? "").toUpperCase()}`}.`,
-      `Neden: ${audit?.decision || input.chart?.decisionLine || plan}`,
-      `Beklenen: ${auditIssue?.detail || input.chart?.waitingFor?.[0] || warning || plan}`,
-      `Risk: ${formatTelegramR(input.rr)} · SL ${formatTelegramPrice(input.stopLoss)} · ${invalidation || "Invalidation stop seviyesi."}`
-    ].join("\n"), 900),
+    commentary: clampText([karar, neden, beklenen, riskLine].join("\n"), 900),
     model: "local-fallback",
     reason
   };
@@ -342,6 +368,12 @@ Chartı gerçekten oku: CRT range high/low/mid, DOL, POI, manipulation sweep, Ch
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
 Eğer StructureAudit POI/FVG yok diyorsa zone varmış gibi konuşma.
 Eğer chart verisi plana tersse bunu açıkça eleştir: "bu chartta POI teması yok", "entry chase olur", "stop zaten görülmüş" gibi.
+Her satırın rolü farklıdır ve kopya satır yasaktır:
+Karar = tek hüküm + kısa gerekçe (Bekle / Trade edilmez / Plan hazır / Kovalama yok gibi).
+Neden = chart'taki mevcut kanıt; CRT sırasında hangi adımlar tamam, hangisi eksik.
+Beklenen = bir SONRAKİ somut adım; hangi seviye, hangi mumun kapanışı, hangi retest.
+Risk = plan seviyeleri ve RR yorumu.
+Neden ile Beklenen'e asla aynı cümleyi yazma; ikisi aynı bilgiyi taşıyorsa yanlış yazıyorsun demektir.
 
 Format:
 Karar: ...

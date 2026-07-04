@@ -130,17 +130,60 @@ export type GeminiTradeCommentaryResponse = {
 };
 
 function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTradeCommentaryResponse {
+  // CRT mentor fallback: walk the SOP in order (manipulation -> ChoCH -> retest -> plan) and
+  // speak to the first missing step with concrete levels. Each line carries different content;
+  // Karar is the verdict, Neden the chart evidence, Beklenen the next concrete step.
   const audit = buildStructureAudit(signal);
-  const firstIssue = audit.items.find((item) => item.status !== "pass");
-  const commentary = [
-    `Karar: ${audit.headline}`,
-    `Neden: ${audit.decision}`,
-    `Beklenen: ${firstIssue?.detail ?? "CRT sırası tamam; retest disiplinini koru, displacement kovalanmaz."}`,
-    `Risk: ${formatR(signal.plan.rr)} · SL ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}.`
-  ].join("\n");
+  const plan = signal.plan;
+  const closeReq = closeConfirmationRequirement(signal);
+  const range = signal.context.crt.activeRange;
+  const evidenceStatus = (id: string) => signal.evidence.find((item) => item.id === id)?.status;
+  const geometryBroken = signal.direction === "short" ? plan.stopLoss <= plan.entry : plan.stopLoss >= plan.entry;
+  const riskLine = `Risk: ${formatR(plan.rr)} · SL ${formatPrice(plan.stopLoss)} · EQ ${formatPrice(plan.targets[0])} · DOL ${formatPrice(plan.targets[1] ?? plan.targets[0])}.`;
+
+  let karar: string;
+  let neden: string;
+  let beklenen: string;
+  if (signal.stage === "invalidated") {
+    karar = "Karar: Setup geçersiz; stop görüldü.";
+    neden = `Neden: ${formatPrice(plan.stopLoss)} invalidation seviyesi çalıştı; manipulation senaryosu bozuldu.`;
+    beklenen = "Beklenen: Bu modelden uzak dur; yeni range mumu ve yeni manipulation sweep bekle.";
+  } else if (signal.stage === "missed") {
+    karar = "Karar: Kovalama yok; trade kaçtı.";
+    neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı.";
+    beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle.";
+  } else if (geometryBroken) {
+    karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
+    neden = `Neden: Stop ${formatPrice(plan.stopLoss)}, entry ${formatPrice(plan.entry)} seviyesinin yanlış tarafında duruyor.`;
+    beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle.";
+  } else if (evidenceStatus("manipulation") === "fail") {
+    const extreme = signal.direction === "short" ? `range high ${formatPrice(range.high)}` : `range low ${formatPrice(range.low)}`;
+    karar = "Karar: Bekle; manipulation yok.";
+    neden = `Neden: CRT ${extreme} henüz süpürülmedi; likidite alınmadan distribution başlamaz.`;
+    beklenen = `Beklenen: ${extreme} süpürülsün ve mum range içine reclaim kapanışı yapsın.`;
+  } else if (evidenceStatus("choch") === "fail" || (closeReq && plan.entryStatus !== "confirmed")) {
+    karar = "Karar: Bekle; karakter değişimi onayı eksik.";
+    neden = "Neden: Sweep tamam ama ChoCH/Just kapanışı yok; şimdilik bu sadece likidite avı.";
+    beklenen = closeReq
+      ? `Beklenen: ${closeReq.timeframe} mum ${formatPrice(closeReq.level)} ${closeReq.side === "above" ? "üstünde" : "altında"} kapansın.`
+      : "Beklenen: LTF kapanışın manipulation başlangıç seviyesini kırması gerekiyor.";
+  } else if (plan.entryStatus === "confirmed" && (signal.stage === "watch" || signal.stage === "ready")) {
+    karar = signal.stage === "ready"
+      ? "Karar: Plan hazır; disiplinle uygula."
+      : "Karar: Onay geldi; retest bekle, displacement kovalanmaz.";
+    neden = `Neden: ${audit.decision}`;
+    beklenen = signal.stage === "ready"
+      ? `Beklenen: Entry ${formatPrice(plan.entry)}; EQ ${formatPrice(plan.targets[0])} seviyesinde kısmi al, kalanı DOL'a taşı.`
+      : `Beklenen: Fiyat ${formatPrice(plan.entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok.`;
+  } else {
+    karar = `Karar: ${audit.headline}`;
+    neden = `Neden: ${audit.decision}`;
+    beklenen = `Beklenen: ${signal.governance.blockers[0] ?? "CRT sırasının tamamlanmasını bekle."}`;
+  }
+
   return {
     status: "fallback",
-    commentary,
+    commentary: [karar, neden, beklenen, riskLine].join("\n"),
     model: "local-fallback",
     reason
   };
