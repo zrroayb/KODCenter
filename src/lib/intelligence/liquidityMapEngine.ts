@@ -2,6 +2,31 @@ import type { Candle, LiquidityPool, Sweep } from "../ict/types";
 import { executableHigh, executableLow } from "../data/bidAsk";
 import { detectSwingPoints } from "./structureEngine";
 
+function levelTolerance(reference: number) {
+  return Math.max(Math.abs(reference) * 0.00002, 0.000001);
+}
+
+function dedupePools(pools: LiquidityPool[], reference: number): LiquidityPool[] {
+  const tolerance = levelTolerance(reference);
+  return pools.filter((pool, index) =>
+    pools.findIndex((item) => item.side === pool.side && Math.abs(item.level - pool.level) <= tolerance) === index
+  );
+}
+
+function dedupeSweeps(sweeps: Sweep[], reference: number): Sweep[] {
+  const tolerance = levelTolerance(reference);
+  const ranked = [...sweeps].sort((a, b) =>
+    b.candleIndex - a.candleIndex
+    || Number(b.reclaimed) - Number(a.reclaimed)
+    || Math.abs(a.level - reference) - Math.abs(b.level - reference)
+  );
+  return ranked
+    .filter((sweep, index) =>
+      ranked.findIndex((item) => item.side === sweep.side && Math.abs(item.level - sweep.level) <= tolerance) === index
+    )
+    .sort((a, b) => a.candleIndex - b.candleIndex || a.level - b.level);
+}
+
 function equalLiquidityPools(candles: Candle[]): LiquidityPool[] {
   const sample = candles.slice(-48);
   const pools: LiquidityPool[] = [];
@@ -45,11 +70,12 @@ export function buildLiquidityPools(candles: Candle[], prefix = "range"): Liquid
   if (!sample.length) return [];
   const high = Math.max(...sample.map((candle) => candle.high));
   const low = Math.min(...sample.map((candle) => candle.low));
-  return [
+  const latestClose = sample[sample.length - 1]?.close ?? high;
+  return dedupePools([
     { id: `${prefix}-buy-side-high`, side: "buy-side", level: high, label: "Buy-side liquidity above range high", strength: "strong" },
     { id: `${prefix}-sell-side-low`, side: "sell-side", level: low, label: "Sell-side liquidity below range low", strength: "strong" },
     ...equalLiquidityPools(candles)
-  ];
+  ], latestClose);
 }
 
 export function detectSweeps(candles: Candle[], pools: LiquidityPool[]): Sweep[] {
@@ -58,7 +84,7 @@ export function detectSweeps(candles: Candle[], pools: LiquidityPool[]): Sweep[]
   const windowStart = Math.max(0, candles.length - 8);
   const recent = candles.slice(windowStart);
   const sweeps: Sweep[] = [];
-  for (const pool of pools) {
+  for (const pool of dedupePools(pools, latest.close)) {
     let touchOffset = -1;
     for (let index = recent.length - 1; index >= 0; index -= 1) {
       const candle = recent[index];
@@ -79,5 +105,5 @@ export function detectSweeps(candles: Candle[], pools: LiquidityPool[]): Sweep[]
       reclaimed
     });
   }
-  return sweeps;
+  return dedupeSweeps(sweeps, latest.close);
 }

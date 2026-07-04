@@ -100,6 +100,50 @@ describe("KOD strategy module", () => {
     expect(sweeps[0].reclaimed).toBe(true);
   });
 
+  it("dedupes repeated sweep pools around the same level", () => {
+    const candles = Array.from({ length: 12 }, (_, index) => ({
+      time: Date.UTC(2026, 5, 30, 12, index * 15),
+      open: 100,
+      high: index === 9 ? 103 : 101,
+      low: 99,
+      close: index === 11 ? 100.5 : 100,
+      volume: 1000
+    }));
+    const sweeps = detectSweeps(candles, [
+      { id: "bsl-1", side: "buy-side", level: 102, label: "BSL 1", strength: "strong" },
+      { id: "bsl-2", side: "buy-side", level: 102.0005, label: "BSL duplicate", strength: "strong" }
+    ]);
+
+    expect(sweeps).toHaveLength(1);
+    expect(sweeps[0].side).toBe("buy-side");
+  });
+
+  it("selects long when long structure is cleaner even if a buy-side sweep also exists", () => {
+    const context = createStructureContext({
+      bias: { daily: "bullish", h4: "bullish", h1: "bullish" },
+      premiumDiscount: { zone: "discount", positionPct: 0.25, midpoint: 100 },
+      dealingRange: { high: 105, low: 97, midpoint: 101, source: "Long selection fixture" },
+      liquidityPools: [
+        { id: "buy-side", side: "buy-side", level: 105, label: "Buy-side", strength: "strong" },
+        { id: "sell-side", side: "sell-side", level: 97, label: "Sell-side", strength: "strong" }
+      ],
+      sweeps: [
+        { side: "buy-side", level: 101, candleIndex: 23, reclaimed: true },
+        { side: "sell-side", level: 99, candleIndex: 23, reclaimed: true }
+      ],
+      displacements: [{ direction: "long", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1.2 }],
+      marketStructureShifts: [{ direction: "long", level: 100.2, candleIndex: 23, kind: "choch" }],
+      fairValueGaps: [{ direction: "long", low: 99.8, high: 100.2, midpoint: 100, candleIndex: 22, mitigated: false }]
+    });
+
+    const signal = kodStrategy.scan({ context, settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false } }).signals[0];
+
+    expect(signal.direction).toBe("long");
+    expect(signal.evidence[0].id).toBe("direction-selection");
+    expect(signal.evidence[0].detail).toContain("LONG");
+    expect(signal.evidence[0].detail).toContain("SHORT");
+  });
+
   it("keeps a setup on watch when the only FVG is stale and outside the ICT sequence", () => {
     const context = createStructureContext({
       sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],

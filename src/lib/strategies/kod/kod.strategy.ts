@@ -47,12 +47,28 @@ type SignalLifecycle = {
   warnings: string[];
 };
 
-function inferDirection(context: MarketContext): TradeDirection {
-  const latestSweep = latestByIndex(context.sweeps.filter((sweep) => sweep.reclaimed));
-  if (latestSweep?.side === "buy-side") return "short";
-  if (latestSweep?.side === "sell-side") return "long";
-  if (context.bias.h4 === "bearish") return "short";
-  return "long";
+type DirectionCandidate = {
+  signal: TradingSignal;
+  fitScore: number;
+  selectionScore: number;
+};
+
+const DIRECTIONS: TradeDirection[] = ["long", "short"];
+
+function expectedBias(direction: TradeDirection) {
+  return direction === "short" ? "bearish" : "bullish";
+}
+
+function expectedPdZone(direction: TradeDirection) {
+  return direction === "short" ? "premium" : "discount";
+}
+
+function expectedSweepSide(direction: TradeDirection) {
+  return direction === "short" ? "buy-side" : "sell-side";
+}
+
+function oppositeSweepSide(direction: TradeDirection) {
+  return direction === "short" ? "sell-side" : "buy-side";
 }
 
 function executionCandles(context: MarketContext): Candle[] {
@@ -61,6 +77,128 @@ function executionCandles(context: MarketContext): Candle[] {
 
 function latestByIndex<T extends { candleIndex: number }>(items: T[]): T | undefined {
   return [...items].sort((a, b) => b.candleIndex - a.candleIndex)[0];
+}
+
+function latestDirectionalIndex(context: MarketContext, direction: TradeDirection): number | undefined {
+  const indices = [
+    latestByIndex(context.sweeps.filter((item) => item.side === expectedSweepSide(direction) && item.reclaimed))?.candleIndex,
+    latestByIndex(context.displacements.filter((item) => item.direction === direction))?.candleIndex,
+    latestByIndex(context.marketStructureShifts.filter((item) => item.direction === direction))?.candleIndex,
+    latestByIndex(context.fairValueGaps.filter((item) => item.direction === direction && !item.mitigated))?.candleIndex,
+    latestByIndex(context.orderBlocks.filter((item) => item.direction === direction && !item.mitigated))?.candleIndex,
+    latestByIndex(context.smtDivergences.filter((item) => item.direction === direction))?.candleIndex
+  ].filter((index): index is number => typeof index === "number");
+
+  return indices.length ? Math.max(...indices) : undefined;
+}
+
+function directionFitScore(context: MarketContext, direction: TradeDirection): number {
+  const wantedBias = expectedBias(direction);
+  const wantedPd = expectedPdZone(direction);
+  const wantedSweep = latestByIndex(context.sweeps.filter((item) => item.side === expectedSweepSide(direction) && item.reclaimed));
+  const oppositeSweep = latestByIndex(context.sweeps.filter((item) => item.side === oppositeSweepSide(direction) && item.reclaimed));
+  const displacement = latestByIndex(context.displacements.filter((item) => item.direction === direction));
+  const mss = latestByIndex(context.marketStructureShifts.filter((item) => item.direction === direction));
+  const fvg = latestByIndex(context.fairValueGaps.filter((item) => item.direction === direction && !item.mitigated));
+  const orderBlock = latestByIndex(context.orderBlocks.filter((item) => item.direction === direction && !item.mitigated));
+  const smt = latestByIndex(context.smtDivergences.filter((item) => item.direction === direction));
+  const execution = executionCandles(context);
+  const latestIndex = latestDirectionalIndex(context, direction);
+  const retracementBias = context.retracement.direction === "bullish" ? "long" : context.retracement.direction === "bearish" ? "short" : undefined;
+
+  let score = 0;
+  score += context.bias.daily === wantedBias ? 8 : context.bias.daily === "neutral" ? 0 : -4;
+  score += context.bias.h4 === wantedBias ? 12 : context.bias.h4 === "neutral" ? 0 : -8;
+  score += context.bias.h1 === wantedBias ? 8 : context.bias.h1 === "neutral" ? 0 : -5;
+  score += context.premiumDiscount.zone === wantedPd ? 12 : context.premiumDiscount.zone === "equilibrium" ? 2 : -10;
+  score += wantedSweep ? 22 : -8;
+  score += displacement ? 14 : -4;
+  score += mss ? 14 : -4;
+  score += fvg ? 8 : -2;
+  score += orderBlock ? 6 : 0;
+  score += smt ? 4 : 0;
+  score += retracementBias === direction ? 4 : retracementBias ? -3 : 0;
+
+  if (oppositeSweep && (!wantedSweep || oppositeSweep.candleIndex > wantedSweep.candleIndex)) score -= 12;
+  if (typeof latestIndex === "number" && execution.length > 1) {
+    const candlesAgo = Math.max(0, execution.length - 1 - latestIndex);
+    score += Math.max(0, 8 - candlesAgo * 0.4);
+  }
+
+  return score;
+}
+
+function hasDirectionalSetup(context: MarketContext, direction: TradeDirection): boolean {
+  const sweep = latestByIndex(context.sweeps.filter((item) => item.side === expectedSweepSide(direction) && item.reclaimed));
+  const displacement = latestByIndex(context.displacements.filter((item) => item.direction === direction));
+  const mss = latestByIndex(context.marketStructureShifts.filter((item) => item.direction === direction));
+  const fvg = latestByIndex(context.fairValueGaps.filter((item) => item.direction === direction && !item.mitigated));
+  const inverseGap = latestByIndex(context.fairValueGaps.filter((item) => item.direction !== direction && item.mitigated));
+  return Boolean(sweep || (displacement && mss) || fvg || inverseGap);
+}
+
+function signalSelectionScore(signal: TradingSignal, fitScore: number): number {
+  const stageBase: Record<SignalStage, number> = {
+    ready: 5000,
+    watch: 3000,
+    missed: 1000,
+    invalidated: 1000
+  };
+  const setupPenalty = hasDirectionalSetup(signal.context, signal.direction) ? 0 : -2800;
+  const actionWindowBonus =
+    signal.actionWindow.status === "valid" ? 350
+      : signal.actionWindow.status === "waiting" ? 120
+        : signal.actionWindow.status === "expired" ? -450
+          : -250;
+  const outcomePenalty =
+    signal.outcome.status === "stopped" ? -1400
+      : signal.outcome.status === "missed" ? -650
+        : signal.outcome.status === "tp1" || signal.outcome.status === "tp2" ? -400
+          : 0;
+
+  return stageBase[signal.stage]
+    + signal.score * 16
+    + fitScore * 10
+    + Math.min(Math.max(signal.plan.rr, 0), 8) * 35
+    + setupPenalty
+    + actionWindowBonus
+    + outcomePenalty;
+}
+
+function directionSelectionDetail(candidates: DirectionCandidate[], selected: DirectionCandidate): string {
+  const parts = candidates
+    .map((candidate) => `${candidate.signal.direction.toUpperCase()} ${candidate.signal.stage.toUpperCase()} · kalite ${candidate.signal.score} · uyum ${candidate.fitScore}`)
+    .join(" / ");
+  return `${parts}. Seçilen: ${selected.signal.direction.toUpperCase()} çünkü toplam yön skoru daha temiz.`;
+}
+
+function selectBestDirectionalSignal(candidates: TradingSignal[]): TradingSignal {
+  const ranked = candidates
+    .map((signal) => {
+      const fitScore = directionFitScore(signal.context, signal.direction);
+      return {
+        signal,
+        fitScore,
+        selectionScore: signalSelectionScore(signal, fitScore)
+      };
+    })
+    .sort((a, b) => b.selectionScore - a.selectionScore);
+  const selected = ranked[0];
+  if (!selected) return candidates[0];
+
+  return {
+    ...selected.signal,
+    evidence: [
+      {
+        id: "direction-selection",
+        label: "Direction selection",
+        status: "pass",
+        detail: directionSelectionDetail(ranked, selected),
+        timeframe: "15m"
+      },
+      ...selected.signal.evidence
+    ]
+  };
 }
 
 function stopSourceLabel(source: StopSource): string {
@@ -473,8 +611,7 @@ function buildSignalEvidence(
   ];
 }
 
-function signalFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal {
-  const direction = inferDirection(context);
+function signalFromContext(context: MarketContext, settings: StrategyInput["settings"], direction: TradeDirection): TradingSignal {
   const execution = executionCandles(context);
   const latestExecutionCandle = execution[execution.length - 1];
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
@@ -585,7 +722,7 @@ export const kodStrategy: StrategyModule = {
     noAutoExecution: true
   },
   scan(input: StrategyInput): StrategyResult {
-    const signal = signalFromContext(input.context, input.settings);
+    const signal = selectBestDirectionalSignal(DIRECTIONS.map((direction) => signalFromContext(input.context, input.settings, direction)));
     const rejectedSetups =
       signal.stage === "ready"
         ? []
@@ -593,7 +730,7 @@ export const kodStrategy: StrategyModule = {
     return { signals: [signal], rejectedSetups };
   },
   backtest(input: BacktestInput) {
-    const signals = input.contexts.map((context) => signalFromContext(context, input.settings));
+    const signals = input.contexts.map((context) => selectBestDirectionalSignal(DIRECTIONS.map((direction) => signalFromContext(context, input.settings, direction))));
     return performanceFromSignals(signals);
   }
 };
