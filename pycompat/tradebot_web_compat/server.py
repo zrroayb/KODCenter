@@ -210,6 +210,19 @@ Invalidation:
 
 def _telegram_caption(payload: dict[str, Any], ai_commentary: str | None = None) -> str:
     reasons = payload.get("reasons") if isinstance(payload.get("reasons"), list) else []
+    if payload.get("alertKind") == "raid":
+        raid_note = "raid mumu içeri kapandı" if payload.get("raidClosed") else "raid canlı"
+        lines = [
+            f"<b>CRT RAID</b> {html.escape(str(payload.get('symbol', '-')))} {html.escape(str(payload.get('direction', '')).upper())} ({html.escape(str(payload.get('rangeTf', '?')))})",
+            f"Range: <b>{_format_price(payload.get('rangeLow'))}</b> - <b>{_format_price(payload.get('rangeHigh'))}</b> · {raid_note}",
+            "",
+            f"{html.escape(str(payload.get('confirmTf', 'LTF')))} ChoCH/Just kapanışı + retest bekleniyor. Bu bir entry sinyali DEĞİL, hazırlık uyarısıdır.",
+            "",
+        ]
+        lines.extend(f"- {html.escape(str(reason))}" for reason in reasons[:5])
+        if not reasons:
+            lines.append("- Raid + reclaim aktif")
+        return "\n".join(lines)
     target = payload.get("targets", [None])[0] if isinstance(payload.get("targets"), list) else None
     lines = [
         f"<b>READY SETUP</b> {html.escape(str(payload.get('symbol', '-')))} {html.escape(str(payload.get('direction', '')).upper())}",

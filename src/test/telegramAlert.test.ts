@@ -6,15 +6,28 @@ import { createStructureContext } from "./strategyFixtures";
 
 function readySignal() {
   const base = createStructureContext();
+  // New CRT model reads the raid off the anchor candles directly: h4[21] is the range candle
+  // (101/95), h4[22] raids its high and closes back inside, h4[23] delivers lower.
+  const h4 = base.timeframes.h4.map((candle, index) =>
+    index === 21
+      ? { ...candle, open: 100, high: 101, low: 95, close: 99 }
+      : index === 22
+        ? { ...candle, open: 99, high: 101.15, low: 96, close: 100.2 }
+        : index === 23
+          ? { ...candle, open: 96.2, high: 96.5, low: 95.5, close: 95.9 }
+          : candle
+  );
   const m15 = base.timeframes.m15.map((candle, index) =>
-    index === 22
-      ? { ...candle, high: 101.3, low: 99.7, close: 100.1 }
-      : index === 23
-        ? { ...candle, open: 100.1, high: 100.3, low: 98.7, close: 98.8 }
-        : candle
+    index === 18
+      ? { ...candle, low: 99.4 }
+      : index === 22
+        ? { ...candle, high: 101.3, low: 99.7, close: 100.1 }
+        : index === 23
+          ? { ...candle, open: 100.1, high: 100.3, low: 98.7, close: 98.8 }
+          : candle
   );
   const context = createStructureContext({
-    timeframes: { ...base.timeframes, m15, m5: m15 },
+    timeframes: { ...base.timeframes, m15, m5: m15, h4 },
     dealingRange: { high: 105, low: 90, midpoint: 97.5, source: "Telegram alert fixture" },
     premiumDiscount: { zone: "premium", positionPct: 0.72, midpoint: 97.5 },
     liquidityPools: [

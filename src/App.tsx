@@ -20,7 +20,7 @@ import { buildSessionClock, formatTurkeySessionTime } from "./lib/session/sessio
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
-import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
+import { notifyRaidSignalOnce, notifyReadySignalOnce } from "./lib/telegram/readyAlert";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { defaultRules } from "./lib/userRules/defaultRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
@@ -225,6 +225,13 @@ export default function App() {
       void notifyReadySignalOnce(signal).then((result) => {
         if (result.status === "error") {
           console.warn("Telegram ready alert failed", result.error);
+        }
+      });
+    }
+    for (const signal of visibleSignals.filter((item) => item.stage === "watch" && item.crtAnchor?.raidActive)) {
+      void notifyRaidSignalOnce(signal).then((result) => {
+        if (result.status === "error") {
+          console.warn("Telegram raid alert failed", result.error);
         }
       });
     }

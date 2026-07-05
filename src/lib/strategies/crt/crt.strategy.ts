@@ -1,17 +1,22 @@
 import { checklistItem } from "../../brain/decisionSummary";
 import { formatPrice, formatR } from "../../ict/format";
-import type { Candle, CrtPoi, DecisionSummary, ExecutionCostStress, MarketContext, MarketSymbol, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
+import { averageTrueRange } from "../../ict/candles";
+import type { Candle, CrtPoi, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
 import { isCryptoSymbol } from "../../ict/symbols";
 import { defaultAccountModel } from "../../risk/accountModel";
 import { estimateExecutionCosts } from "../../risk/executionCosts";
 import { calculatePositionSize } from "../../risk/positionSizing";
 import { performanceFromSignals } from "../../analytics/performance";
 import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/outcomeEngine";
+import { buildCrtBias, validCrtPullback } from "../../intelligence/crtEngine";
+import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../../intelligence/structureEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
-// Freshness windows on execution (m15) candles: a sweep older than ~6h or a ChoCH older than ~3h no longer validates a setup.
+// Freshness windows in confirmation-TF candles: a sweep older than ~24 bars or a ChoCH older
+// than ~12 bars no longer validates a setup. The HTF raid itself does not expire this way —
+// it stays valid while the reclaim holds and the range candle is still the reference.
 const SWEEP_FRESHNESS_CANDLES = 24;
 const CHOCH_FRESHNESS_CANDLES = 12;
 const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
@@ -22,8 +27,34 @@ const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
   BTCUSD: 120
 };
 
+// CRT works on multiple anchors; each anchor confirms on its own lower timeframe:
+// 1W -> 4H, 1D -> 1H, 4H -> 15m.
+type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "15m" | "1h" | "4h"> };
+const ANCHORS: AnchorSpec[] = [
+  { rangeTf: "4h", confirmTf: "15m" },
+  { rangeTf: "1d", confirmTf: "1h" },
+  { rangeTf: "1w", confirmTf: "4h" }
+];
+
+type AnchorRaid = { direction: TradeDirection; level: number; time: number; closed: boolean };
+
+type AnchorCtx = {
+  spec: AnchorSpec;
+  rangeCandles: Candle[];
+  confirmCandles: Candle[];
+  range: DealingRange;
+  raid?: AnchorRaid;
+  swings: SwingPoint[];
+  fvgs: FairValueGap[];
+  orderBlocks: OrderBlock[];
+  htfFvgs: FairValueGap[];
+  atr: number;
+  averageRange: number;
+};
+
 type CrtSetup = {
   direction: TradeDirection;
+  directionSource: "raid" | "bias" | "pd";
   manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
   choch?: { level: number; candleIndex: number };
   poi?: CrtPoi;
@@ -31,54 +62,10 @@ type CrtSetup = {
   warnings: string[];
   blockers: string[];
   score: number;
+  raidClosed: boolean;
+  anchorAtKeyLevel: boolean;
+  fvgConfluence: boolean;
 };
-
-function executionCandles(context: MarketContext): Candle[] {
-  return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
-}
-
-type DirectionSource = "sweep" | "bias" | "pd";
-
-function rangeExtremeSweep(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
-  const candles = executionCandles(context);
-  const freshnessStart = Math.max(0, candles.length - SWEEP_FRESHNESS_CANDLES);
-  const rangeLevel = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
-  // The reclaim must still hold NOW: if price currently trades beyond the swept extreme,
-  // that was not a manipulation, it is a breakout — there is nothing to fade.
-  const latestClose = candles[candles.length - 1]?.close;
-  if (typeof latestClose !== "number") return undefined;
-  if (direction === "short" ? latestClose >= rangeLevel : latestClose <= rangeLevel) return undefined;
-  const sweep = candles
-    .map((candle, candleIndex) => ({ candle, candleIndex }))
-    .filter(({ candleIndex }) => candleIndex >= freshnessStart)
-    .filter(({ candle }) => direction === "short"
-      ? candle.high > rangeLevel && candle.close < rangeLevel
-      : candle.low < rangeLevel && candle.close > rangeLevel)
-    .sort((a, b) => b.candleIndex - a.candleIndex)[0];
-  if (!sweep) return undefined;
-  return {
-    side: expectedSweepSide(direction),
-    level: direction === "short" ? sweep.candle.high : sweep.candle.low,
-    candleIndex: sweep.candleIndex,
-    reclaimed: true
-  };
-}
-
-function directionFromContext(context: MarketContext): { direction: TradeDirection; source: DirectionSource } {
-  // CRT reversal model: direction comes from which range extreme was swept and reclaimed,
-  // not from HTF bias alone. Bias acts as confluence, not as the dictator.
-  const shortSweep = rangeExtremeSweep(context, "short");
-  const longSweep = rangeExtremeSweep(context, "long");
-  if (shortSweep && longSweep) {
-    return { direction: shortSweep.candleIndex >= longSweep.candleIndex ? "short" : "long", source: "sweep" };
-  }
-  if (shortSweep) return { direction: "short", source: "sweep" };
-  if (longSweep) return { direction: "long", source: "sweep" };
-  if (context.crt.selectedBias.direction === "long" || context.crt.selectedBias.direction === "short") {
-    return { direction: context.crt.selectedBias.direction, source: "bias" };
-  }
-  return { direction: context.premiumDiscount.zone === "premium" ? "short" : "long", source: "pd" };
-}
 
 function expectedPd(direction: TradeDirection) {
   return direction === "short" ? "premium" : "discount";
@@ -88,18 +75,117 @@ function expectedSweepSide(direction: TradeDirection) {
   return direction === "short" ? "buy-side" : "sell-side";
 }
 
-function latestByIndex<T extends { candleIndex: number }>(items: T[]): T | undefined {
-  return [...items].sort((a, b) => b.candleIndex - a.candleIndex)[0];
+function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
+  if (spec.rangeTf === "4h") return context.timeframes.h4;
+  if (spec.rangeTf === "1d") return context.timeframes.daily;
+  return context.timeframes.weekly;
 }
 
-function reclaimSweepFromCandles(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
-  const candles = executionCandles(context);
-  const expectedSide = expectedSweepSide(direction);
+function confirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
+  if (spec.confirmTf === "15m") return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
+  if (spec.confirmTf === "1h") return context.timeframes.h1;
+  return context.timeframes.h4;
+}
+
+function rangeFromCandle(candle: Candle, spec: AnchorSpec): DealingRange {
+  return { high: candle.high, low: candle.low, midpoint: (candle.high + candle.low) / 2, source: `CRT ${spec.rangeTf} range: previous closed candle` };
+}
+
+// SOP steps 2-4: mark CRT-High/Low, wait for the raid, confirm the close back inside.
+// A closed raid candle (strongest confirmation) is preferred; a live raid on the forming
+// candle is the fast variant. In both cases the reclaim must still hold NOW — if price
+// trades beyond the swept extreme, that was a breakout and there is nothing to fade.
+function detectAnchorRaid(rangeCandles: Candle[], lastClose: number, spec: AnchorSpec): { range: DealingRange; raid?: AnchorRaid } {
+  const n = rangeCandles.length;
+  if (n >= 3) {
+    const range = rangeFromCandle(rangeCandles[n - 3], spec);
+    const raidCandle = rangeCandles[n - 2];
+    const shortRaid = raidCandle.high > range.high && raidCandle.close < range.high && lastClose < range.high;
+    const longRaid = raidCandle.low < range.low && raidCandle.close > range.low && lastClose > range.low;
+    if (shortRaid && !longRaid) return { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: true } };
+    if (longRaid && !shortRaid) return { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: true } };
+    if (shortRaid && longRaid) {
+      const upExcess = raidCandle.high - range.high;
+      const downExcess = range.low - raidCandle.low;
+      return upExcess >= downExcess
+        ? { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: true } }
+        : { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: true } };
+    }
+  }
+  if (n >= 2) {
+    const range = rangeFromCandle(rangeCandles[n - 2], spec);
+    const raidCandle = rangeCandles[n - 1];
+    const shortRaid = raidCandle.high > range.high && lastClose < range.high;
+    const longRaid = raidCandle.low < range.low && lastClose > range.low;
+    if (shortRaid && !longRaid) return { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: false } };
+    if (longRaid && !shortRaid) return { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: false } };
+    return { range };
+  }
+  return { range: rangeFromCandle(rangeCandles[n - 1], spec) };
+}
+
+function buildAnchorCtx(context: MarketContext, spec: AnchorSpec): AnchorCtx | undefined {
+  const rangeCandles = rangeCandlesFor(context, spec);
+  const confirmCandles = confirmCandlesFor(context, spec);
+  if (rangeCandles.length < 2 || confirmCandles.length < 20) return undefined;
+  const lastClose = confirmCandles[confirmCandles.length - 1].close;
+  const { range, raid } = detectAnchorRaid(rangeCandles, lastClose, spec);
+  const swings = detectSwingPoints(confirmCandles, 3);
+  const ranges = confirmCandles.slice(-20).map((candle) => candle.high - candle.low);
+  return {
+    spec,
+    rangeCandles,
+    confirmCandles,
+    range,
+    raid,
+    swings,
+    fvgs: detectFairValueGaps(confirmCandles),
+    orderBlocks: detectOrderBlocks(confirmCandles, swings),
+    htfFvgs: detectFairValueGaps(rangeCandles),
+    atr: averageTrueRange(confirmCandles, 14),
+    averageRange: ranges.reduce((sum, value) => sum + value, 0) / Math.max(ranges.length, 1)
+  };
+}
+
+function symbolBuffer(anchor: AnchorCtx, symbol: MarketSymbol): number {
+  return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_MIN_BUFFER[symbol]);
+}
+
+function confirmIndexAtTime(candles: Candle[], time: number): number {
+  const index = candles.findIndex((candle) => candle.time >= time);
+  return index >= 0 ? index : Math.max(0, candles.length - 1);
+}
+
+function anchorBias(anchor: AnchorCtx) {
+  return buildCrtBias(anchor.rangeCandles, anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
+}
+
+function directionForAnchor(context: MarketContext, anchor: AnchorCtx): { direction: TradeDirection; source: CrtSetup["directionSource"] } | undefined {
+  if (anchor.raid) return { direction: anchor.raid.direction, source: "raid" };
+  const bias = anchorBias(anchor);
+  if (bias.direction === "long" || bias.direction === "short") return { direction: bias.direction, source: "bias" };
+  if (anchor.spec.rangeTf === "4h") {
+    return { direction: context.premiumDiscount.zone === "premium" ? "short" : "long", source: "pd" };
+  }
+  return undefined;
+}
+
+function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtSetup["manipulation"] {
+  // The HTF raid IS the manipulation — it stays valid while the reclaim holds, it does not
+  // expire on an LTF freshness window. Confirmation-TF sweeps are the fine-grained variant.
+  if (anchor.raid && anchor.raid.direction === direction) {
+    return {
+      side: expectedSweepSide(direction),
+      level: anchor.raid.level,
+      candleIndex: confirmIndexAtTime(anchor.confirmCandles, anchor.raid.time),
+      reclaimed: true
+    };
+  }
+  const candles = anchor.confirmCandles;
+  const lastClose = candles[candles.length - 1].close;
+  const rangeLevel = direction === "short" ? anchor.range.high : anchor.range.low;
+  if (direction === "short" ? lastClose >= rangeLevel : lastClose <= rangeLevel) return undefined;
   const freshnessStart = Math.max(0, candles.length - SWEEP_FRESHNESS_CANDLES);
-  const rangeLevel = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
-  const latestClose = candles[candles.length - 1]?.close;
-  if (typeof latestClose !== "number") return undefined;
-  if (direction === "short" ? latestClose >= rangeLevel : latestClose <= rangeLevel) return undefined;
   const rangeSweep = candles
     .map((candle, candleIndex) => ({ candle, candleIndex }))
     .filter(({ candleIndex }) => candleIndex >= freshnessStart)
@@ -109,86 +195,40 @@ function reclaimSweepFromCandles(context: MarketContext, direction: TradeDirecti
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
   if (rangeSweep) {
     return {
-      side: expectedSide,
+      side: expectedSweepSide(direction),
       level: direction === "short" ? rangeSweep.candle.high : rangeSweep.candle.low,
       candleIndex: rangeSweep.candleIndex,
       reclaimed: true
     };
   }
-
   const swingSide = direction === "short" ? "high" : "low";
-  const swingSweeps = context.swingPoints
+  const swingSweep = anchor.swings
     .filter((point) => point.side === swingSide)
-    .filter((point) => direction === "short" ? latestClose < point.level : latestClose > point.level)
+    .filter((point) => direction === "short" ? lastClose < point.level : lastClose > point.level)
     .flatMap((point) => candles
       .map((candle, candleIndex) => ({ point, candle, candleIndex }))
       .filter(({ candleIndex }) => candleIndex > point.candleIndex && candleIndex >= freshnessStart)
       .filter(({ candle }) => direction === "short"
         ? candle.high > point.level && candle.close < point.level
-        : candle.low < point.level && candle.close > point.level)
-      .map(({ point, candle, candleIndex }) => ({
-        side: expectedSide as "buy-side" | "sell-side",
-        level: direction === "short" ? candle.high : candle.low,
-        candleIndex,
-        reclaimed: true,
-        distance: Math.abs(candleIndex - point.candleIndex)
-      })));
-
-  const fallback = swingSweeps
-    .sort((a, b) => b.candleIndex - a.candleIndex || a.distance - b.distance)[0];
-  return fallback
-    ? { side: fallback.side, level: fallback.level, candleIndex: fallback.candleIndex, reclaimed: fallback.reclaimed }
+        : candle.low < point.level && candle.close > point.level))
+    .sort((a, b) => b.candleIndex - a.candleIndex)[0];
+  return swingSweep
+    ? { side: expectedSweepSide(direction), level: direction === "short" ? swingSweep.candle.high : swingSweep.candle.low, candleIndex: swingSweep.candleIndex, reclaimed: true }
     : undefined;
 }
 
-function symbolBuffer(context: MarketContext): number {
-  return Math.max(context.volatility.atr * 0.2, context.volatility.averageRange * 0.15, SYMBOL_MIN_BUFFER[context.symbol]);
-}
-
-function priceTouchesPoi(candles: Candle[], poi: CrtPoi): boolean {
-  const start = typeof poi.candleIndex === "number" ? Math.max(0, poi.candleIndex) : Math.max(0, candles.length - 24);
-  return candles.slice(start).some((candle) => candle.low <= poi.high && candle.high >= poi.low);
-}
-
-function selectPoi(context: MarketContext, direction: TradeDirection): CrtPoi | undefined {
-  const candles = executionCandles(context);
-  const lastClose = candles[candles.length - 1]?.close;
-  if (typeof lastClose !== "number") return undefined;
-  const range = context.crt.activeRange;
-  const priority: Record<CrtPoi["type"], number> = { fvg: 0, ob: 1, breaker: 2, ote: 3 };
-  // A CRT entry POI must live inside the active range and on the retest side of price;
-  // a stale FVG far outside the range is a different market, not this setup's entry.
-  return context.crt.pois
-    .filter((poi) => poi.direction === direction)
-    .filter((poi) => poi.midpoint <= range.high && poi.midpoint >= range.low)
-    .filter((poi) => direction === "long" ? poi.midpoint <= lastClose : poi.midpoint >= lastClose)
-    .filter((poi) => priceTouchesPoi(candles, poi))
-    .sort((a, b) => priority[a.type] - priority[b.type] || (b.candleIndex ?? 0) - (a.candleIndex ?? 0))[0];
-}
-
-function manipulationSweep(context: MarketContext, direction: TradeDirection): CrtSetup["manipulation"] {
-  // The true CRT manipulation is the sweep of the range candle's extreme; minor liquidity-pool
-  // sweeps are a fallback only — their wick can sit anywhere and break the stop geometry.
-  const freshnessStart = Math.max(0, executionCandles(context).length - SWEEP_FRESHNESS_CANDLES);
-  return rangeExtremeSweep(context, direction)
-    ?? latestByIndex(context.sweeps.filter((sweep) => sweep.side === expectedSweepSide(direction) && sweep.reclaimed && sweep.candleIndex >= freshnessStart))
-    ?? reclaimSweepFromCandles(context, direction);
-}
-
-function chochConfirmation(context: MarketContext, direction: TradeDirection, manipulation?: CrtSetup["manipulation"]): CrtSetup["choch"] {
-  const candles = executionCandles(context);
-  const startIndex = manipulation?.candleIndex ?? Math.max(0, candles.length - 12);
+function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], buffer: number): CrtSetup["choch"] {
+  const candles = anchor.confirmCandles;
+  const startIndex = manipulation?.candleIndex ?? Math.max(0, candles.length - CHOCH_FRESHNESS_CANDLES);
   const swingSide = direction === "short" ? "low" : "high";
-  const swing = [...context.swingPoints]
+  const swing = [...anchor.swings]
     .filter((point) => point.side === swingSide && point.candleIndex < startIndex)
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
-  const fallbackShift = latestByIndex(context.marketStructureShifts.filter((shift) => shift.direction === direction && shift.candleIndex >= startIndex));
-  const level = swing?.level ?? fallbackShift?.level;
+  const level = swing?.level;
   if (typeof level !== "number") return undefined;
   // The ChoCH reference must live inside the CRT range: a stale swing from prior structure
   // outside the range produces entries far away from the actual setup.
-  const tolerance = symbolBuffer(context);
-  if (level > context.crt.activeRange.high + tolerance || level < context.crt.activeRange.low - tolerance) return undefined;
+  if (level > anchor.range.high + buffer || level < anchor.range.low - buffer) return undefined;
   const confirmIndex = candles.findIndex((candle, index) => {
     if (index <= startIndex) return false;
     return direction === "short" ? candle.close < level : candle.close > level;
@@ -198,16 +238,61 @@ function chochConfirmation(context: MarketContext, direction: TradeDirection, ma
   return { level, candleIndex: confirmIndex };
 }
 
-function targetDol(context: MarketContext, direction: TradeDirection, entry: number): number | undefined {
-  // CRT distribution target: the opposite side of the range candle. The HTF DOL only extends the
-  // target when it sits beyond the range extreme. Never fabricate a synthetic entry±2R target —
-  // a setup without a real draw has no trade.
-  const rangeTarget = direction === "short" ? context.crt.activeRange.low : context.crt.activeRange.high;
+function poiForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtPoi | undefined {
+  const candles = anchor.confirmCandles;
+  const lastClose = candles[candles.length - 1].close;
+  const range = anchor.range;
+  const span = Math.max(range.high - range.low, 0.000001);
+  const pois: CrtPoi[] = [
+    ...anchor.fvgs.map((gap): CrtPoi => ({
+      type: gap.mitigated ? "breaker" : "fvg",
+      direction: gap.direction,
+      low: gap.low,
+      high: gap.high,
+      midpoint: gap.midpoint,
+      candleIndex: gap.candleIndex,
+      mitigated: gap.mitigated,
+      label: gap.mitigated ? "Breaker / mitigated FVG" : "FVG"
+    })),
+    ...anchor.orderBlocks.map((block): CrtPoi => ({
+      type: block.mitigated ? "breaker" : "ob",
+      direction: block.direction,
+      low: block.low,
+      high: block.high,
+      midpoint: block.midpoint,
+      candleIndex: block.candleIndex,
+      mitigated: block.mitigated,
+      label: block.mitigated ? "Breaker Block" : "Order Block"
+    })),
+    direction === "short"
+      ? { type: "ote", direction, low: range.midpoint, high: range.high, midpoint: range.high - span * 0.25, mitigated: false, label: "OTE premium" }
+      : { type: "ote", direction, low: range.low, high: range.midpoint, midpoint: range.low + span * 0.25, mitigated: false, label: "OTE discount" }
+  ];
+  const priority: Record<CrtPoi["type"], number> = { fvg: 0, ob: 1, breaker: 2, ote: 3 };
+  // A CRT entry POI must live inside the active range and on the retest side of price;
+  // a stale FVG far outside the range is a different market, not this setup's entry.
+  return pois
+    .filter((poi) => poi.direction === direction)
+    .filter((poi) => poi.midpoint <= range.high && poi.midpoint >= range.low)
+    .filter((poi) => direction === "long" ? poi.midpoint <= lastClose : poi.midpoint >= lastClose)
+    .filter((poi) => {
+      const start = typeof poi.candleIndex === "number" ? Math.max(0, poi.candleIndex) : Math.max(0, candles.length - 24);
+      return candles.slice(start).some((candle) => candle.low <= poi.high && candle.high >= poi.low);
+    })
+    .sort((a, b) => priority[a.type] - priority[b.type] || (b.candleIndex ?? 0) - (a.candleIndex ?? 0))[0];
+}
+
+function targetDol(anchor: AnchorCtx, direction: TradeDirection, entry: number): number | undefined {
+  // CRT distribution target: the opposite side of the range candle. Never fabricate a
+  // synthetic entry±2R target — a setup without a real draw has no trade.
+  const rangeTarget = direction === "short" ? anchor.range.low : anchor.range.high;
   const rangeIsUseful = direction === "short" ? rangeTarget < entry : rangeTarget > entry;
   if (rangeIsUseful) return rangeTarget;
-  const dol = context.crt.selectedBias.drawLevel;
-  const dolIsUseful = direction === "short" ? dol < entry : dol > entry;
-  if (dolIsUseful) return dol;
+  const bias = anchorBias(anchor);
+  if (bias.direction !== "neutral") {
+    const dolIsUseful = direction === "short" ? bias.drawLevel < entry : bias.drawLevel > entry;
+    if (dolIsUseful) return bias.drawLevel;
+  }
   return undefined;
 }
 
@@ -216,19 +301,18 @@ function executionCostStress(settings: StrategyInput["settings"]): ExecutionCost
   return settings.slippageStress === "high" ? "high" : "normal";
 }
 
-function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
-  const candles = executionCandles(context);
+function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
+  const candles = anchor.confirmCandles;
   const latest = candles[candles.length - 1];
-  const buffer = symbolBuffer(context);
+  const buffer = symbolBuffer(anchor, context.symbol);
   // Entry is the retest after confirmation, never the displaced ChoCH close: chasing the
   // displacement leaves no room to the distribution target and destroys RR.
-  const insideRange = (level: number) => level <= context.crt.activeRange.high && level >= context.crt.activeRange.low;
+  const insideRange = (level: number) => level <= anchor.range.high && level >= anchor.range.low;
   const retestLevel = choch
     ? (poi && insideRange(poi.midpoint) && (direction === "short" ? poi.midpoint > choch.level : poi.midpoint < choch.level) ? poi.midpoint : choch.level)
     : undefined;
   const entry = retestLevel ?? poi?.midpoint ?? latest.close;
-  // Stop must sit on the loss side of the entry: a pool-sweep wick can be anywhere, and a
-  // "long" with the stop above the entry is not a plan, it is a rendering of a bug.
+  // Stop must sit on the loss side of the entry.
   const manipulationStop = manipulation
     ? direction === "short" ? manipulation.level + buffer : manipulation.level - buffer
     : undefined;
@@ -237,20 +321,20 @@ function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipul
   const stopSource: StopSource = manipulationStopValid ? "manipulation" : "swing";
   const stopLoss = manipulationStopValid && typeof manipulationStop === "number"
     ? manipulationStop
-    : direction === "short" ? context.crt.activeRange.high + buffer : context.crt.activeRange.low - buffer;
+    : direction === "short" ? anchor.range.high + buffer : anchor.range.low - buffer;
   const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
-  const tp1 = context.crt.activeRange.midpoint;
-  const realTarget = targetDol(context, direction, entry);
+  const tp1 = anchor.range.midpoint;
+  const realTarget = targetDol(anchor, direction, entry);
   const tp2 = realTarget ?? tp1;
   const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
   const entryStatus = choch ? "confirmed" : poi ? "pending" : "fallback";
   const entrySource = choch ? "choch-close" : poi ? "poi-retest" : "fallback-close";
   const planWarnings = [
-    `CRT range minimum ${context.crt.rangeTimeframe}; aktif range ${formatPrice(context.crt.activeRange.low)}-${formatPrice(context.crt.activeRange.high)}.`,
+    `CRT ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}; confirmation ${anchor.spec.confirmTf}.`,
     `TP1/EQ yönetim seviyesi ${formatPrice(tp1)}; TP2/DOL ${formatPrice(tp2)}.`,
     `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
-    ...(entryStatus !== "confirmed" ? ["ChoCH/Just mum kapanışı bekleniyor."] : [])
+    ...(entryStatus !== "confirmed" ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : [])
   ];
 
   return {
@@ -264,16 +348,9 @@ function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipul
       retested: Boolean(poi),
       cisdConfirmed: Boolean(choch),
       fairValueGap: poi?.type === "fvg" || poi?.type === "breaker"
-        ? {
-            direction: poi.direction,
-            low: poi.low,
-            high: poi.high,
-            midpoint: poi.midpoint,
-            candleIndex: poi.candleIndex ?? 0,
-            mitigated: poi.mitigated
-          }
+        ? { direction: poi.direction, low: poi.low, high: poi.high, midpoint: poi.midpoint, candleIndex: poi.candleIndex ?? 0, mitigated: poi.mitigated }
         : undefined,
-      warnings: entryStatus === "confirmed" ? [] : ["POI teması sonrası ChoCH/Just kapanışı bekleniyor."]
+      warnings: entryStatus === "confirmed" ? [] : [`POI teması sonrası ${anchor.spec.confirmTf} ChoCH/Just kapanışı bekleniyor.`]
     },
     stopLoss,
     targets: [tp1, tp2],
@@ -289,105 +366,108 @@ function buildCrtPlan(context: MarketContext, direction: TradeDirection, manipul
   };
 }
 
-function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings"]): CrtSetup {
+function buildAnchorSetup(context: MarketContext, settings: StrategyInput["settings"], anchor: AnchorCtx): CrtSetup | undefined {
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
-  const { direction, source: directionSource } = directionFromContext(context);
-  const biasDirection = context.crt.selectedBias.direction;
-  const biasConflict = directionSource === "sweep" && biasDirection !== "neutral" && biasDirection !== direction;
-  const manipulation = manipulationSweep(context, direction);
-  const choch = chochConfirmation(context, direction, manipulation);
-  const poi = selectPoi(context, direction);
-  const plan = buildCrtPlan(context, direction, manipulation, choch, poi, minimumRR, executionCostStress(settings));
-  // CRT premium/discount is measured on the planned entry level against the range candle itself:
-  // the retest limit can sit in premium while the current price already returned to EQ.
-  const crtZone = plan.entry >= context.crt.activeRange.midpoint ? "premium" : "discount";
+  const picked = directionForAnchor(context, anchor);
+  if (!picked) return undefined;
+  const { direction, source: directionSource } = picked;
+  const buffer = symbolBuffer(anchor, context.symbol);
+  const manipulation = manipulationForAnchor(anchor, direction);
+  const choch = chochForAnchor(anchor, direction, manipulation, buffer);
+  const poi = poiForAnchor(anchor, direction);
+  const plan = buildAnchorPlan(context, anchor, direction, manipulation, choch, poi, minimumRR, executionCostStress(settings));
+  const bias = anchorBias(anchor);
+  const biasConflict = directionSource === "raid" && bias.direction !== "neutral" && bias.direction !== direction;
+  const continuationAgainst = (bias.kind === "bullish-continuation" && direction === "short")
+    || (bias.kind === "bearish-continuation" && direction === "long");
+  const lastClose = anchor.confirmCandles[anchor.confirmCandles.length - 1].close;
+  const reclaimHolds = direction === "short" ? lastClose < anchor.range.high : lastClose > anchor.range.low;
+  const crtZone = plan.entry >= anchor.range.midpoint ? "premium" : "discount";
   const pdAligned = crtZone === expectedPd(direction);
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
   const inSession = isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside");
   const tp1Valid = direction === "short" ? plan.targets[0] < plan.entry : plan.targets[0] > plan.entry;
   const stopValid = direction === "short" ? plan.stopLoss > plan.entry : plan.stopLoss < plan.entry;
-  const hasRealTarget = typeof targetDol(context, direction, plan.entry) === "number";
-  // A range candle smaller than the average 4H range is noise, not a CRT range; and a stop
-  // inside the m15 noise band turns every entry into a coin flip regardless of gross RR.
-  const h4Candles = context.timeframes.h4.slice(-20);
-  const h4AverageRange = h4Candles.length
-    ? h4Candles.reduce((sum, candle) => sum + (candle.high - candle.low), 0) / h4Candles.length
-    : 0;
-  const rangeHeight = context.crt.activeRange.high - context.crt.activeRange.low;
-  const rangeTooSmall = h4AverageRange > 0 && rangeHeight < h4AverageRange * 0.6;
-  const stopInNoise = plan.riskDistance < context.volatility.atr * 0.6;
-  // SOP step 4: the raiding HTF candle closing back inside the range is the strongest
-  // confirmation; the LTF reclaim alone is the fast, weaker variant.
-  const reversalKind = direction === "short" ? "bearish-reversal" : "bullish-reversal";
-  const htfRaidClosedBack = context.crt.macroBiases.some((bias) => (bias.timeframe === "4h" || bias.timeframe === "1d") && bias.kind === reversalKind);
-  // SOP step 1: the anchor candle should sit at a key level — swept extreme near PDH/PDL/PWH/PWL.
-  const sweptExtreme = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
-  const anchorAtKeyLevel = context.liquidityObjectives.some((objective) => Math.abs(objective.level - sweptExtreme) <= symbolBuffer(context) * 3);
-  // A continuation close through the range extreme invalidates the range: price CLOSED beyond
-  // it, nothing was swept — a reversal off that range is fading a breakout, not trading CRT.
-  const biasKind = context.crt.selectedBias.kind;
-  const continuationAgainst = (biasKind === "bullish-continuation" && direction === "short")
-    || (biasKind === "bearish-continuation" && direction === "long");
-  const lastClose = executionCandles(context).at(-1)?.close ?? context.crt.activeRange.midpoint;
-  const reclaimHolds = direction === "short"
-    ? lastClose < context.crt.activeRange.high
-    : lastClose > context.crt.activeRange.low;
-  // Check both the CRT candle biases and the swing-structure biases: a reversal against a
-  // daily AND 4H structural trend is fading strength, not trading manipulation.
+  const hasRealTarget = typeof targetDol(anchor, direction, plan.entry) === "number";
+  const anchorRanges = anchor.rangeCandles.slice(-20).map((candle) => candle.high - candle.low);
+  const anchorAverageRange = anchorRanges.reduce((sum, value) => sum + value, 0) / Math.max(anchorRanges.length, 1);
+  const rangeHeight = anchor.range.high - anchor.range.low;
+  const rangeTooSmall = anchorAverageRange > 0 && rangeHeight < anchorAverageRange * 0.6;
+  const stopInNoise = plan.riskDistance < anchor.atr * 0.6;
   const opposite: TradeDirection = direction === "short" ? "long" : "short";
   const oppositeStructure = direction === "short" ? "bullish" : "bearish";
-  const crtDaily = context.crt.macroBiases.find((bias) => bias.timeframe === "1d")?.direction;
-  const crtH4 = context.crt.macroBiases.find((bias) => bias.timeframe === "4h")?.direction;
-  const fullHtfConflict = (crtDaily === opposite && crtH4 === opposite)
-    || (context.bias.daily === oppositeStructure && context.bias.h4 === oppositeStructure);
+  const fullHtfConflict = context.bias.daily === oppositeStructure && context.bias.h4 === oppositeStructure
+    && anchor.spec.rangeTf === "4h";
+  const pullback = validCrtPullback(anchor.rangeCandles, direction);
+  const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
+  const sweptExtreme = direction === "short" ? anchor.range.high : anchor.range.low;
+  const anchorAtKeyLevel = context.liquidityObjectives.some((objective) => Math.abs(objective.level - sweptExtreme) <= buffer * 3);
+  // "CRT hep FVG içinde": the raid zone overlapping an unmitigated HTF FVG is quality confluence.
+  const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
+
   const blockers = [
-    directionSource === "pd" ? "Range extreme sweep yok ve HTF bias neutral; trade yönü net değil." : undefined,
-    !context.crt.validPullback ? context.crt.pullbackSummary : undefined,
+    directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
+    !pullback.valid ? pullback.summary : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !poi ? "POI teması yok: FVG, OB, Breaker veya OTE bekleniyor." : undefined,
-    !manipulation ? "Manipulation sweep + reclaim yok." : undefined,
+    !manipulation ? "Manipulation raid/sweep + reclaim yok." : undefined,
     continuationAgainst ? "HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz." : undefined,
     !reclaimHolds ? "Fiyat hâlâ range extreminin ötesinde; reclaim tutmuyor, bu manipulation değil breakout." : undefined,
-    !choch ? "ChoCH/Just mum kapanışı yok." : undefined,
+    !choch ? `${anchor.spec.confirmTf} ChoCH/Just mum kapanışı yok.` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
-    rangeTooSmall ? "CRT range mumu ortalama 4H range'in altında; küçük range gürültüdür, trade edilmez." : undefined,
-    stopInNoise ? "Stop mesafesi m15 gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız." : undefined,
+    rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range gürültüdür, trade edilmez.` : undefined,
+    stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız.` : undefined,
     fullHtfConflict ? "Daily ve 4H bias birlikte ters yönde; tam HTF conflict'te reversal alınmaz." : undefined,
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !inSession ? "Killzone dışı; CRT zamanlama stratejisidir, FX/endeks için session hard gate." : undefined,
-    plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
+    plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.eventRisk.noTrade && settings.avoidNews !== false ? context.eventRisk.summary : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
-    !htfRaidClosedBack && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit sadece LTF reclaim, boyutu küçük tut." : undefined,
+    !raidClosed && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit LTF reclaim ile sınırlı, boyutu küçük tut." : undefined,
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
-    biasConflict ? "HTF bias sweep yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
+    !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
+    biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
     context.regime.tradeability === "caution" ? context.regime.summary : undefined,
     !smtAligned ? "SMT yok; hard şart değil, sadece kalite notu." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
   const score = Math.max(0, Math.min(100,
-    18
-    + (directionSource === "sweep" ? (biasConflict ? 12 : 18) : directionSource === "bias" ? 10 : 0)
-    + (context.crt.validPullback ? 10 : 0)
-    + (pdAligned ? 12 : 0)
-    + (poi ? 12 : 0)
-    + (manipulation ? 16 : 0)
-    + (choch ? 16 : 0)
-    + (plan.rr >= minimumRR ? 10 : 0)
+    14
+    + (directionSource === "raid" ? (biasConflict ? 12 : 18) : directionSource === "bias" ? 10 : 0)
+    + (pullback.valid ? 8 : 0)
+    + (pdAligned ? 10 : 0)
+    + (poi ? 10 : 0)
+    + (manipulation ? 14 : 0)
+    + (choch ? 14 : 0)
+    + (plan.rr >= minimumRR ? 8 : 0)
     + (smtAligned ? 4 : 0)
-    + (htfRaidClosedBack ? 8 : 0)
-    + (anchorAtKeyLevel ? 6 : 0)
+    + (raidClosed ? 8 : 0)
+    + (anchorAtKeyLevel ? 5 : 0)
+    + (fvgConfluence ? 5 : 0)
     + (inSession ? 2 : 0)
     + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
   ));
   // A setup with open blockers is not A-grade material no matter how many boxes it ticks.
   const cappedScore = blockers.length ? Math.min(score, 72) : score;
-  return { direction, manipulation, choch, poi, plan: { ...plan, planWarnings: Array.from(new Set(warnings)) }, warnings, blockers, score: cappedScore };
+  return {
+    direction,
+    directionSource,
+    manipulation,
+    choch,
+    poi,
+    plan: { ...plan, planWarnings: Array.from(new Set(warnings)) },
+    warnings,
+    blockers,
+    score: cappedScore,
+    raidClosed,
+    anchorAtKeyLevel,
+    fvgConfluence
+  };
 }
 
 function gradeFromScore(score: number): QualityGrade {
@@ -398,51 +478,45 @@ function gradeFromScore(score: number): QualityGrade {
   return "D";
 }
 
-function crtChecklist(context: MarketContext, setup: CrtSetup) {
+function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup) {
   const direction = setup.direction;
-  const crtZone = setup.plan.entry >= context.crt.activeRange.midpoint ? "premium" : "discount";
+  const crtZone = setup.plan.entry >= anchor.range.midpoint ? "premium" : "discount";
   const pdAligned = crtZone === expectedPd(direction);
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
+  const bias = anchorBias(anchor);
   return [
-    checklistItem("CRT Bias / DOL", context.crt.selectedBias.direction === direction ? "pass" : "fail", context.crt.selectedBias.summary),
-    checklistItem("4H+ Range", context.crt.rangeTimeframe === "4h" || context.crt.rangeTimeframe === "1d" ? "pass" : "fail", context.crt.activeRange.source),
-    checklistItem("Valid Pullback", context.crt.validPullback ? "pass" : "neutral", context.crt.pullbackSummary),
-    checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; price ${crtZone}.`),
+    checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : bias.direction === "neutral" ? "neutral" : "fail", bias.summary),
+    checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, "pass", anchor.range.source),
+    checklistItem("Valid Pullback", validCrtPullback(anchor.rangeCandles, direction).valid ? "pass" : "neutral", validCrtPullback(anchor.rangeCandles, direction).summary),
+    checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; entry ${crtZone}.`),
     checklistItem("POI Touch", setup.poi ? "pass" : "fail", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "FVG/OB/Breaker/OTE teması yok."),
-    checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} sweep ${formatPrice(setup.manipulation.level)}.` : "Sweep + reclaim bekleniyor."),
-    checklistItem(
-      "HTF Raid Close-Back",
-      context.crt.macroBiases.some((bias) => (bias.timeframe === "4h" || bias.timeframe === "1d") && bias.kind === (direction === "short" ? "bearish-reversal" : "bullish-reversal")) ? "pass" : "neutral",
-      "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."
-    ),
-    checklistItem(
-      "Key Level Anchor",
-      context.liquidityObjectives.some((objective) => Math.abs(objective.level - (direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low)) <= symbolBuffer(context) * 3) ? "pass" : "neutral",
-      "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."
-    ),
-    checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `Mum kapanışı ${formatPrice(setup.choch.level)} seviyesini kırdı.` : "Manipulation start level kapanışla kırılmalı."),
+    checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}.` : "Raid/sweep + reclaim bekleniyor."),
+    checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."),
+    checklistItem("Key Level Anchor", setup.anchorAtKeyLevel ? "pass" : "neutral", "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."),
+    checklistItem("HTF FVG Confluence", setup.fvgConfluence ? "pass" : "neutral", "Raid bölgesi bir HTF FVG'ye denk gelirse kalite artar."),
+    checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("RR to DOL", setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "fail", `TP2/DOL net RR ${formatR(setup.plan.rr)}.`),
     checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
   ];
 }
 
-function crtDecisionSummary(context: MarketContext, setup: CrtSetup, grade: QualityGrade, riskWarnings: string[]): DecisionSummary {
-  const checklist = crtChecklist(context, setup);
+function crtDecisionSummary(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, grade: QualityGrade, riskWarnings: string[]): DecisionSummary {
+  const checklist = crtChecklist(context, anchor, setup);
   const side = setup.direction === "short" ? "Bearish" : "Bullish";
   const fullReasoning = [
-    `${context.symbol} ${side} CRT setup.`,
-    context.crt.selectedBias.summary,
-    `Aktif CRT range ${formatPrice(context.crt.activeRange.low)}-${formatPrice(context.crt.activeRange.high)}, EQ ${formatPrice(context.crt.activeRange.midpoint)}.`,
+    `${context.symbol} ${side} CRT setup (${anchor.spec.rangeTf} range, ${anchor.spec.confirmTf} confirmation).`,
+    anchorBias(anchor).summary,
+    `Aktif CRT range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}, EQ ${formatPrice(anchor.range.midpoint)}.`,
     setup.poi ? `POI: ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "POI bekleniyor.",
-    setup.manipulation ? `Manipulation: ${setup.manipulation.side} ${formatPrice(setup.manipulation.level)} sweep.` : "Manipulation bekleniyor.",
-    setup.choch ? `ChoCH/Just close ${formatPrice(setup.choch.level)} kırdı.` : "ChoCH/Just kapanışı bekleniyor.",
+    setup.manipulation ? `Manipulation: ${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}${setup.raidClosed ? " (HTF close-back teyitli)" : ""}.` : "Manipulation/raid bekleniyor.",
+    setup.choch ? `ChoCH/Just close ${formatPrice(setup.choch.level)} kırdı.` : `${anchor.spec.confirmTf} ChoCH/Just kapanışı bekleniyor.`,
     `Entry ${formatPrice(setup.plan.entry)}, SL ${formatPrice(setup.plan.stopLoss)}, EQ/TP1 ${formatPrice(setup.plan.targets[0])}, DOL/TP2 ${formatPrice(setup.plan.targets[1])}.`,
     `Grade ${grade}, net RR ${formatR(setup.plan.rr)}.`,
     ...riskWarnings
   ].join(" ");
   return {
-    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} CRT ${setup.plan.entryStatus === "confirmed" ? "plan" : "watch"} · RR ${formatR(setup.plan.rr)}.`,
+    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} CRT ${anchor.spec.rangeTf} ${setup.plan.entryStatus === "confirmed" ? "plan" : "watch"} · RR ${formatR(setup.plan.rr)}.`,
     fullReasoning,
     checklist,
     warnings: Array.from(new Set([...setup.warnings, ...riskWarnings])).slice(0, 8),
@@ -451,21 +525,30 @@ function crtDecisionSummary(context: MarketContext, setup: CrtSetup, grade: Qual
   };
 }
 
-function governanceFor(context: MarketContext, setup: CrtSetup): SignalGovernance {
+function governanceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): SignalGovernance {
   const status: SignalGovernance["status"] = setup.blockers.length ? "caution" : "allow";
   return {
     status,
     scoreImpact: setup.blockers.length ? -12 : 6,
     blockers: setup.blockers,
     warnings: setup.warnings,
-    checklist: crtChecklist(context, setup),
-    summary: setup.blockers[0] ?? "CRT SOP tamam: bias, POI, manipulation, ChoCH ve DOL planı okunabilir."
+    checklist: crtChecklist(context, anchor, setup),
+    summary: setup.blockers[0] ?? "CRT SOP tamam: raid, close-back, ChoCH ve DOL planı okunabilir."
   };
 }
 
-function lifecycle(context: MarketContext, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
-  const startIndex = setup.manipulation?.candleIndex ?? Math.max(0, executionCandles(context).length - 1);
-  const outcome = evaluateSignalOutcome(context, setup.direction, setup.plan, startIndex);
+function m15StartIndex(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): number {
+  const m15 = context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
+  const startTime = typeof setup.manipulation?.candleIndex === "number"
+    ? anchor.confirmCandles[setup.manipulation.candleIndex]?.time
+    : undefined;
+  if (typeof startTime !== "number") return Math.max(0, m15.length - 1);
+  const index = m15.findIndex((candle) => candle.time >= startTime);
+  return index >= 0 ? index : Math.max(0, m15.length - 1);
+}
+
+function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
+  const outcome = evaluateSignalOutcome(context, setup.direction, setup.plan, m15StartIndex(context, anchor, setup));
   // Only a confirmed entry can be stopped out or missed; a hypothetical fallback entry running
   // through history must not kill a setup that is still waiting for its ChoCH confirmation.
   if (setup.plan.entryStatus === "confirmed") {
@@ -480,24 +563,30 @@ function lifecycle(context: MarketContext, setup: CrtSetup, readyCandidate: bool
   return { stage, outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, stage) };
 }
 
-function evidenceFor(context: MarketContext, setup: CrtSetup): SignalEvidenceItem[] {
+function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): SignalEvidenceItem[] {
+  const bias = anchorBias(anchor);
   return [
-    { id: "crt-bias", label: "CRT Bias / DOL", status: context.crt.selectedBias.direction === setup.direction ? "pass" : "fail", detail: context.crt.selectedBias.summary, timeframe: context.crt.selectedBias.timeframe, price: context.crt.selectedBias.drawLevel },
-    { id: "crt-range", label: "4H+ Candle Range", status: "pass", detail: `${context.crt.rangeTimeframe} range high/low/mid used.`, timeframe: context.crt.rangeTimeframe, price: context.crt.activeRange.midpoint },
-    { id: "valid-pullback", label: "Valid Pullback", status: context.crt.validPullback ? "pass" : "neutral", detail: context.crt.pullbackSummary, timeframe: context.crt.rangeTimeframe },
-    { id: "poi", label: "POI", status: setup.poi ? "pass" : "fail", detail: setup.poi ? `${setup.poi.label} touched.` : "FVG/OB/Breaker/OTE touch bekleniyor.", timeframe: "15m", candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
-    { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${setup.manipulation.side} sweep + reclaim.` : "Sweep + reclaim yok.", timeframe: "15m", candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
-    { id: "choch", label: "ChoCH / Just", status: setup.choch ? "pass" : "fail", detail: setup.choch ? `Close broke manipulation start ${formatPrice(setup.choch.level)}.` : "Manipulation start level kapanışla kırılmadı.", timeframe: "15m", candleIndex: setup.choch?.candleIndex, price: setup.choch?.level },
-    { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `0.5 range management: ${formatPrice(setup.plan.targets[0])}.`, timeframe: context.crt.rangeTimeframe, price: setup.plan.targets[0] },
-    { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: context.crt.selectedBias.timeframe, price: setup.plan.targets[1] }
+    { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "fail", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
+    { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: `${anchor.spec.rangeTf} range high/low/mid used.`, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
+    { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
+    { id: "poi", label: "POI", status: setup.poi ? "pass" : "fail", detail: setup.poi ? `${setup.poi.label} touched.` : "FVG/OB/Breaker/OTE touch bekleniyor.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
+    { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${setup.manipulation.side} raid + reclaim${setup.raidClosed ? " (closed)" : ""}.` : "Raid/sweep + reclaim yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
+    { id: "choch", label: "ChoCH / Just", status: setup.choch ? "pass" : "fail", detail: setup.choch ? `Close broke ${formatPrice(setup.choch.level)}.` : "Kapanışla kırılma yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.choch?.candleIndex, price: setup.choch?.level },
+    { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `0.5 range management: ${formatPrice(setup.plan.targets[0])}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
+    { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
 }
 
-function signalFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal {
-  const setup = buildCrtSetup(context, settings);
+function anchorSignal(context: MarketContext, settings: StrategyInput["settings"], spec: AnchorSpec): TradingSignal | undefined {
+  const anchor = buildAnchorCtx(context, spec);
+  if (!anchor) return undefined;
+  // Non-primary anchors only surface when a live raid exists — otherwise they are noise.
+  if (spec.rangeTf !== "4h" && !anchor.raid) return undefined;
+  const setup = buildAnchorSetup(context, settings, anchor);
+  if (!setup) return undefined;
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
   const readyCandidate = setup.blockers.length === 0 && setup.plan.entryStatus === "confirmed" && setup.plan.rr >= minimumRR;
-  const life = lifecycle(context, setup, readyCandidate);
+  const life = lifecycle(context, anchor, setup, readyCandidate);
   const grade = gradeFromScore(setup.score);
   const position = calculatePositionSize({
     account: defaultAccountModel,
@@ -507,7 +596,7 @@ function signalFromContext(context: MarketContext, settings: StrategyInput["sett
     target: setup.plan.targets[1] ?? setup.plan.targets[0]
   });
   return {
-    id: `${context.symbol}-${setup.direction}-${executionCandles(context).at(-1)?.time ?? Date.now()}-crt`,
+    id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${spec.rangeTf}`,
     strategyId: CRT_STRATEGY_ID,
     symbol: context.symbol,
     direction: setup.direction,
@@ -515,22 +604,39 @@ function signalFromContext(context: MarketContext, settings: StrategyInput["sett
     grade,
     score: setup.score,
     createdAt: Date.now(),
-    timeframe: "15m",
+    timeframe: spec.confirmTf,
     plan: setup.plan,
     context,
-    decisionSummary: crtDecisionSummary(context, setup, grade, position.warnings),
-    evidence: evidenceFor(context, setup),
+    decisionSummary: crtDecisionSummary(context, anchor, setup, grade, position.warnings),
+    evidence: evidenceFor(context, anchor, setup),
     riskWarnings: position.warnings,
     outcome: life.outcome,
-    governance: governanceFor(context, setup),
-    actionWindow: life.actionWindow
+    governance: governanceFor(context, anchor, setup),
+    actionWindow: life.actionWindow,
+    crtAnchor: {
+      rangeTf: spec.rangeTf,
+      confirmTf: spec.confirmTf,
+      raidActive: Boolean(anchor.raid && anchor.raid.direction === setup.direction),
+      raidClosed: setup.raidClosed,
+      rangeHigh: anchor.range.high,
+      rangeLow: anchor.range.low
+    }
   };
+}
+
+const STAGE_RANK: Record<string, number> = { ready: 0, watch: 1, missed: 2, invalidated: 3 };
+
+function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
+  return ANCHORS
+    .map((spec) => anchorSignal(context, settings, spec))
+    .filter((signal): signal is TradingSignal => Boolean(signal))
+    .sort((a, b) => (STAGE_RANK[a.stage] ?? 9) - (STAGE_RANK[b.stage] ?? 9) || b.score - a.score);
 }
 
 export const crtStrategy: StrategyModule = {
   id: CRT_STRATEGY_ID,
   name: "CRT Candle Range",
-  description: "Candle Range Theory: 4H+ range, HTF DOL, POI, manipulation, ChoCH and EQ/DOL risk plan.",
+  description: "Candle Range Theory: 4H/1D/1W range, raid + close-back, LTF ChoCH confirmation, retest entry, EQ/DOL plan.",
   requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m"],
   defaultSettings: {
     minimumRR: 1.5,
@@ -540,15 +646,20 @@ export const crtStrategy: StrategyModule = {
     noAutoExecution: true
   },
   scan(input: StrategyInput): StrategyResult {
-    const signal = signalFromContext(input.context, input.settings);
+    const signals = signalsFromContext(input.context, input.settings);
+    const best = signals[0];
     return {
-      signals: [signal],
-      rejectedSetups: signal.stage === "ready"
-        ? []
-        : [{ symbol: input.context.symbol, strategyId: this.id, reason: signal.governance.blockers[0] ?? signal.plan.planWarnings[0] ?? "CRT confirmation bekleniyor.", score: signal.score }]
+      signals,
+      rejectedSetups: best && best.stage !== "ready"
+        ? [{ symbol: input.context.symbol, strategyId: this.id, reason: best.governance.blockers[0] ?? best.plan.planWarnings[0] ?? "CRT confirmation bekleniyor.", score: best.score }]
+        : []
     };
   },
   backtest(input: BacktestInput) {
-    return performanceFromSignals(input.contexts.map((context) => signalFromContext(context, input.settings)));
+    return performanceFromSignals(
+      input.contexts
+        .map((context) => signalsFromContext(context, input.settings)[0])
+        .filter((signal): signal is TradingSignal => Boolean(signal))
+    );
   }
 };

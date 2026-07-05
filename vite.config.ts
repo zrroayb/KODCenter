@@ -14,6 +14,12 @@ type ReadyTelegramPayload = {
   id?: string;
   symbol?: string;
   direction?: string;
+  alertKind?: string;
+  rangeTf?: string;
+  confirmTf?: string;
+  rangeHigh?: number;
+  rangeLow?: number;
+  raidClosed?: boolean;
   grade?: string;
   score?: number;
   stage?: string;
@@ -230,6 +236,16 @@ function formatTelegramR(value: unknown) {
 
 function telegramCaption(payload: ReadyTelegramPayload) {
   const reasons = (payload.reasons ?? []).slice(0, 5).map((reason) => `- ${escapeHtml(reason)}`).join("\n");
+  if (payload.alertKind === "raid") {
+    return [
+      `<b>CRT RAID</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")})`,
+      `Range: <b>${formatTelegramPrice(payload.rangeLow)}</b> - <b>${formatTelegramPrice(payload.rangeHigh)}</b>${payload.raidClosed ? " · raid mumu içeri kapandı" : " · raid canlı"}`,
+      "",
+      `${escapeHtml(payload.confirmTf ?? "LTF")} ChoCH/Just kapanışı + retest bekleniyor. Bu bir entry sinyali DEĞİL, hazırlık uyarısıdır.`,
+      "",
+      reasons || "- Raid + reclaim aktif"
+    ].join("\n");
+  }
   const eqTarget = payload.targets?.[0];
   const dolTarget = payload.targets?.[1] ?? payload.targets?.[0];
   const aiCommentary = payload.aiCommentary?.trim()

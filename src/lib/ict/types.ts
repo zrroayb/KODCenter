@@ -386,4 +386,14 @@ export type TradingSignal = {
   outcome: SignalOutcome;
   governance: SignalGovernance;
   actionWindow: SignalActionWindow;
+  crtAnchor?: CrtAnchorInfo;
+};
+
+export type CrtAnchorInfo = {
+  rangeTf: Timeframe;
+  confirmTf: Timeframe;
+  raidActive: boolean;
+  raidClosed: boolean;
+  rangeHigh: number;
+  rangeLow: number;
 };

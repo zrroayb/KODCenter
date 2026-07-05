@@ -11,7 +11,8 @@ export type TelegramReadyAlertPayload = {
   direction: string;
   grade: string;
   score: number;
-  stage: "ready";
+  stage: "ready" | "watch";
+  alertKind?: "ready" | "raid";
   createdAt: number;
   entry: number;
   stopLoss: number;
@@ -19,6 +20,11 @@ export type TelegramReadyAlertPayload = {
   rr: number;
   grossRR: number;
   reasons: string[];
+  rangeTf?: string;
+  confirmTf?: string;
+  rangeHigh?: number;
+  rangeLow?: number;
+  raidClosed?: boolean;
   aiCommentary?: string;
   tradeContext?: GeminiTradeCommentaryPayload;
 };
@@ -114,6 +120,61 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     reasons: readyReasons(signal),
     tradeContext: buildGeminiTradeCommentaryPayload(signal)
   };
+}
+
+// Early heads-up: the HTF raid formed and the reclaim holds — the trader should now watch
+// the confirmation timeframe for ChoCH + retest. Fires once per raid (range-level keyed).
+export function raidTelegramDedupeKey(signal: TradingSignal): string {
+  const anchor = signal.crtAnchor;
+  return [
+    "raid-alert-v1",
+    signal.strategyId,
+    signal.symbol,
+    signal.direction,
+    anchor?.rangeTf ?? "?",
+    priceBucket(anchor?.rangeHigh),
+    priceBucket(anchor?.rangeLow)
+  ].join("|");
+}
+
+export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<TelegramAlertResponse> {
+  const anchor = signal.crtAnchor;
+  if (!anchor?.raidActive || signal.stage !== "watch") return { status: "disabled" };
+  const dedupeKey = raidTelegramDedupeKey(signal);
+  if (pendingReadyAlerts.has(dedupeKey) || wasReadyTelegramAlertSent(dedupeKey)) return { status: "disabled" };
+  pendingReadyAlerts.add(dedupeKey);
+  try {
+    const payload: TelegramReadyAlertPayload = {
+      ...buildTelegramReadyAlertPayload(signal),
+      stage: "watch",
+      alertKind: "raid",
+      rangeTf: anchor.rangeTf,
+      confirmTf: anchor.confirmTf,
+      rangeHigh: anchor.rangeHigh,
+      rangeLow: anchor.rangeLow,
+      raidClosed: anchor.raidClosed,
+      reasons: [
+        `${anchor.rangeTf.toUpperCase()} CRT range ${signal.direction === "short" ? "high" : "low"} raid edildi${anchor.raidClosed ? " ve mum içeri kapandı" : ""}`,
+        `${anchor.confirmTf} ChoCH/Just kapanışı + retest bekleniyor`,
+        ...(signal.governance.blockers.slice(0, 2))
+      ],
+      tradeContext: undefined
+    };
+    const response = await fetch("/api/telegram/ready-alert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({})) as TelegramAlertResponse;
+    if (response.ok && result.status === "sent") {
+      markReadyTelegramAlertSent(dedupeKey);
+    }
+    return result;
+  } catch (error) {
+    return { status: "error", error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    pendingReadyAlerts.delete(dedupeKey);
+  }
 }
 
 export async function notifyReadySignalOnce(signal: TradingSignal): Promise<TelegramAlertResponse> {
