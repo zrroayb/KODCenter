@@ -43,6 +43,11 @@ function rangeExtremeSweep(context: MarketContext, direction: TradeDirection): C
   const candles = executionCandles(context);
   const freshnessStart = Math.max(0, candles.length - SWEEP_FRESHNESS_CANDLES);
   const rangeLevel = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
+  // The reclaim must still hold NOW: if price currently trades beyond the swept extreme,
+  // that was not a manipulation, it is a breakout — there is nothing to fade.
+  const latestClose = candles[candles.length - 1]?.close;
+  if (typeof latestClose !== "number") return undefined;
+  if (direction === "short" ? latestClose >= rangeLevel : latestClose <= rangeLevel) return undefined;
   const sweep = candles
     .map((candle, candleIndex) => ({ candle, candleIndex }))
     .filter(({ candleIndex }) => candleIndex >= freshnessStart)
@@ -92,6 +97,9 @@ function reclaimSweepFromCandles(context: MarketContext, direction: TradeDirecti
   const expectedSide = expectedSweepSide(direction);
   const freshnessStart = Math.max(0, candles.length - SWEEP_FRESHNESS_CANDLES);
   const rangeLevel = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
+  const latestClose = candles[candles.length - 1]?.close;
+  if (typeof latestClose !== "number") return undefined;
+  if (direction === "short" ? latestClose >= rangeLevel : latestClose <= rangeLevel) return undefined;
   const rangeSweep = candles
     .map((candle, candleIndex) => ({ candle, candleIndex }))
     .filter(({ candleIndex }) => candleIndex >= freshnessStart)
@@ -111,6 +119,7 @@ function reclaimSweepFromCandles(context: MarketContext, direction: TradeDirecti
   const swingSide = direction === "short" ? "high" : "low";
   const swingSweeps = context.swingPoints
     .filter((point) => point.side === swingSide)
+    .filter((point) => direction === "short" ? latestClose < point.level : latestClose > point.level)
     .flatMap((point) => candles
       .map((candle, candleIndex) => ({ point, candle, candleIndex }))
       .filter(({ candleIndex }) => candleIndex > point.candleIndex && candleIndex >= freshnessStart)
@@ -143,9 +152,16 @@ function priceTouchesPoi(candles: Candle[], poi: CrtPoi): boolean {
 
 function selectPoi(context: MarketContext, direction: TradeDirection): CrtPoi | undefined {
   const candles = executionCandles(context);
+  const lastClose = candles[candles.length - 1]?.close;
+  if (typeof lastClose !== "number") return undefined;
+  const range = context.crt.activeRange;
   const priority: Record<CrtPoi["type"], number> = { fvg: 0, ob: 1, breaker: 2, ote: 3 };
+  // A CRT entry POI must live inside the active range and on the retest side of price;
+  // a stale FVG far outside the range is a different market, not this setup's entry.
   return context.crt.pois
     .filter((poi) => poi.direction === direction)
+    .filter((poi) => poi.midpoint <= range.high && poi.midpoint >= range.low)
+    .filter((poi) => direction === "long" ? poi.midpoint <= lastClose : poi.midpoint >= lastClose)
     .filter((poi) => priceTouchesPoi(candles, poi))
     .sort((a, b) => priority[a.type] - priority[b.type] || (b.candleIndex ?? 0) - (a.candleIndex ?? 0))[0];
 }
@@ -300,6 +316,15 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
   const rangeHeight = context.crt.activeRange.high - context.crt.activeRange.low;
   const rangeTooSmall = h4AverageRange > 0 && rangeHeight < h4AverageRange * 0.6;
   const stopInNoise = plan.riskDistance < context.volatility.atr * 0.6;
+  // A continuation close through the range extreme invalidates the range: price CLOSED beyond
+  // it, nothing was swept — a reversal off that range is fading a breakout, not trading CRT.
+  const biasKind = context.crt.selectedBias.kind;
+  const continuationAgainst = (biasKind === "bullish-continuation" && direction === "short")
+    || (biasKind === "bearish-continuation" && direction === "long");
+  const lastClose = executionCandles(context).at(-1)?.close ?? context.crt.activeRange.midpoint;
+  const reclaimHolds = direction === "short"
+    ? lastClose < context.crt.activeRange.high
+    : lastClose > context.crt.activeRange.low;
   // Check both the CRT candle biases and the swing-structure biases: a reversal against a
   // daily AND 4H structural trend is fading strength, not trading manipulation.
   const opposite: TradeDirection = direction === "short" ? "long" : "short";
@@ -314,6 +339,8 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !poi ? "POI teması yok: FVG, OB, Breaker veya OTE bekleniyor." : undefined,
     !manipulation ? "Manipulation sweep + reclaim yok." : undefined,
+    continuationAgainst ? "HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz." : undefined,
+    !reclaimHolds ? "Fiyat hâlâ range extreminin ötesinde; reclaim tutmuyor, bu manipulation değil breakout." : undefined,
     !choch ? "ChoCH/Just mum kapanışı yok." : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     rangeTooSmall ? "CRT range mumu ortalama 4H range'in altında; küçük range gürültüdür, trade edilmez." : undefined,
