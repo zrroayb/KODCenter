@@ -316,6 +316,13 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
   const rangeHeight = context.crt.activeRange.high - context.crt.activeRange.low;
   const rangeTooSmall = h4AverageRange > 0 && rangeHeight < h4AverageRange * 0.6;
   const stopInNoise = plan.riskDistance < context.volatility.atr * 0.6;
+  // SOP step 4: the raiding HTF candle closing back inside the range is the strongest
+  // confirmation; the LTF reclaim alone is the fast, weaker variant.
+  const reversalKind = direction === "short" ? "bearish-reversal" : "bullish-reversal";
+  const htfRaidClosedBack = context.crt.macroBiases.some((bias) => (bias.timeframe === "4h" || bias.timeframe === "1d") && bias.kind === reversalKind);
+  // SOP step 1: the anchor candle should sit at a key level — swept extreme near PDH/PDL/PWH/PWL.
+  const sweptExtreme = direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low;
+  const anchorAtKeyLevel = context.liquidityObjectives.some((objective) => Math.abs(objective.level - sweptExtreme) <= symbolBuffer(context) * 3);
   // A continuation close through the range extreme invalidates the range: price CLOSED beyond
   // it, nothing was swept — a reversal off that range is fading a breakout, not trading CRT.
   const biasKind = context.crt.selectedBias.kind;
@@ -356,6 +363,8 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
+    !htfRaidClosedBack && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit sadece LTF reclaim, boyutu küçük tut." : undefined,
+    !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
     biasConflict ? "HTF bias sweep yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
     context.regime.tradeability === "caution" ? context.regime.summary : undefined,
     !smtAligned ? "SMT yok; hard şart değil, sadece kalite notu." : undefined,
@@ -371,6 +380,8 @@ function buildCrtSetup(context: MarketContext, settings: StrategyInput["settings
     + (choch ? 16 : 0)
     + (plan.rr >= minimumRR ? 10 : 0)
     + (smtAligned ? 4 : 0)
+    + (htfRaidClosedBack ? 8 : 0)
+    + (anchorAtKeyLevel ? 6 : 0)
     + (inSession ? 2 : 0)
     + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
   ));
@@ -399,6 +410,16 @@ function crtChecklist(context: MarketContext, setup: CrtSetup) {
     checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; price ${crtZone}.`),
     checklistItem("POI Touch", setup.poi ? "pass" : "fail", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "FVG/OB/Breaker/OTE teması yok."),
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} sweep ${formatPrice(setup.manipulation.level)}.` : "Sweep + reclaim bekleniyor."),
+    checklistItem(
+      "HTF Raid Close-Back",
+      context.crt.macroBiases.some((bias) => (bias.timeframe === "4h" || bias.timeframe === "1d") && bias.kind === (direction === "short" ? "bearish-reversal" : "bullish-reversal")) ? "pass" : "neutral",
+      "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."
+    ),
+    checklistItem(
+      "Key Level Anchor",
+      context.liquidityObjectives.some((objective) => Math.abs(objective.level - (direction === "short" ? context.crt.activeRange.high : context.crt.activeRange.low)) <= symbolBuffer(context) * 3) ? "pass" : "neutral",
+      "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."
+    ),
     checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `Mum kapanışı ${formatPrice(setup.choch.level)} seviyesini kırdı.` : "Manipulation start level kapanışla kırılmalı."),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("RR to DOL", setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "fail", `TP2/DOL net RR ${formatR(setup.plan.rr)}.`),

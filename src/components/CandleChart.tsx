@@ -2,7 +2,7 @@ import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, type FocusedTimeRange } from "../lib/charts/selectedSignal";
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
-import { sessionWindows } from "../lib/session/sessionClock";
+import { sessionDurationHours, sessionWindows } from "../lib/session/sessionClock";
 import { closeConfirmationRequirement, type CloseConfirmationRequirement } from "../lib/signals/waitingGuidance";
 
 type ChartMode = "execution" | "confirmation" | "context" | "daily";
@@ -150,7 +150,7 @@ function sessionLabel(sessionName: string) {
   if (sessionName === "Asia") return { short: "AS", title: "Asia" };
   if (sessionName === "London") return { short: "LO", title: "London" };
   if (sessionName === "New York AM") return { short: "NYAM", title: "NY" };
-  return { short: "NYPM", title: "NY PM" };
+  return { short: "LC", title: "LDN Close" };
 }
 
 function sessionStyle(sessionName: string) {
@@ -298,7 +298,7 @@ export function CandleChart({
     for (let dayStart = visibleStartDay; dayStart <= visibleEndDay; dayStart += dayMs) {
       for (const session of sessions) {
         const start = dayStart + hourToMs(session.startHourUtc);
-        const end = dayStart + hourToMs(session.endHourUtc);
+        const end = start + hourToMs(sessionDurationHours(session));
         if (end < first.time || start > latest.time) continue;
 
         const sessionCandles = visible.filter((candle) => candle.time >= start && candle.time < end);

@@ -12,7 +12,7 @@ export const defaultRules: UserRules = {
   maxDailyRiskPct: 2,
   avoidNews: true,
   allowedSymbols: ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "BTCUSD"],
-  allowedKillzones: ["Asia", "London", "New York AM", "New York PM", "Outside"],
+  allowedKillzones: ["Asia", "London", "New York AM", "London Close", "Outside"],
   usePremiumDiscountFilter: false,
   useJudasSwingFilter: false,
   useHtfAlignmentFilter: false,

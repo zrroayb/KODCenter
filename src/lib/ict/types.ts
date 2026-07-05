@@ -81,7 +81,7 @@ export type PremiumDiscountContext = {
 };
 
 export type Killzone = {
-  name: "Asia" | "London" | "New York AM" | "New York PM" | "Outside";
+  name: "Asia" | "London" | "New York AM" | "London Close" | "Outside";
   active: boolean;
   startHourUtc: number;
   endHourUtc: number;

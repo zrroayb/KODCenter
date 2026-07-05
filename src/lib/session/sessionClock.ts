@@ -8,14 +8,20 @@ export type SessionClockState = {
   display: string;
 };
 
-// Killzones live in their local market timezone; fixed UTC hours would shift the London and
-// New York windows by an hour on every DST change — fatal for a timing-driven strategy.
+// ICT killzones, anchored to their market timezone so DST is handled automatically.
+// Reference table (Türkiye saati, TR = UTC+3 sabit):
+//   Asia KZ         02:00-05:00 TR (Istanbul sabit — Asya piyasalarında DST yok)
+//   London KZ       09:00-12:00 TR yazın (07:00-10:00 Londra lokal)
+//   NY KZ           14:00-17:00 TR yazın (07:00-10:00 New York lokal)
+//   London Close KZ 17:00-19:00 TR yazın (10:00-12:00 New York lokal)
 const SESSION_DEFS: Array<{ name: Exclude<Killzone["name"], "Outside">; timeZone: string; startHour: number; endHour: number }> = [
-  { name: "Asia", timeZone: "UTC", startHour: 0, endHour: 5 },
+  { name: "Asia", timeZone: "Europe/Istanbul", startHour: 2, endHour: 5 },
   { name: "London", timeZone: "Europe/London", startHour: 7, endHour: 10 },
-  { name: "New York AM", timeZone: "America/New_York", startHour: 7.5, endHour: 11 },
-  { name: "New York PM", timeZone: "America/New_York", startHour: 13, endHour: 15 }
+  { name: "New York AM", timeZone: "America/New_York", startHour: 7, endHour: 10 },
+  { name: "London Close", timeZone: "America/New_York", startHour: 10, endHour: 12 }
 ];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function tzOffsetHours(timeZone: string, at: number): number {
   const value = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
@@ -31,13 +37,17 @@ type SessionWindow = Pick<Killzone, "name" | "startHourUtc" | "endHourUtc"> & { 
 
 function sessionWindowsAt(at: number): SessionWindow[] {
   return SESSION_DEFS.map((def) => {
-    const offset = def.timeZone === "UTC" ? 0 : tzOffsetHours(def.timeZone, at);
+    const offset = tzOffsetHours(def.timeZone, at);
     return {
       name: def.name,
       startHourUtc: (def.startHour - offset + 24) % 24,
       endHourUtc: (def.endHour - offset + 24) % 24
     };
   });
+}
+
+export function sessionDurationHours(session: Pick<Killzone, "startHourUtc" | "endHourUtc">): number {
+  return (session.endHourUtc - session.startHourUtc + 24) % 24;
 }
 
 function startOfUtcDay(timestamp: number): number {
@@ -47,14 +57,6 @@ function startOfUtcDay(timestamp: number): number {
 
 function hourToMs(hour: number): number {
   return Math.round(hour * 60 * 60 * 1000);
-}
-
-function sessionStart(dayStart: number, session: Pick<Killzone, "startHourUtc">): number {
-  return dayStart + hourToMs(session.startHourUtc);
-}
-
-function sessionEnd(dayStart: number, session: Pick<Killzone, "endHourUtc">): number {
-  return dayStart + hourToMs(session.endHourUtc);
 }
 
 function formatCountdown(minutes: number): string {
@@ -72,23 +74,21 @@ function formatCountdown(minutes: number): string {
 export function buildSessionClock(now = Date.now()): SessionClockState {
   const windows = sessionWindowsAt(now);
   const dayStart = startOfUtcDay(now);
-  const active = windows.find((session) => {
-    const start = sessionStart(dayStart, session);
-    const end = sessionEnd(dayStart, session);
-    return now >= start && now < end;
-  });
-  const todayOrTomorrowStarts = windows
-    .flatMap((session) => [
-      { session, startsAt: sessionStart(dayStart, session) },
-      { session, startsAt: sessionStart(dayStart + 24 * 60 * 60 * 1000, session) }
-    ])
+  // Sessions can wrap past midnight UTC (Asia), so lay out concrete windows across
+  // yesterday/today/tomorrow and work with absolute timestamps.
+  const concrete = windows.flatMap((session) => [-1, 0, 1].map((offset) => {
+    const startsAt = dayStart + offset * DAY_MS + hourToMs(session.startHourUtc);
+    return { session, startsAt, endsAt: startsAt + hourToMs(sessionDurationHours(session)) };
+  }));
+  const active = concrete.find((item) => now >= item.startsAt && now < item.endsAt);
+  const next = concrete
     .filter((item) => item.startsAt > now)
-    .sort((a, b) => a.startsAt - b.startsAt);
-  const next = todayOrTomorrowStarts[0] ?? { session: windows[0], startsAt: sessionStart(dayStart + 24 * 60 * 60 * 1000, windows[0]) };
+    .sort((a, b) => a.startsAt - b.startsAt)[0]
+    ?? { session: windows[0], startsAt: dayStart + DAY_MS + hourToMs(windows[0].startHourUtc), endsAt: 0 };
   const minutesToNext = Math.max(0, Math.ceil((next.startsAt - now) / 60_000));
 
   return {
-    activeSession: active?.name ?? "Outside",
+    activeSession: active?.session.name ?? "Outside",
     nextSession: next.session.name,
     nextStartsAt: next.startsAt,
     minutesToNext,

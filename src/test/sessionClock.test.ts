@@ -3,22 +3,23 @@ import { buildSessionClock, formatTurkeySessionTime } from "../lib/session/sessi
 
 describe("session clock", () => {
   it("shows active session and next session countdown", () => {
-    const asia = buildSessionClock(Date.UTC(2026, 6, 1, 2, 0));
-    const outsideBeforeLondon = buildSessionClock(Date.UTC(2026, 6, 1, 6, 0));
-    const afterNewYorkPm = buildSessionClock(Date.UTC(2026, 6, 1, 20, 1));
+    const asia = buildSessionClock(Date.UTC(2026, 6, 1, 0, 30));
+    const london = buildSessionClock(Date.UTC(2026, 6, 1, 6, 0));
+    const afterLondonClose = buildSessionClock(Date.UTC(2026, 6, 1, 20, 1));
 
-    // July = BST/EDT: London killzone 07:00-10:00 BST is 06:00-09:00 UTC.
+    // TR referans tablosu (yaz, BST/EDT): Asia 02-05 TR = 23:00-02:00 UTC (gece yarısını sarar),
+    // London 09-12 TR = 06-09 UTC, NY 14-17 TR = 11-14 UTC, London Close 17-19 TR = 14-16 UTC.
     expect(asia.activeSession).toBe("Asia");
     expect(asia.nextSession).toBe("London");
-    expect(asia.minutesToNext).toBe(240);
+    expect(asia.minutesToNext).toBe(330);
 
-    expect(outsideBeforeLondon.activeSession).toBe("London");
-    expect(outsideBeforeLondon.nextSession).toBe("New York AM");
-    expect(outsideBeforeLondon.minutesToNext).toBe(330);
+    expect(london.activeSession).toBe("London");
+    expect(london.nextSession).toBe("New York AM");
+    expect(london.minutesToNext).toBe(300);
 
-    expect(afterNewYorkPm.activeSession).toBe("Outside");
-    expect(afterNewYorkPm.nextSession).toBe("Asia");
-    expect(afterNewYorkPm.minutesToNext).toBe(239);
+    expect(afterLondonClose.activeSession).toBe("Outside");
+    expect(afterLondonClose.nextSession).toBe("Asia");
+    expect(afterLondonClose.minutesToNext).toBe(179);
   });
 
   it("formats next session starts in Turkey time", () => {
