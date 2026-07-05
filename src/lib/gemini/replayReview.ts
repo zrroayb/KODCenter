@@ -41,24 +41,59 @@ export type GeminiReplayReviewResponse = {
   error?: string;
 };
 
+const REASON_LABELS: Record<string, string> = {
+  "clean-model": "temiz model",
+  "eq-then-be": "EQ sonrası BE",
+  "dol-missed": "DOL gelmedi",
+  "stop-too-tight": "stop gürültü bandında",
+  "no-follow-through": "momentum EQ'ya taşımadı",
+  "event-risk": "event riski",
+  "range-chop": "range/chop rejimi",
+  "htf-conflict": "HTF tam ters",
+  "partial-htf-conflict": "HTF kısmi ters",
+  "entry-not-filled": "entry dolmadı",
+  "entry-expired": "retest emri zaman aşımı",
+  expired: "süre doldu",
+  unknown: "sınıflandırılamadı"
+};
+
 function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string): GeminiReplayReviewResponse {
-  const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid");
+  // Mentor rules: small samples get no verdict and no rule changes; losers are named concretely.
+  const triggered = payload.totals.triggeredTrades;
+  const smallSample = triggered < 8;
+  const karar = triggered === 0
+    ? "Karar: Tetiklenen trade yok; disiplin kapıları çalışıyor, hüküm için veri yok."
+    : smallSample
+      ? `Karar: ${triggered} trade istatistik değildir; expectancy ${payload.totals.expectancyR.toFixed(2)}R / PF ${payload.totals.profitFactor.toFixed(2)} sayısal olarak kötü ama örneklem hüküm vermeye yetmez.`
+      : `Karar: Replay edge ${payload.totals.expectancyR >= 0 ? "pozitif" : "negatif"}; expectancy ${payload.totals.expectancyR.toFixed(2)}R, PF ${payload.totals.profitFactor.toFixed(2)} (${triggered} trade).`;
+
+  const caseLine = payload.failureCases.slice(0, 2)
+    .map((item) => `${item.symbol} ${item.direction} (${REASON_LABELS[item.outcomeReason] ?? item.outcomeReason}${typeof item.maxFavorableR === "number" ? ` maxFav ${item.maxFavorableR.toFixed(2)}R` : ""})`)
+    .join(", ");
   const topFailure = payload.failureReasons[0];
-  const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge")
-    ?? [...payload.filterScenarios].sort((a, b) => b.expectancyR - a.expectancyR)[0];
-  const promotedNote = payload.totals.watchPromotedEntries > payload.totals.liveReadyEntries
-    ? `Replay'in çoğu WATCH-promoted: ${payload.totals.watchPromotedEntries}/${payload.totals.readyEntries}.`
-    : `Live READY örneği ${payload.totals.liveReadyEntries}.`;
+  const anaSorun = caseLine
+    ? `Ana sorun: kaybedenler ${caseLine}; live READY ${payload.totals.liveReadyEntries}, WATCH-promoted ${payload.totals.watchPromotedEntries}.`
+    : topFailure
+      ? `Ana sorun: ${REASON_LABELS[topFailure.reason] ?? topFailure.reason} ${topFailure.count} kez / ${topFailure.totalR.toFixed(2)}R.`
+      : "Ana sorun: kayıp bucket'ı yok.";
+
+  const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid" && item.triggered >= 3);
+  const degistir = smallSample
+    ? "Değiştir: Hiçbir şey — bu örneklemle kural değiştirmek overfit olur; aynı kurallarla veri biriktir."
+    : worst
+      ? `Değiştir: ${worst.label} koşulunu READY'den WATCH'a indir (${worst.expectancyR.toFixed(2)}R, ${worst.triggered} trade).`
+      : "Değiştir: Tek bir setup bucket'ı suçlu değil; BE/partial yönetim senaryolarını ölç.";
+
+  const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge" && item.triggered >= 3);
+  const sonraki = bestFilter
+    ? `Sonraki test: ${bestFilter.label} filtresini öne al (${bestFilter.expectancyR.toFixed(2)}R, PF ${bestFilter.profitFactor.toFixed(2)}).`
+    : `Sonraki test: ${smallSample ? "1-2 hafta daha canlı veri biriktirip aynı replay'i tekrar çalıştır." : "live READY / HTF uyumlu / session içi filtrelerini ayrı ayrı ölç."}`;
+
   return {
     status: "fallback",
     model: "local-fallback",
     reason,
-    commentary: [
-      `Karar: Sistem şu an pozitif edge göstermiyor; expectancy ${payload.totals.expectancyR.toFixed(2)}R, PF ${payload.totals.profitFactor.toFixed(2)}.`,
-      `Ana sorun: ${topFailure ? `${topFailure.reason} ${topFailure.count} kez / ${topFailure.totalR.toFixed(2)}R` : "net kayıp bucket'ı yok"}. ${promotedNote}`,
-      `Değiştir: ${worst ? `${worst.label} koşulunu READY'den WATCH'a indir (${worst.expectancyR.toFixed(2)}R).` : "önce live READY ile WATCH-promoted istatistiğini ayrı oku."}`,
-      `Sonraki test: ${bestFilter ? `${bestFilter.label} filtresini öne al (${bestFilter.expectancyR.toFixed(2)}R, PF ${bestFilter.profitFactor.toFixed(2)}).` : "sadece live READY, HTF uyumlu, PD doğru ve session içi setup'ı ayrı ölç."}`
-    ].join("\n")
+    commentary: [karar, anaSorun, degistir, sonraki].join("\n")
   };
 }
 

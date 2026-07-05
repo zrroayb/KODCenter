@@ -273,7 +273,9 @@ function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeRep
   if (signal.context.eventRisk.level !== "clear") return "event-risk";
   if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
   if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
+  if (signal.context.bias.h4 !== expectedBias(signal) || signal.context.bias.daily !== expectedBias(signal)) return "partial-htf-conflict";
   if (signal.plan.stopSource === "volatility-floor" || maxFavorableR < 0.25) return "stop-too-tight";
+  if (maxFavorableR >= 0.4) return "no-follow-through";
   return "unknown";
 }
 

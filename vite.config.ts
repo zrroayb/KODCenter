@@ -579,27 +579,70 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
   return fallbackTradeCommentary(input, lastError || "Gemini yorumu alınamadı.");
 }
 
+const REPLAY_REASON_LABELS: Record<string, string> = {
+  "clean-model": "temiz model",
+  "eq-then-be": "EQ sonrası BE",
+  "dol-missed": "DOL gelmedi",
+  "stop-too-tight": "stop gürültü bandında",
+  "no-follow-through": "momentum EQ'ya taşımadı",
+  "event-risk": "event riski",
+  "range-chop": "range/chop rejimi",
+  "htf-conflict": "HTF tam ters",
+  "partial-htf-conflict": "HTF kısmi ters",
+  "entry-not-filled": "entry dolmadı",
+  "entry-expired": "retest emri zaman aşımı",
+  expired: "süre doldu",
+  unknown: "sınıflandırılamadı"
+};
+
 function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
+  // CRT mentor replay review: honest about sample size, concrete about the losers,
+  // and no rule-change advice that the data cannot support.
   const totals = input.totals ?? {};
   const setupBreakdowns = (input.setupBreakdowns ?? []) as Array<Record<string, unknown>>;
   const failureReasons = (input.failureReasons ?? []) as Array<Record<string, unknown>>;
+  const failureCases = (input.failureCases ?? []) as Array<Record<string, unknown>>;
   const filterScenarios = (input.filterScenarios ?? []) as Array<Record<string, unknown>>;
-  const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid");
-  const topFailure = failureReasons[0];
-  const bestFilter = filterScenarios.find((item) => item.verdict === "edge")
-    ?? [...filterScenarios].sort((a, b) => Number(b.expectancyR ?? 0) - Number(a.expectancyR ?? 0))[0];
   const expectancy = typeof totals.expectancyR === "number" ? totals.expectancyR : 0;
   const profitFactor = typeof totals.profitFactor === "number" ? totals.profitFactor : 0;
-  const watchPromoted = typeof totals.watchPromotedEntries === "number" ? totals.watchPromotedEntries : 0;
+  const triggered = typeof totals.triggeredTrades === "number" ? totals.triggeredTrades : 0;
   const liveReady = typeof totals.liveReadyEntries === "number" ? totals.liveReadyEntries : 0;
+  const watchPromoted = typeof totals.watchPromotedEntries === "number" ? totals.watchPromotedEntries : 0;
+  const smallSample = triggered < 8;
+
+  const karar = triggered === 0
+    ? "Karar: Replay'de tetiklenen trade yok; disiplin kapıları çalışıyor, hüküm için veri yok."
+    : smallSample
+      ? `Karar: ${triggered} trade istatistik değildir; expectancy ${expectancy.toFixed(2)}R / PF ${profitFactor.toFixed(2)} sayısal olarak kötü ama örneklem hüküm vermeye yetmez.`
+      : `Karar: Replay edge ${expectancy >= 0 ? "pozitif" : "negatif"}; expectancy ${expectancy.toFixed(2)}R, PF ${profitFactor.toFixed(2)} (${triggered} trade).`;
+
+  const caseLine = failureCases.slice(0, 2).map((item) => {
+    const label = REPLAY_REASON_LABELS[String(item.outcomeReason ?? "")] ?? String(item.outcomeReason ?? "?");
+    const maxFav = typeof item.maxFavorableR === "number" ? ` maxFav ${item.maxFavorableR.toFixed(2)}R` : "";
+    return `${String(item.symbol ?? "?")} ${String(item.direction ?? "")} (${label}${maxFav})`;
+  }).join(", ");
+  const topFailure = failureReasons[0];
+  const anaProblem = caseLine
+    ? `Ana problem: kaybedenler ${caseLine}; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`
+    : topFailure
+      ? `Ana problem: ${REPLAY_REASON_LABELS[String(topFailure.reason)] ?? String(topFailure.reason)} ${String(topFailure.count)} kez / ${String(topFailure.totalR)}R; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`
+      : `Ana problem: kayıp bucket'ı yok; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`;
+
+  const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid" && Number(item.triggered ?? 0) >= 3);
+  const kural = smallSample
+    ? "Kural değişikliği: Yok — bu örneklemle kural değiştirmek overfit olur; aynı kurallarla veri biriktir."
+    : worstSetup
+      ? `Kural değişikliği: ${String(worstSetup.label)} READY'den WATCH'a düşsün (${String(worstSetup.expectancyR)}R, ${String(worstSetup.triggered)} trade).`
+      : "Kural değişikliği: Tek bir setup bucket'ı suçlu değil; yönetim (BE/partial) senaryolarını ölç.";
+
+  const bestFilter = filterScenarios.find((item) => item.verdict === "edge" && Number(item.triggered ?? 0) >= 3);
+  const olcum = bestFilter
+    ? `Sonraki ölçüm: ${String(bestFilter.label)} filtresini tekrar ölç (${String(bestFilter.expectancyR)}R, PF ${String(bestFilter.profitFactor)}).`
+    : `Sonraki ölçüm: ${smallSample ? "1-2 hafta daha canlı veri biriktirip aynı replay'i tekrar çalıştır." : "Live READY / HTF aligned / session içi filtrelerini ayrı ayrı ölç."}`;
+
   return {
     status: "fallback" as const,
-    commentary: clampText([
-      `Karar: Replay edge zayıf; expectancy ${expectancy.toFixed(2)}R, PF ${profitFactor.toFixed(2)}.`,
-      `Ana problem: ${topFailure ? `${String(topFailure.reason)} ${String(topFailure.count)} kez / ${String(topFailure.totalR)}R` : "ana kayıp bucket'ı net değil"}; WATCH-promoted ${watchPromoted}, live READY ${liveReady}.`,
-      `Kural değişikliği: ${worstSetup ? `${String(worstSetup.label)} READY'den WATCH'a düşsün (${String(worstSetup.expectancyR)}R).` : "WATCH-promoted sonuçları canlı READY performansı gibi okunmasın."}`,
-      `Sonraki ölçüm: ${bestFilter ? `${String(bestFilter.label)} filtresini tekrar ölç (${String(bestFilter.expectancyR)}R, PF ${String(bestFilter.profitFactor)}).` : "Aynı replay'i live READY, HTF aligned, PD aligned ve session içi filtrelerle ayrı çalıştır."}`
-    ].join("\n"), 1200),
+    commentary: clampText([karar, anaProblem, kural, olcum].join("\n"), 1200),
     model: "local-fallback",
     reason
   };

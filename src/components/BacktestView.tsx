@@ -9,10 +9,13 @@ function reasonText(reason: string) {
   if (reason === "eq-then-be") return "EQ sonra BE";
   if (reason === "dol-missed") return "DOL gelmedi";
   if (reason === "stop-too-tight") return "Stop / risk problemi";
+  if (reason === "no-follow-through") return "Momentum EQ'ya taşımadı";
   if (reason === "event-risk") return "Event riski";
   if (reason === "range-chop") return "Range / chop";
   if (reason === "htf-conflict") return "HTF ters";
+  if (reason === "partial-htf-conflict") return "HTF kısmi ters (D veya 4H)";
   if (reason === "entry-not-filled") return "Entry dolmadı";
+  if (reason === "entry-expired") return "Retest emri zaman aşımı";
   if (reason === "expired") return "Süre doldu";
   return "Bilinmeyen";
 }
