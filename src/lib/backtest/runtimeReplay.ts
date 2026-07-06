@@ -26,7 +26,8 @@ const DEFAULT_SCAN_EVERY_CANDLES = 4;
 const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const REPLAY_READY_MIN_SCORE = 50;
 const REPLAY_READY_MIN_RR = 1;
-const REPLAY_MAX_DAILY_TRADES = 3;
+// No daily trade-count cap: the only daily risk brake is the -2R stop. A symbol still
+// takes at most one entry per day to avoid re-entering the same setup.
 const REPLAY_MAX_SYMBOL_DAILY_TRADES = 1;
 const REPLAY_MAX_ENTRIES_PER_SCAN = 1;
 const REPLAY_DAILY_STOP_R = -2;
@@ -149,7 +150,6 @@ function dayStateFor(states: Map<string, DayRiskState>, time: number): DayRiskSt
 }
 
 function canTakeReplayEntry(state: DayRiskState, signal: TradingSignal): boolean {
-  if (state.trades >= REPLAY_MAX_DAILY_TRADES) return false;
   if (state.r <= REPLAY_DAILY_STOP_R) return false;
   if ((state.symbols[signal.symbol] ?? 0) >= REPLAY_MAX_SYMBOL_DAILY_TRADES) return false;
   return true;
@@ -1152,7 +1152,7 @@ export function runMonthlyRuntimeReplay({
     dataAvailableDays + 0.5 < windowDays
       ? `Mevcut data ${dataAvailableDays.toFixed(1)} gün; tam ${windowDays} gün için provider 15m geçmişi gerekir.`
       : undefined,
-    `Replay risk capped: günde max ${REPLAY_MAX_DAILY_TRADES} entry, sembol başına ${REPLAY_MAX_SYMBOL_DAILY_TRADES}, günlük stop ${REPLAY_DAILY_STOP_R}R.`
+    `Replay risk capped: sembol başına günde ${REPLAY_MAX_SYMBOL_DAILY_TRADES} entry, günlük stop ${REPLAY_DAILY_STOP_R}R.`
   ].filter((item): item is string => Boolean(item)).join(" ");
 
   return {
