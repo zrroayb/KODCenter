@@ -19,6 +19,8 @@ const DEFAULT_MINIMUM_RR = 1.5;
 // it stays valid while the reclaim holds and the range candle is still the reference.
 const SWEEP_FRESHNESS_CANDLES = 24;
 const CHOCH_FRESHNESS_CANDLES = 12;
+// How many closed range candles back an accepted raid can keep being the anchor's reference.
+const RAID_PERSISTENCE_LOOKBACK = 6;
 const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
   XAUUSD: 0.8,
   NAS100: 12,
@@ -91,35 +93,60 @@ function rangeFromCandle(candle: Candle, spec: AnchorSpec): DealingRange {
   return { high: candle.high, low: candle.low, midpoint: (candle.high + candle.low) / 2, source: `CRT ${spec.rangeTf} range: previous closed candle` };
 }
 
+function raidFromPair(range: DealingRange, raidCandle: Candle, closed: boolean, lastClose: number): AnchorRaid | undefined {
+  const shortRaid = raidCandle.high > range.high && (!closed || raidCandle.close < range.high) && lastClose < range.high;
+  const longRaid = raidCandle.low < range.low && (!closed || raidCandle.close > range.low) && lastClose > range.low;
+  if (shortRaid && longRaid) {
+    // A forming candle that swept both sides is chaos, not a raid; a closed one tie-breaks
+    // by the larger excess.
+    if (!closed) return undefined;
+    const upExcess = raidCandle.high - range.high;
+    const downExcess = range.low - raidCandle.low;
+    return upExcess >= downExcess
+      ? { direction: "short", level: raidCandle.high, time: raidCandle.time, closed }
+      : { direction: "long", level: raidCandle.low, time: raidCandle.time, closed };
+  }
+  if (shortRaid) return { direction: "short", level: raidCandle.high, time: raidCandle.time, closed };
+  if (longRaid) return { direction: "long", level: raidCandle.low, time: raidCandle.time, closed };
+  return undefined;
+}
+
+// A raid stays alive only while every later close holds the reclaim (a close beyond the
+// swept extreme was a breakout) and the distribution target is untouched (a touch of the
+// opposite extreme means the setup played out and is consumed).
+function raidStillActive(rangeCandles: Candle[], raidIndex: number, range: DealingRange, direction: TradeDirection): boolean {
+  for (let index = raidIndex + 1; index < rangeCandles.length; index += 1) {
+    const candle = rangeCandles[index];
+    if (direction === "short" ? candle.close > range.high : candle.close < range.low) return false;
+    if (direction === "short" ? candle.low <= range.low : candle.high >= range.high) return false;
+  }
+  return true;
+}
+
 // SOP steps 2-4: mark CRT-High/Low, wait for the raid, confirm the close back inside.
 // A closed raid candle (strongest confirmation) is preferred; a live raid on the forming
 // candle is the fast variant. In both cases the reclaim must still hold NOW — if price
 // trades beyond the swept extreme, that was a breakout and there is nothing to fade.
+// An accepted raid does NOT roll away when the next range candle closes: while it is still
+// active, a poke at a newer candle's extreme is that raid's distribution leg (or noise), not
+// a fresh setup — so scan oldest-first and keep the waiting setup's direction instead of
+// flipping it on every new candle.
 function detectAnchorRaid(rangeCandles: Candle[], lastClose: number, spec: AnchorSpec): { range: DealingRange; raid?: AnchorRaid } {
   const n = rangeCandles.length;
+  for (let rangeIndex = Math.max(0, n - 2 - RAID_PERSISTENCE_LOOKBACK); rangeIndex <= n - 4; rangeIndex += 1) {
+    const range = rangeFromCandle(rangeCandles[rangeIndex], spec);
+    const raid = raidFromPair(range, rangeCandles[rangeIndex + 1], true, lastClose);
+    if (raid && raidStillActive(rangeCandles, rangeIndex + 1, range, raid.direction)) return { range, raid };
+  }
   if (n >= 3) {
     const range = rangeFromCandle(rangeCandles[n - 3], spec);
-    const raidCandle = rangeCandles[n - 2];
-    const shortRaid = raidCandle.high > range.high && raidCandle.close < range.high && lastClose < range.high;
-    const longRaid = raidCandle.low < range.low && raidCandle.close > range.low && lastClose > range.low;
-    if (shortRaid && !longRaid) return { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: true } };
-    if (longRaid && !shortRaid) return { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: true } };
-    if (shortRaid && longRaid) {
-      const upExcess = raidCandle.high - range.high;
-      const downExcess = range.low - raidCandle.low;
-      return upExcess >= downExcess
-        ? { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: true } }
-        : { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: true } };
-    }
+    const raid = raidFromPair(range, rangeCandles[n - 2], true, lastClose);
+    if (raid) return { range, raid };
   }
   if (n >= 2) {
     const range = rangeFromCandle(rangeCandles[n - 2], spec);
-    const raidCandle = rangeCandles[n - 1];
-    const shortRaid = raidCandle.high > range.high && lastClose < range.high;
-    const longRaid = raidCandle.low < range.low && lastClose > range.low;
-    if (shortRaid && !longRaid) return { range, raid: { direction: "short", level: raidCandle.high, time: raidCandle.time, closed: false } };
-    if (longRaid && !shortRaid) return { range, raid: { direction: "long", level: raidCandle.low, time: raidCandle.time, closed: false } };
-    return { range };
+    const raid = raidFromPair(range, rangeCandles[n - 1], false, lastClose);
+    return raid ? { range, raid } : { range };
   }
   return { range: rangeFromCandle(rangeCandles[n - 1], spec) };
 }
