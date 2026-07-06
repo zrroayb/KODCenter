@@ -53,6 +53,9 @@ function defaultVisibleCount(mode: ChartMode): number {
 function visibleCandles(candles: Candle[], range: FocusedTimeRange | undefined, mode: ChartMode): Candle[] {
   if (!range) return candles.slice(-defaultVisibleCount(mode));
   const focused = candles.filter((candle) => candle.time >= range.from && candle.time <= range.to);
+  // Hard readability cap: whatever the focus range says, never squeeze more than ~130 bars
+  // into one screen — keep the most recent side where the live action is.
+  if (focused.length > 130) return focused.slice(-130);
   const minimum = mode === "execution" ? 48 : 32;
   if (focused.length >= Math.min(minimum, candles.length)) return focused;
 

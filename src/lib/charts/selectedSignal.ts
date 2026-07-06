@@ -38,12 +38,16 @@ function planFairValueGap(signal: TradingSignal): FairValueGap | undefined {
 
 export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignalAnnotations {
   const sweepSide = expectedSweepSide(signal);
+  // The plan FVG's candleIndex lives on the signal's confirmation timeframe; drawing it on the
+  // m15 chart is only valid when the confirmation timeframe IS m15 (a 1H/4H index lands weeks
+  // back on the m15 axis and drags the focus window with it).
+  const planGapIsM15 = !signal.crtAnchor || signal.crtAnchor.confirmTf === "15m";
 
   return {
     sweep: latestByIndex(signal.context.sweeps.filter((sweep) => sweep.side === sweepSide && sweep.reclaimed)) ?? latestByIndex(signal.context.sweeps),
     displacement: latestByIndex(signal.context.displacements.filter((item) => item.direction === signal.direction)),
     marketStructureShift: latestByIndex(signal.context.marketStructureShifts.filter((item) => item.direction === signal.direction)),
-    fairValueGap: planFairValueGap(signal),
+    fairValueGap: planGapIsM15 ? planFairValueGap(signal) : undefined,
     smtDivergence: latestByIndex(signal.context.smtDivergences.filter((item) => item.direction === signal.direction)),
     judasSwing: signal.context.judasSwings.find((item) => item.direction === signal.direction)
   };
@@ -85,8 +89,11 @@ export function focusChartOnSignal(signal: TradingSignal, paddingCandles = 30): 
     candles.length - 1
   ].filter((index): index is number => typeof index === "number");
 
-  const first = Math.max(0, Math.min(...indexes) - paddingCandles);
+  // Never open a window wider than ~150 candles: one stale annotation index must not
+  // squeeze weeks of price action into a single unreadable screen.
+  const maxSpan = 150;
   const last = Math.min(candles.length - 1, Math.max(...indexes) + paddingCandles);
+  const first = Math.max(0, last - maxSpan, Math.min(...indexes) - paddingCandles);
   const fallbackTo = signal.createdAt + 50 * 15 * 60 * 1000;
 
   return {
