@@ -4,7 +4,7 @@ import type { StrategyModule } from "../lib/strategies/types";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "../lib/userRules/scorePolicy";
 import type { UserRules } from "../lib/userRules/userRules";
 
-const SYMBOLS: MarketSymbol[] = ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "BTCUSD"];
+const SYMBOLS: MarketSymbol[] = ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"];
 const KILLZONES = ["Asia", "London", "New York AM", "London Close", "Outside"];
 
 export function SettingsView({

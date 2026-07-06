@@ -21,7 +21,7 @@ describe("monthly runtime replay", () => {
     expect((result.replay?.readyAlerts ?? 0) + (result.replay?.watchAlerts ?? 0)).toBeGreaterThan(0);
     expect(result.equityCurve.length).toBeGreaterThan(0);
     expect(result.replay?.bySymbol.length).toBeGreaterThan(0);
-    expect(result.replay?.bySymbol.length).toBeLessThanOrEqual(5);
+    expect(result.replay?.bySymbol.length).toBeLessThanOrEqual(12);
     expect(result.replay?.candidates.length).toBeGreaterThan(0);
     expect(result.replay?.calibration.length).toBeGreaterThan(0);
     expect(result.replay?.filterScenarios.length).toBeGreaterThan(0);

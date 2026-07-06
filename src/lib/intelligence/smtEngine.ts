@@ -1,10 +1,17 @@
 import type { Candle, MarketContext, MarketSymbol, SmtDivergence, TradeDirection } from "../ict/types";
 
 const SMT_PARTNERS: Partial<Record<MarketSymbol, MarketSymbol[]>> = {
-  EURUSD: ["GBPUSD"],
-  GBPUSD: ["EURUSD"],
+  EURUSD: ["GBPUSD", "AUDUSD"],
+  GBPUSD: ["EURUSD", "AUDUSD"],
+  AUDUSD: ["EURUSD", "GBPUSD"],
+  USDJPY: ["USDCHF"],
+  USDCHF: ["USDJPY"],
   NAS100: ["BTCUSD"],
-  BTCUSD: ["NAS100"]
+  BTCUSD: ["ETHUSD", "NAS100"],
+  ETHUSD: ["BTCUSD", "SOLUSD"],
+  SOLUSD: ["ETHUSD", "BTCUSD"],
+  XRPUSD: ["BTCUSD"],
+  BNBUSD: ["BTCUSD"]
 };
 
 function executionCandles(context: MarketContext): Candle[] {

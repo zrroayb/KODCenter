@@ -22,7 +22,7 @@ export function RiskView({ signal }: { signal?: TradingSignal }) {
           <span className="badge">Sadece memory</span>
         </header>
         <div className="form-grid">
-          <label>Symbol<select value={symbol} onChange={(event) => setSymbol(event.target.value as MarketSymbol)}><option>XAUUSD</option><option>NAS100</option><option>EURUSD</option><option>GBPUSD</option><option>BTCUSD</option></select></label>
+          <label>Symbol<select value={symbol} onChange={(event) => setSymbol(event.target.value as MarketSymbol)}><option>XAUUSD</option><option>NAS100</option><option>EURUSD</option><option>GBPUSD</option><option>USDJPY</option><option>AUDUSD</option><option>USDCHF</option><option>BTCUSD</option><option>ETHUSD</option><option>XRPUSD</option><option>BNBUSD</option><option>SOLUSD</option></select></label>
           <label>Account size<input type="number" value={account.accountSize} onChange={(event) => setAccount({ ...account, accountSize: Number(event.target.value) })} /></label>
           <label>Risk %<input type="number" step="0.1" value={account.riskPerTradePct} onChange={(event) => setAccount({ ...account, riskPerTradePct: Number(event.target.value) })} /></label>
           <label>Max günlük loss %<input type="number" step="0.1" value={account.maxDailyLossPct} onChange={(event) => setAccount({ ...account, maxDailyLossPct: Number(event.target.value) })} /></label>

@@ -20,7 +20,14 @@ const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
   NAS100: 12,
   EURUSD: 0.0002,
   GBPUSD: 0.0002,
-  BTCUSD: 120
+  USDJPY: 0.03,
+  AUDUSD: 0.0002,
+  USDCHF: 0.0002,
+  BTCUSD: 120,
+  ETHUSD: 6,
+  XRPUSD: 0.005,
+  BNBUSD: 1.5,
+  SOLUSD: 0.4
 };
 
 const STOP_PROFILE_MULTIPLIERS = {

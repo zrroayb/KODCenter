@@ -4,7 +4,19 @@ export type TradeDirection = "long" | "short";
 export type SignalStage = "watch" | "ready" | "invalidated" | "missed";
 export type QualityGrade = "A+" | "A" | "B" | "C" | "D";
 
-export type MarketSymbol = "XAUUSD" | "NAS100" | "EURUSD" | "GBPUSD" | "BTCUSD";
+export type MarketSymbol =
+  | "XAUUSD"
+  | "NAS100"
+  | "EURUSD"
+  | "GBPUSD"
+  | "USDJPY"
+  | "AUDUSD"
+  | "USDCHF"
+  | "BTCUSD"
+  | "ETHUSD"
+  | "XRPUSD"
+  | "BNBUSD"
+  | "SOLUSD";
 
 export type Ohlc = {
   open: number;

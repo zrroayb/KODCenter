@@ -27,7 +27,16 @@ const APPROX_POINT_VALUE: Record<MarketSymbol, number> = {
   NAS100: 1,
   EURUSD: 100_000,
   GBPUSD: 100_000,
-  BTCUSD: 1
+  // USD-quote pairs pay 100k per lot per 1.0 move; USDJPY P&L is in JPY, so the per-lot
+  // value is roughly 100k / rate (~145) converted back to USD.
+  USDJPY: 700,
+  AUDUSD: 100_000,
+  USDCHF: 110_000,
+  BTCUSD: 1,
+  ETHUSD: 1,
+  XRPUSD: 1,
+  BNBUSD: 1,
+  SOLUSD: 1
 };
 
 export function calculatePositionSize(input: PositionSizeInput): PositionSizeResult {

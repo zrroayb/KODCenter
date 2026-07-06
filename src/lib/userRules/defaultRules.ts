@@ -11,7 +11,7 @@ export const defaultRules: UserRules = {
   moveToBreakevenAtR: 1,
   maxDailyRiskPct: 2,
   avoidNews: true,
-  allowedSymbols: ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "BTCUSD"],
+  allowedSymbols: ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"],
   allowedKillzones: ["Asia", "London", "New York AM", "London Close", "Outside"],
   usePremiumDiscountFilter: false,
   useJudasSwingFilter: false,

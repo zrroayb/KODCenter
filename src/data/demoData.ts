@@ -15,7 +15,14 @@ const SYMBOLS: Array<{ symbol: MarketSymbol; name: string; base: number; trend: 
   { symbol: "NAS100", name: "Nasdaq 100", base: 19980, trend: 7.5 },
   { symbol: "EURUSD", name: "Euro Dollar", base: 1.078, trend: -0.00008 },
   { symbol: "GBPUSD", name: "Pound Dollar", base: 1.268, trend: 0.00009 },
-  { symbol: "BTCUSD", name: "Bitcoin", base: 67100, trend: 32 }
+  { symbol: "USDJPY", name: "Dollar Yen", base: 148.2, trend: -0.011 },
+  { symbol: "AUDUSD", name: "Aussie Dollar", base: 0.657, trend: 0.00005 },
+  { symbol: "USDCHF", name: "Dollar Swiss", base: 0.884, trend: -0.00006 },
+  { symbol: "BTCUSD", name: "Bitcoin", base: 67100, trend: 32 },
+  { symbol: "ETHUSD", name: "Ethereum", base: 3520, trend: 1.8 },
+  { symbol: "XRPUSD", name: "XRP", base: 2.35, trend: 0.0011 },
+  { symbol: "BNBUSD", name: "BNB", base: 715, trend: 0.36 },
+  { symbol: "SOLUSD", name: "Solana", base: 186, trend: 0.1 }
 ];
 
 export function createDemoMarkets(now = Date.UTC(2026, 5, 30, 8, 45)): DemoMarket[] {

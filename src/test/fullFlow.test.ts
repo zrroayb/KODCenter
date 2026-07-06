@@ -18,9 +18,9 @@ describe("full tradebot flow", () => {
       return readyScore || b.score - a.score;
     })[0];
 
-    expect(markets).toHaveLength(5);
-    expect(contexts).toHaveLength(5);
-    expect(signals).toHaveLength(5);
+    expect(markets).toHaveLength(12);
+    expect(contexts).toHaveLength(12);
+    expect(signals).toHaveLength(12);
     expect(best).toBeDefined();
 
     const focus = focusChartOnSignal(best);

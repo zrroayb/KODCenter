@@ -12,7 +12,9 @@ type EventTemplate = {
   occurs(date: Date): boolean;
 };
 
-const USD_SYMBOLS: MarketSymbol[] = ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "BTCUSD"];
+// Every tracked symbol is either quoted in USD or has USD as the base, so US high-impact
+// data windows apply to all of them.
+const USD_SYMBOLS: MarketSymbol[] = ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"];
 
 function isFirstFriday(date: Date): boolean {
   return date.getUTCDay() === 5 && date.getUTCDate() <= 7;

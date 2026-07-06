@@ -5,7 +5,14 @@ const SYNTHETIC_SPREAD: Record<MarketSymbol, number> = {
   NAS100: 4,
   EURUSD: 0.00008,
   GBPUSD: 0.0001,
-  BTCUSD: 35
+  USDJPY: 0.012,
+  AUDUSD: 0.0001,
+  USDCHF: 0.00012,
+  BTCUSD: 35,
+  ETHUSD: 2,
+  XRPUSD: 0.002,
+  BNBUSD: 0.5,
+  SOLUSD: 0.09
 };
 
 function shift(ohlc: Ohlc, amount: number): Ohlc {
