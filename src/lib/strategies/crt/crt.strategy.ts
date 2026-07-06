@@ -388,6 +388,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const inSession = isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside");
   const tp1Valid = direction === "short" ? plan.targets[0] < plan.entry : plan.targets[0] > plan.entry;
   const stopValid = direction === "short" ? plan.stopLoss > plan.entry : plan.stopLoss < plan.entry;
+  // The retest must be plausible: an entry sitting further than 1.5R from current price is
+  // last month's liquidity grab, not this setup's entry.
+  const retestFar = Math.abs(lastClose - plan.entry) > plan.riskDistance * 1.5;
   const hasRealTarget = typeof targetDol(anchor, direction, plan.entry) === "number";
   const anchorRanges = anchor.rangeCandles.slice(-20).map((candle) => candle.high - candle.low);
   const anchorAverageRange = anchorRanges.reduce((sum, value) => sum + value, 0) / Math.max(anchorRanges.length, 1);
@@ -420,6 +423,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     fullHtfConflict ? "Daily ve 4H bias birlikte ters yönde; tam HTF conflict'te reversal alınmaz." : undefined,
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
+    retestFar ? "Retest uzak; fiyat entry alanını terk etmiş, kovalanmaz — yeni raid bekle." : undefined,
     !inSession ? "Killzone dışı; CRT zamanlama stratejisidir, FX/endeks için session hard gate." : undefined,
     context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
@@ -549,15 +553,17 @@ function m15StartIndex(context: MarketContext, anchor: AnchorCtx, setup: CrtSetu
 
 function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
   const outcome = evaluateSignalOutcome(context, setup.direction, setup.plan, m15StartIndex(context, anchor, setup));
-  // Only a confirmed entry can be stopped out or missed; a hypothetical fallback entry running
-  // through history must not kill a setup that is still waiting for its ChoCH confirmation.
-  if (setup.plan.entryStatus === "confirmed") {
-    if (outcome.status === "stopped") {
-      return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
-    }
-    if (outcome.status === "tp1" || outcome.status === "tp2" || outcome.status === "missed") {
-      return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
-    }
+  // Only a confirmed entry can be stopped out; a hypothetical fallback entry running through
+  // history must not kill a setup that is still waiting for its ChoCH confirmation.
+  if (setup.plan.entryStatus === "confirmed" && outcome.status === "stopped") {
+    return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
+  }
+  // But "the trade already played out" is real for any concrete entry level (confirmed OR
+  // pending POI): if price consumed the level and ran to the targets, the setup is gone —
+  // advertising a limit at last month's liquidity grab is chasing in reverse.
+  if (setup.plan.entryStatus !== "fallback"
+    && (outcome.status === "tp1" || outcome.status === "tp2" || outcome.status === "missed")) {
+    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
   }
   const stage = readyCandidate ? "ready" : "watch";
   return { stage, outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, stage) };
