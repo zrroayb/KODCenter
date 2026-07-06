@@ -391,6 +391,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // The retest must be plausible: an entry sitting further than 1.5R from current price is
   // last month's liquidity grab, not this setup's entry.
   const retestFar = Math.abs(lastClose - plan.entry) > plan.riskDistance * 1.5;
+  // If EQ pays less than half the risk, the 50% partial cannot carry the losers: the
+  // win/loss asymmetry goes negative even with a decent win rate.
+  const eqDistanceR = Math.abs(plan.targets[0] - plan.entry) / Math.max(plan.riskDistance, 0.000001);
+  const eqTooClose = tp1Valid && eqDistanceR < 0.5;
   const hasRealTarget = typeof targetDol(anchor, direction, plan.entry) === "number";
   const anchorRanges = anchor.rangeCandles.slice(-20).map((candle) => candle.high - candle.low);
   const anchorAverageRange = anchorRanges.reduce((sum, value) => sum + value, 0) / Math.max(anchorRanges.length, 1);
@@ -424,6 +428,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Retest uzak; fiyat entry alanını terk etmiş, kovalanmaz — yeni raid bekle." : undefined,
+    eqTooClose ? `EQ/TP1 mesafesi ${eqDistanceR.toFixed(2)}R; 0.5R altında partial yönetimi kayıpları taşıyamaz.` : undefined,
     context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,

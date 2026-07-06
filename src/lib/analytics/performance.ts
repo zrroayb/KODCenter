@@ -25,6 +25,7 @@ export type RuntimeReplayOutcomeReason =
   | "eq-then-be"
   | "dol-missed"
   | "stop-too-tight"
+  | "be-scratch"
   | "no-follow-through"
   | "event-risk"
   | "range-chop"

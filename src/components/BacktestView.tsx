@@ -10,6 +10,7 @@ function reasonText(reason: string) {
   if (reason === "dol-missed") return "DOL gelmedi";
   if (reason === "stop-too-tight") return "Stop / risk problemi";
   if (reason === "no-follow-through") return "Momentum EQ'ya taşımadı";
+  if (reason === "be-scratch") return "BE scratch (0R)";
   if (reason === "event-risk") return "Event riski";
   if (reason === "range-chop") return "Range / chop";
   if (reason === "htf-conflict") return "HTF ters";

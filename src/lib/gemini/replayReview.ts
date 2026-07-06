@@ -47,6 +47,7 @@ const REASON_LABELS: Record<string, string> = {
   "dol-missed": "DOL gelmedi",
   "stop-too-tight": "stop gürültü bandında",
   "no-follow-through": "momentum EQ'ya taşımadı",
+  "be-scratch": "BE scratch (0R)",
   "event-risk": "event riski",
   "range-chop": "range/chop rejimi",
   "htf-conflict": "HTF tam ters",

@@ -283,15 +283,31 @@ function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], 
   let maxFavorableR = 0;
   let maxAdverseR = 0;
   let eqHitIndex = -1;
+  let breakevenArmed = false;
   const eqR = targetR(signal, 0);
   const dolR = targetR(signal, 1);
 
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
+    // Once the trade has paid +1R, the stop lives at entry: a winner is never allowed to
+    // become a full -1R loser. Armed from the previous candle's extreme (conservative).
+    if (eqHitIndex < 0 && breakevenArmed && priceTouched(candle, signal.plan.entry)) {
+      return {
+        status: "stopped",
+        rMultiple: 0,
+        maxFavorableR,
+        maxAdverseR,
+        candlesHeld: index + 1,
+        outcomeReason: "be-scratch",
+        tags: Array.from(new Set([...tags, "crt:be-scratch"])),
+        note: "+1R sonrası stop BE'ye alındı; entry retest edildi, 0R scratch."
+      };
+    }
     const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
     const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
     maxFavorableR = Math.max(maxFavorableR, highR, lowR);
     maxAdverseR = Math.min(maxAdverseR, highR, lowR);
+    if (maxFavorableR >= 1) breakevenArmed = true;
 
     if (eqHitIndex < 0) {
       if (stopHit(signal, candle)) {
