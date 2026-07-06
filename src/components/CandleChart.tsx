@@ -729,18 +729,36 @@ export function CandleChart({
   })() : null;
 
   const markers = showSignalMarkers && first && latest
-    ? signals
-        .filter((signal) => signal.context.symbol === context?.symbol)
-        .filter((signal) => signal.id !== selectedSignal?.id)
-        .filter((signal) => {
-          const focus = focusChartOnSignal(signal, 0);
-          return focus.to >= first.time && focus.from <= latest.time;
-        })
-        .map((signal) => {
-          const x = xForTime(signalAnchorTime(signal));
-          const candle = nearestCandle(visible, signalAnchorTime(signal));
-          const y = signal.direction === "long" ? scaleY(candle.low) + 16 : scaleY(candle.high) - 16;
+    ? (() => {
+        // Multi-anchor CRT signals share the same anchor candle: stack their chips instead of
+        // stamping them on top of each other, and keep them clear of the right-edge price tags.
+        const items = signals
+          .filter((signal) => signal.context.symbol === context?.symbol)
+          .filter((signal) => signal.id !== selectedSignal?.id)
+          .filter((signal) => {
+            const focus = focusChartOnSignal(signal, 0);
+            return focus.to >= first.time && focus.from <= latest.time;
+          })
+          .map((signal) => {
+            const anchorTf = signal.crtAnchor?.rangeTf;
+            const label = anchorTf ? `${signal.stage.toUpperCase()} ${anchorTf.toUpperCase()}` : signal.stage.toUpperCase();
+            const candle = nearestCandle(visible, signalAnchorTime(signal));
+            const x = Math.min(xForTime(signalAnchorTime(signal)), plotRight - 40);
+            const y = signal.direction === "long" ? scaleY(candle.low) + 16 : scaleY(candle.high) - 16;
+            return { signal, label, x, y: Math.max(plot.top + 26, Math.min(plotBottom - 14, y)) };
+          })
+          .sort((a, b) => a.x - b.x || a.y - b.y);
+        for (let index = 1; index < items.length; index += 1) {
+          for (let prev = 0; prev < index; prev += 1) {
+            if (Math.abs(items[index].x - items[prev].x) < 76 && Math.abs(items[index].y - items[prev].y) < 24) {
+              items[index].y = items[prev].y + 26;
+            }
+          }
+          items[index].y = Math.min(plotBottom - 14, items[index].y);
+        }
+        return items.map(({ signal, label, x, y }) => {
           const color = stageColor(signal);
+          const chipWidth = Math.max(56, label.length * 7 + 14);
           return (
             <g
               key={signal.id}
@@ -755,11 +773,12 @@ export function CandleChart({
               }}
               className={selectedSignal?.id === signal.id ? "signal-marker selected" : "signal-marker"}
             >
-              <rect x={x - 28} y={y - 12} width="56" height="22" rx="5" fill="#0f172a" stroke={color} strokeWidth="1.2" />
-              <text x={x} y={y + 3} fill={color} fontSize="10" fontWeight="800" textAnchor="middle">{signal.stage.toUpperCase()}</text>
+              <rect x={x - chipWidth / 2} y={y - 12} width={chipWidth} height="22" rx="5" fill="#0f172a" stroke={color} strokeWidth="1.2" />
+              <text x={x} y={y + 3} fill={color} fontSize="10" fontWeight="800" textAnchor="middle">{label}</text>
             </g>
           );
-        })
+        });
+      })()
     : null;
 
   const hovered = hoverIndex !== null && hoverIndex >= 0 && hoverIndex < visible.length ? visible[hoverIndex] : null;
