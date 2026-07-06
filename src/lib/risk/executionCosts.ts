@@ -21,7 +21,14 @@ const SYMBOL_EXECUTION_COSTS: Record<MarketSymbol, SymbolExecutionCost> = {
   NAS100: { spread: 4, slippage: 4, commission: 0 },
   EURUSD: { spread: 0.00008, slippage: 0.00004, commission: 0.00002 },
   GBPUSD: { spread: 0.0001, slippage: 0.00005, commission: 0.00002 },
-  BTCUSD: { spread: 35, slippage: 60, commission: 15 }
+  USDJPY: { spread: 0.012, slippage: 0.006, commission: 0.003 },
+  AUDUSD: { spread: 0.0001, slippage: 0.00005, commission: 0.00002 },
+  USDCHF: { spread: 0.00012, slippage: 0.00006, commission: 0.00002 },
+  BTCUSD: { spread: 35, slippage: 60, commission: 15 },
+  ETHUSD: { spread: 2, slippage: 3.5, commission: 1 },
+  XRPUSD: { spread: 0.002, slippage: 0.003, commission: 0.001 },
+  BNBUSD: { spread: 0.5, slippage: 0.9, commission: 0.3 },
+  SOLUSD: { spread: 0.09, slippage: 0.16, commission: 0.05 }
 };
 
 const STRESS_MULTIPLIER: Record<ExecutionCostStress, number> = {

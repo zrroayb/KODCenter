@@ -40,7 +40,15 @@ const YAHOO_SYMBOLS: Array<{ symbol: MarketSymbol; name: string; yahoo: string }
   { symbol: "NAS100", name: "Nasdaq 100 Futures", yahoo: "NQ=F" },
   { symbol: "EURUSD", name: "Euro Dollar", yahoo: "EURUSD=X" },
   { symbol: "GBPUSD", name: "Pound Dollar", yahoo: "GBPUSD=X" },
-  { symbol: "BTCUSD", name: "Bitcoin", yahoo: "BTC-USD" }
+  // Yahoo's canonical ticker for USD-base pairs drops the USD prefix ("JPY=X" is USD/JPY).
+  { symbol: "USDJPY", name: "Dollar Yen", yahoo: "JPY=X" },
+  { symbol: "AUDUSD", name: "Aussie Dollar", yahoo: "AUDUSD=X" },
+  { symbol: "USDCHF", name: "Dollar Swiss", yahoo: "CHF=X" },
+  { symbol: "BTCUSD", name: "Bitcoin", yahoo: "BTC-USD" },
+  { symbol: "ETHUSD", name: "Ethereum", yahoo: "ETH-USD" },
+  { symbol: "XRPUSD", name: "XRP", yahoo: "XRP-USD" },
+  { symbol: "BNBUSD", name: "BNB", yahoo: "BNB-USD" },
+  { symbol: "SOLUSD", name: "Solana", yahoo: "SOL-USD" }
 ];
 
 function createTimeoutSignal(parentSignal?: AbortSignal, timeoutMs = 7_000) {

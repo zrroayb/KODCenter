@@ -10,7 +10,7 @@ describe("data health report", () => {
     const clean = buildDataHealthReport(markets, { source: "yahoo-live", feedMode: "synthetic-bid-ask", loadedAt: now, errors: [] }, now);
     const fallback = buildDataHealthReport(markets, { source: "mixed", feedMode: "synthetic-bid-ask", loadedAt: now, errors: ["EURUSD: provider timeout"] }, now);
 
-    expect(clean.rows).toHaveLength(5);
+    expect(clean.rows).toHaveLength(12);
     expect(clean.rows[0].counts.m15).toBeGreaterThan(20);
     expect(clean.rows[0].executionLagMinutes).toBeLessThanOrEqual(clean.rows[0].maxIntradayLagMinutes);
     expect(clean.rows[0].htfAgeMinutes).toBeLessThanOrEqual(clean.rows[0].maxIntradayLagMinutes);

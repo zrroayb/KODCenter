@@ -14,6 +14,7 @@ import {
 import { aggregateCandles, trimCandles } from "../data/candleAggregation";
 import { executableHigh, executableLow } from "../data/bidAsk";
 import type { Candle, MarketContext, MarketSymbol, TradingSignal } from "../ict/types";
+import { isCryptoSymbol } from "../ict/symbols";
 import { buildMarketContext, type MarketTimeframes } from "../intelligence/marketContext";
 import { attachSmtDivergences } from "../intelligence/smtEngine";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../signals/waitingGuidance";
@@ -122,7 +123,17 @@ function replayTimes(markets: DemoMarket[], startedAt: number, endedAt: number, 
 }
 
 function roundedLevel(value: number, symbol: MarketSymbol): string {
-  const decimals = symbol === "EURUSD" || symbol === "GBPUSD" ? 5 : symbol === "BTCUSD" || symbol === "NAS100" ? 1 : 2;
+  // Level-dedupe precision by quote scale: sub-10 quotes need pip-level decimals, big
+  // quotes only whole-ish levels. Fall back to the price magnitude for new symbols.
+  const decimals = symbol === "EURUSD" || symbol === "GBPUSD" || symbol === "AUDUSD" || symbol === "USDCHF"
+    ? 5
+    : symbol === "BTCUSD" || symbol === "ETHUSD" || symbol === "BNBUSD" || symbol === "NAS100"
+      ? 1
+      : symbol === "XRPUSD"
+        ? 4
+        : symbol === "USDJPY"
+          ? 3
+          : 2;
   return value.toFixed(decimals);
 }
 
@@ -655,7 +666,7 @@ function failureReasonSummary(trades: RuntimeReplayTrade[]) {
 }
 
 function sessionIsActive(trade: RuntimeReplayTrade): boolean {
-  return trade.symbol === "BTCUSD" || trade.session !== "Outside";
+  return isCryptoSymbol(trade.symbol as MarketSymbol) || trade.session !== "Outside";
 }
 
 function scenarioStats(
