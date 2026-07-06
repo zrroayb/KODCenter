@@ -274,11 +274,13 @@ function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulati
   return { level, candleIndex: confirmIndex };
 }
 
-function poiForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtPoi | undefined {
+function poiForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"]): CrtPoi | undefined {
+  // SOP step 7: the entry POI is the FVG/OB the raid's reversal leg leaves behind — an old
+  // zone from prior structure is a different trade, and a synthetic OTE is not a POI at all.
+  if (!manipulation) return undefined;
   const candles = anchor.confirmCandles;
   const lastClose = candles[candles.length - 1].close;
   const range = anchor.range;
-  const span = Math.max(range.high - range.low, 0.000001);
   const pois: CrtPoi[] = [
     ...anchor.fvgs.map((gap): CrtPoi => ({
       type: gap.mitigated ? "breaker" : "fvg",
@@ -299,20 +301,16 @@ function poiForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtPoi | un
       candleIndex: block.candleIndex,
       mitigated: block.mitigated,
       label: block.mitigated ? "Breaker Block" : "Order Block"
-    })),
-    direction === "short"
-      ? { type: "ote", direction, low: range.midpoint, high: range.high, midpoint: range.high - span * 0.25, mitigated: false, label: "OTE premium" }
-      : { type: "ote", direction, low: range.low, high: range.midpoint, midpoint: range.low + span * 0.25, mitigated: false, label: "OTE discount" }
+    }))
   ];
   const priority: Record<CrtPoi["type"], number> = { fvg: 0, ob: 1, breaker: 2, ote: 3 };
-  // A CRT entry POI must live inside the active range and on the retest side of price;
-  // a stale FVG far outside the range is a different market, not this setup's entry.
   return pois
     .filter((poi) => poi.direction === direction)
+    .filter((poi) => (poi.candleIndex ?? -1) >= manipulation.candleIndex)
     .filter((poi) => poi.midpoint <= range.high && poi.midpoint >= range.low)
     .filter((poi) => direction === "long" ? poi.midpoint <= lastClose : poi.midpoint >= lastClose)
     .filter((poi) => {
-      const start = typeof poi.candleIndex === "number" ? Math.max(0, poi.candleIndex) : Math.max(0, candles.length - 24);
+      const start = Math.max(0, poi.candleIndex ?? 0);
       return candles.slice(start).some((candle) => candle.low <= poi.high && candle.high >= poi.low);
     })
     .sort((a, b) => priority[a.type] - priority[b.type] || (b.candleIndex ?? 0) - (a.candleIndex ?? 0))[0];
@@ -410,7 +408,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const buffer = symbolBuffer(anchor, context.symbol);
   const manipulation = manipulationForAnchor(anchor, direction);
   const choch = chochForAnchor(anchor, direction, manipulation, buffer);
-  const poi = poiForAnchor(anchor, direction);
+  const poi = poiForAnchor(anchor, direction, manipulation);
   const plan = buildAnchorPlan(context, anchor, direction, manipulation, choch, poi, minimumRR, executionCostStress(settings));
   const bias = anchorBias(anchor);
   const biasConflict = directionSource === "raid" && bias.direction !== "neutral" && bias.direction !== direction;
@@ -451,7 +449,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const blockers = [
     directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
-    !poi ? "POI teması yok: FVG, OB, Breaker veya OTE bekleniyor." : undefined,
+    !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
+    !anchorAtKeyLevel && !fvgConfluence ? "Raid HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
     !manipulation ? "Manipulation raid/sweep + reclaim yok." : undefined,
     continuationAgainst ? "HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz." : undefined,
     !reclaimHolds ? "Fiyat hâlâ range extreminin ötesinde; reclaim tutmuyor, bu manipulation değil breakout." : undefined,
@@ -471,6 +470,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
+    choch && !poi ? "Displacement POI yok; entry ChoCH/MSS seviyesinin retest'i." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
     !raidClosed && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit LTF reclaim ile sınırlı, boyutu küçük tut." : undefined,
@@ -534,7 +534,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, "pass", anchor.range.source),
     checklistItem("Valid Pullback", validCrtPullback(anchor.rangeCandles, direction).valid ? "pass" : "neutral", validCrtPullback(anchor.rangeCandles, direction).summary),
     checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; entry ${crtZone}.`),
-    checklistItem("POI Touch", setup.poi ? "pass" : "fail", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "FVG/OB/Breaker/OTE teması yok."),
+    checklistItem("POI Touch", setup.poi ? "pass" : setup.choch ? "neutral" : "fail", setup.poi ? `Raid sonrası ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : setup.choch ? "Displacement POI yok; entry ChoCH retest seviyesi." : "Raid sonrası FVG/OB oluşmadı."),
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}.` : "Raid/sweep + reclaim bekleniyor."),
     checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."),
     checklistItem("Key Level Anchor", setup.anchorAtKeyLevel ? "pass" : "neutral", "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."),

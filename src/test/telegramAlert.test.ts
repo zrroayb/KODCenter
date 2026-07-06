@@ -34,6 +34,10 @@ function readySignal() {
       { id: "buy-side", side: "buy-side", level: 105, label: "Buy-side", strength: "strong" },
       { id: "sell-side", side: "sell-side", level: 90, label: "Sell-side", strength: "strong" }
     ],
+    liquidityObjectives: [
+      { id: "PDH", kind: "PDH", side: "buy-side", level: 101.4, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
+      { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
+    ],
     sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 22, reclaimed: true }],
     displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
     marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],

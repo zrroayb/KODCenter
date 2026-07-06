@@ -42,11 +42,22 @@ export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignal
   // m15 chart is only valid when the confirmation timeframe IS m15 (a 1H/4H index lands weeks
   // back on the m15 axis and drags the focus window with it).
   const planGapIsM15 = !signal.crtAnchor || signal.crtAnchor.confirmTf === "15m";
+  // The ChoCH chip must show the SETUP's own confirmation level (carried in evidence), not a
+  // random market structure shift from the global m15 context.
+  const chochEvidence = signal.strategyId === "crt"
+    ? signal.evidence.find((item) => item.id === "choch" && item.status === "pass")
+    : undefined;
+  const crtChoch: MarketStructureShift | undefined = planGapIsM15 && chochEvidence
+    && typeof chochEvidence.price === "number" && typeof chochEvidence.candleIndex === "number"
+    ? { direction: signal.direction, level: chochEvidence.price, candleIndex: chochEvidence.candleIndex, brokenIndex: chochEvidence.candleIndex, kind: "choch" }
+    : undefined;
 
   return {
     sweep: latestByIndex(signal.context.sweeps.filter((sweep) => sweep.side === sweepSide && sweep.reclaimed)) ?? latestByIndex(signal.context.sweeps),
     displacement: latestByIndex(signal.context.displacements.filter((item) => item.direction === signal.direction)),
-    marketStructureShift: latestByIndex(signal.context.marketStructureShifts.filter((item) => item.direction === signal.direction)),
+    marketStructureShift: signal.strategyId === "crt"
+      ? crtChoch
+      : latestByIndex(signal.context.marketStructureShifts.filter((item) => item.direction === signal.direction)),
     fairValueGap: planGapIsM15 ? planFairValueGap(signal) : undefined,
     smtDivergence: latestByIndex(signal.context.smtDivergences.filter((item) => item.direction === signal.direction)),
     judasSwing: signal.context.judasSwings.find((item) => item.direction === signal.direction)
