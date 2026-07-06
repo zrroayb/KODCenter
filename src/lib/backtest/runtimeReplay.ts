@@ -54,8 +54,15 @@ type ReplayEntryCandidate = {
 
 type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note">;
 
-// A retest limit order that has not filled within ~4 hours (m15 candles) is cancelled.
+// A retest limit order that has not filled within ~16 confirmation-TF bars is cancelled.
+// Future candles are m15, so patience and hold duration scale with the signal's
+// confirmation timeframe: a 1H-confirm setup gets 4x, a 4H-confirm setup 16x.
 const ENTRY_FILL_TIMEOUT_CANDLES = 16;
+
+function confirmTfFactor(signal: TradingSignal): number {
+  const tf = signal.crtAnchor?.confirmTf;
+  return tf === "4h" ? 16 : tf === "1h" ? 4 : 1;
+}
 
 export type RuntimeReplayInput = {
   markets: DemoMarket[];
@@ -426,7 +433,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
       note: "Entry alanı sonraki mumlarda tetiklenmedi."
     };
   }
-  if (isRetestEntry && entryIndex >= ENTRY_FILL_TIMEOUT_CANDLES) {
+  const fillTimeout = ENTRY_FILL_TIMEOUT_CANDLES * confirmTfFactor(signal);
+  if (isRetestEntry && entryIndex >= fillTimeout) {
     return {
       status: "not-triggered",
       rMultiple: 0,
@@ -435,7 +443,7 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
       candlesHeld: entryIndex,
       outcomeReason: "entry-expired",
       tags: Array.from(new Set([...tags, "entry:expired"])),
-      note: `Retest emri ${ENTRY_FILL_TIMEOUT_CANDLES} mum içinde dolmadı; emir iptal sayıldı.`
+      note: `Retest emri ${fillTimeout} m15 mumu içinde dolmadı; emir iptal sayıldı.`
     };
   }
 
@@ -1127,7 +1135,7 @@ export function runMonthlyRuntimeReplay({
         : ["replay:watch-promoted", "risk:daily-capped"];
       const adjustedFuture = confirmationAdjustedFuture(
         candidate.signal,
-        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles) : []
+        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles * confirmTfFactor(candidate.signal)) : []
       );
       const outcome = evaluateForwardOutcome(
         candidate.signal,

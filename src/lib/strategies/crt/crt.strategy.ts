@@ -14,11 +14,13 @@ import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } fro
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
-// Freshness windows in confirmation-TF candles: a sweep older than ~24 bars or a ChoCH older
-// than ~12 bars no longer validates a setup. The HTF raid itself does not expire this way —
-// it stays valid while the reclaim holds and the range candle is still the reference.
+// Freshness windows in confirmation-TF candles: a sweep older than ~24 bars no longer
+// validates a setup. ChoCH stays valid for ~48 bars — staleness is guarded by the
+// retest-distance blocker and missed-detection, not by a tight expiry that closes the
+// entry window before the retest can arrive. The HTF raid itself does not expire this
+// way — it stays valid while the reclaim holds and the range candle is the reference.
 const SWEEP_FRESHNESS_CANDLES = 24;
-const CHOCH_FRESHNESS_CANDLES = 12;
+const CHOCH_FRESHNESS_CANDLES = 48;
 // How many closed range candles back an accepted raid can keep being the anchor's reference.
 const RAID_PERSISTENCE_LOOKBACK = 6;
 const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
@@ -448,7 +450,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
 
   const blockers = [
     directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
-    !pullback.valid ? pullback.summary : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !poi ? "POI teması yok: FVG, OB, Breaker veya OTE bekleniyor." : undefined,
     !manipulation ? "Manipulation raid/sweep + reclaim yok." : undefined,
@@ -470,6 +471,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
+    !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
     !raidClosed && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit LTF reclaim ile sınırlı, boyutu küçük tut." : undefined,
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
