@@ -8,19 +8,21 @@ import type { JournalEntry } from "../lib/journal/types";
 import { CandleChart } from "./CandleChart";
 import { SignalDetailsPanel } from "./SignalDetailsPanel";
 
-type ChartTab = "m15" | "h1" | "h4" | "daily";
+type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly";
 
 const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string; mode: "execution" | "confirmation" | "context" | "daily" }> = [
   { id: "m15", label: "15m", caption: "execution", mode: "execution" },
   { id: "h1", label: "1h", caption: "confirmation", mode: "confirmation" },
   { id: "h4", label: "4h", caption: "CRT Range", mode: "context" },
-  { id: "daily", label: "1D", caption: "DOL", mode: "daily" }
+  { id: "daily", label: "1D", caption: "DOL", mode: "daily" },
+  { id: "weekly", label: "1W", caption: "CRT", mode: "daily" }
 ];
 
 function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
   if (tab === "m15") return market.timeframes.m15;
   if (tab === "h1") return market.timeframes.h1;
   if (tab === "h4") return market.timeframes.h4;
+  if (tab === "weekly") return market.timeframes.weekly;
   return market.timeframes.daily;
 }
 
