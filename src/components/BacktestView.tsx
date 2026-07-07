@@ -32,6 +32,14 @@ function verdictText(verdict: string) {
   return "İncele";
 }
 
+function managementVerdictText(item: { id: string; verdict: string; deltaR: number }) {
+  if (item.id === "model") return "Referans";
+  if (item.verdict === "needs-data") return "Az veri";
+  if (item.verdict === "better") return `Daha iyi (+${item.deltaR.toFixed(2)}R)`;
+  if (item.verdict === "worse") return `Daha kötü (${item.deltaR.toFixed(2)}R)`;
+  return "Benzer";
+}
+
 export function BacktestView({ result, onRun }: { result: BacktestResult; onRun: () => void }) {
   const [aiReview, setAiReview] = useState<GeminiReplayReviewResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
   const [aiLoading, setAiLoading] = useState(false);
@@ -105,6 +113,17 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
                 <small>{item.triggered}/{item.sample} tetik · WR {item.winRate.toFixed(1)}% · DD {item.maxDrawdown.toFixed(2)}R · {item.description}</small>
               </div>
             ))}
+          </div>
+          <div className="strategy-learning-list replay-management-list">
+            <strong>Yönetim ölçümü (aynı girişler, farklı çıkış kuralı)</strong>
+            {(replay.managementScenarios ?? []).map((item) => (
+              <div key={item.id}>
+                <span>{item.label}</span>
+                <b>{managementVerdictText(item)} · {item.expectancyR.toFixed(2)}R · PF {item.profitFactor.toFixed(2)}</b>
+                <small>{item.trades} trade · toplam {item.totalR.toFixed(2)}R · {item.description}</small>
+              </div>
+            ))}
+            {!(replay.managementScenarios ?? []).length && <p className="muted-note">Yönetim karşılaştırması için tetiklenen CRT trade'i yok.</p>}
           </div>
           <div className="strategy-learning-list replay-symbol-list">
             <strong>Symbol bazlı sonuç</strong>

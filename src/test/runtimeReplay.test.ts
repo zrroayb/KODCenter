@@ -73,5 +73,28 @@ describe("monthly runtime replay", () => {
     expect(outcome.rMultiple).toBe(0.5);
     expect(outcome.tags).toContain("crt:eq");
     expect(outcome.tags).toContain("crt:be");
+    // Counterfactual management math from the same walk: without BE the half position sits
+    // through the pullback (0.5R banked), a no-partial full-DOL position scratches at BE
+    // (0R), and closing everything at EQ pays the full 1R.
+    expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqFull: 1 });
+  });
+
+  it("reports management scenarios comparing the model against its counterfactuals", () => {
+    const result = runMonthlyRuntimeReplay({
+      markets: createDemoMarkets(),
+      strategy: crtStrategy,
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false },
+      windowDays: 3,
+      maxHoldCandles: 24,
+      scanEveryCandles: 12
+    });
+
+    const scenarios = result.replay?.managementScenarios ?? [];
+    expect(scenarios.map((item) => item.id)).toEqual(["model", "no-be", "full-dol", "eq-full"]);
+    const model = scenarios.find((item) => item.id === "model");
+    expect(model?.deltaR).toBe(0);
+    for (const scenario of scenarios) {
+      expect(scenario.trades).toBe(model?.trades);
+    }
   });
 });

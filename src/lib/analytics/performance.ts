@@ -72,6 +72,7 @@ export type RuntimeReplayTrade = {
   waitReasons: string[];
   tags: string[];
   note: string;
+  managementVariants?: RuntimeReplayManagementVariants;
 };
 
 export type RuntimeReplayCandidate = {
@@ -168,6 +169,27 @@ export type RuntimeReplayFailureCase = {
   diagnosis: string;
 };
 
+// Counterfactual R-multiples of the SAME trade under alternative management policies,
+// derived from one walk over the same candles: what would this exact entry have paid with
+// no breakeven, with no partial, or with a full close at EQ.
+export type RuntimeReplayManagementVariants = {
+  noBe: number;
+  fullDol: number;
+  eqFull: number;
+};
+
+export type RuntimeReplayManagementScenario = {
+  id: "model" | "no-be" | "full-dol" | "eq-full";
+  label: string;
+  description: string;
+  trades: number;
+  totalR: number;
+  expectancyR: number;
+  profitFactor: number;
+  deltaR: number;
+  verdict: "better" | "similar" | "worse" | "needs-data";
+};
+
 export type RuntimeReplayFilterScenario = {
   id: string;
   label: string;
@@ -208,6 +230,7 @@ export type RuntimeReplaySummary = {
   bySymbol: RuntimeReplaySymbolSummary[];
   calibration: RuntimeReplayCalibration[];
   filterScenarios: RuntimeReplayFilterScenario[];
+  managementScenarios: RuntimeReplayManagementScenario[];
   setupBreakdowns: RuntimeReplaySetupBreakdown[];
   failureCases: RuntimeReplayFailureCase[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;

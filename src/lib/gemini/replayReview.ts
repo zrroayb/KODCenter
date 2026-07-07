@@ -25,6 +25,7 @@ export type GeminiReplayReviewPayload = {
   bySymbol: RuntimeReplaySummary["bySymbol"];
   calibration: RuntimeReplaySummary["calibration"];
   filterScenarios: RuntimeReplaySummary["filterScenarios"];
+  managementScenarios: RuntimeReplaySummary["managementScenarios"];
   setupBreakdowns: RuntimeReplaySummary["setupBreakdowns"];
   failureReasons: RuntimeReplaySummary["failureReasons"];
   failureCases: RuntimeReplaySummary["failureCases"];
@@ -79,11 +80,24 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
       : "Ana sorun: kayıp bucket'ı yok.";
 
   const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid" && item.triggered >= 3);
+  // Management counterfactuals are measured in the replay itself: same entries, same
+  // candles, only the exit rule differs — report the comparison instead of asking for it.
+  const model = payload.managementScenarios.find((item) => item.id === "model");
+  const betterMgmt = [...payload.managementScenarios]
+    .filter((item) => item.verdict === "better")
+    .sort((a, b) => b.deltaR - a.deltaR)[0];
+  const mgmtLine = model && payload.managementScenarios.length
+    ? betterMgmt
+      ? `Yönetim ölçümü: "${betterMgmt.label}" mevcut modeli geçiyor (${betterMgmt.expectancyR.toFixed(2)}R vs ${model.expectancyR.toFixed(2)}R, Δ${betterMgmt.deltaR >= 0 ? "+" : ""}${betterMgmt.deltaR.toFixed(2)}R, ${betterMgmt.trades} trade).`
+      : `Yönetim ölçümü: BE/partial varyantları mevcut modeli geçemedi (model ${model.expectancyR.toFixed(2)}R); yönetim suçlu değil.`
+    : "";
   const degistir = smallSample
     ? "Değiştir: Hiçbir şey — bu örneklemle kural değiştirmek overfit olur; aynı kurallarla veri biriktir."
     : worst
       ? `Değiştir: ${worst.label} koşulunu READY'den WATCH'a indir (${worst.expectancyR.toFixed(2)}R, ${worst.triggered} trade).`
-      : "Değiştir: Tek bir setup bucket'ı suçlu değil; BE/partial yönetim senaryolarını ölç.";
+      : betterMgmt
+        ? `Değiştir: yönetimi "${betterMgmt.label}" varyantına kaydırmayı düşün (Δ${betterMgmt.deltaR >= 0 ? "+" : ""}${betterMgmt.deltaR.toFixed(2)}R); önce bir replay penceresi daha doğrula.`
+        : "Değiştir: Tek bir setup bucket'ı suçlu değil; yönetim ölçümü de modeli aklıyor, aynı kurallarla devam.";
 
   const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge" && item.triggered >= 3);
   const sonraki = bestFilter
@@ -94,7 +108,7 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
     status: "fallback",
     model: "local-fallback",
     reason,
-    commentary: [karar, anaSorun, degistir, sonraki].join("\n")
+    commentary: [karar, anaSorun, mgmtLine, degistir, sonraki].filter(Boolean).join("\n")
   };
 }
 
@@ -126,6 +140,7 @@ export function buildGeminiReplayReviewPayload(result: BacktestResult): GeminiRe
     bySymbol: replay.bySymbol.slice(0, 8),
     calibration: replay.calibration.slice(0, 10),
     filterScenarios: replay.filterScenarios.slice(0, 8),
+    managementScenarios: replay.managementScenarios ?? [],
     setupBreakdowns: replay.setupBreakdowns.slice(0, 14),
     failureReasons: replay.failureReasons.slice(0, 8),
     failureCases: replay.failureCases.slice(0, 12),
