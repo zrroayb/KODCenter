@@ -70,7 +70,7 @@ type AnchorCtx = {
 
 type CrtSetup = {
   direction: TradeDirection;
-  directionSource: "raid" | "bias" | "pd";
+  directionSource: "raid" | "bias";
   manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
   choch?: { level: number; candleIndex: number };
   poi?: CrtPoi;
@@ -210,13 +210,14 @@ function anchorBias(anchor: AnchorCtx) {
   return buildCrtBias(anchor.rangeCandles, anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
 }
 
-function directionForAnchor(context: MarketContext, anchor: AnchorCtx): { direction: TradeDirection; source: CrtSetup["directionSource"] } | undefined {
+// Direction comes ONLY from the pair's own structure: its raid or its anchor-candle bias.
+// There is deliberately NO premium/discount fallback — range position is a location filter,
+// not a direction source. Guessing "premium -> short" painted every correlated pair the
+// same side on dollar days: the whole board read SHORT with no pair-specific setup behind it.
+function directionForAnchor(_context: MarketContext, anchor: AnchorCtx): { direction: TradeDirection; source: CrtSetup["directionSource"] } | undefined {
   if (anchor.raid) return { direction: anchor.raid.direction, source: "raid" };
   const bias = anchorBias(anchor);
   if (bias.direction === "long" || bias.direction === "short") return { direction: bias.direction, source: "bias" };
-  if (anchor.spec.rangeTf === "4h") {
-    return { direction: context.premiumDiscount.zone === "premium" ? "short" : "long", source: "pd" };
-  }
   return undefined;
 }
 
@@ -499,7 +500,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
-    directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
     htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); anlatısız CRT aranmaz." : undefined,
     htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
     dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,

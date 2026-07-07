@@ -29,6 +29,22 @@ function scanWithH4(patches: Record<number, CandlePatch>) {
   }).signals[0];
 }
 
+describe("CRT direction sources", () => {
+  it("emits no CRT signal when the pair's own structure gives no direction", () => {
+    // Flat anchor candles: no raid, neutral anchor bias. The premium/discount zone used to
+    // fabricate a SHORT here, painting every correlated pair the same side on dollar days —
+    // direction must come from the pair's own raid or bias, or there is no signal.
+    const context = createStructureContext();
+    const result = crtStrategy.scan({
+      context,
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
+    });
+
+    expect(context.premiumDiscount.zone).toBe("premium");
+    expect(result.signals).toHaveLength(0);
+  });
+});
+
 describe("CRT raid persistence", () => {
   it("keeps the long direction while the raid's reclaim holds and the target is untouched", () => {
     // h4[20] is the range candle (101/95), h4[21] raids its low and closes back inside (long),
