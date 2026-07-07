@@ -123,7 +123,14 @@ export function ChartsView({
           candles={candlesForTab(market, activeTab)}
           title={`${market.symbol} · ${tab.label} ${tab.caption}`}
           mode={tab.mode}
-          range={context.crt.activeRange}
+          range={activeSelectedSignal?.crtAnchor
+            ? {
+                high: activeSelectedSignal.crtAnchor.rangeHigh,
+                low: activeSelectedSignal.crtAnchor.rangeLow,
+                midpoint: (activeSelectedSignal.crtAnchor.rangeHigh + activeSelectedSignal.crtAnchor.rangeLow) / 2,
+                source: `CRT ${activeSelectedSignal.crtAnchor.rangeTf} range`
+              }
+            : context.crt.activeRange}
           context={context}
           signals={symbolSignals}
           selectedSignal={activeSelectedSignal}

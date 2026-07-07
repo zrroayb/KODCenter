@@ -162,6 +162,9 @@ export function SignalDetailsPanel({
         <div>
           <span className="eyebrow">Sinyal</span>
           <h2>{signal.symbol} {signal.direction.toUpperCase()}</h2>
+          {signal.crtAnchor && (
+            <p className="muted-note">CRT mumu: {signal.crtAnchor.rangeTf.toUpperCase()} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>
+          )}
         </div>
         <button className="icon-btn" onClick={onClear} type="button" aria-label="Seçili sinyali temizle"><X size={16} /></button>
       </header>

@@ -205,6 +205,9 @@ export function CandleChart({
   const selectedIsHigherTimeframe = Boolean(selectedSignal && mode !== "execution");
   const annotations = selectedSignal ? selectedSignalAnnotations(selectedSignal) : undefined;
   const closeRequirement = selectedSignal ? closeConfirmationRequirement(selectedSignal) : null;
+  // The close-requirement reference candle is indexed on the confirmation TF; drawing its box
+  // on the m15 execution chart is only valid when that TF IS m15.
+  const closeReqOnChart = Boolean(closeRequirement && (closeRequirement.timeframe === "15m" || closeRequirement.timeframe === "5m"));
   const latest = visible[visible.length - 1] as Candle;
   const first = visible[0] as Candle;
   const selectedLevels = selectedSignal
@@ -452,7 +455,7 @@ export function CandleChart({
     const visualRiskHeight = Math.max(52, actualRiskHeight);
     const visualRiskY = Math.max(plot.top, Math.min(plotBottom - visualRiskHeight, riskYTop + actualRiskHeight / 2 - visualRiskHeight / 2));
     const overlayWidth = Math.max(70, plotRight - anchorX);
-    const closeReferenceCandle = closeRequirement ? candles[closeRequirement.candleIndex] : undefined;
+    const closeReferenceCandle = closeRequirement && closeReqOnChart ? candles[closeRequirement.candleIndex] : undefined;
     const gapLabel = entryGapLabel(selectedSignal);
     const gapText = annotations.fairValueGap?.mitigated ? `${gapLabel} retest` : gapLabel;
     const gapLabelWidth = gapText ? tagWidthFor(gapText) : 68;
@@ -937,27 +940,31 @@ export function CandleChart({
               <line x1={plot.left} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
               <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
               <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#7c3aed" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
-              <text x={plot.left + 8} y={yHigh + 15} fill="#7c3aed" fontSize="11" fontWeight="900" opacity="0.9">CRT RANGE</text>
-              <rect
-                x={rangeX - candleWidth / 2 - 4}
-                y={scaleY(rangeCandle.high) - 4}
-                width={candleWidth + 8}
-                height={Math.max(12, scaleY(rangeCandle.low) - scaleY(rangeCandle.high) + 8)}
-                fill="none"
-                stroke="#7c3aed"
-                strokeWidth="1.8"
-              />
-              <text x={rangeX} y={Math.max(plot.top + 12, scaleY(rangeCandle.high) - 8)} fill="#7c3aed" fontSize="10" fontWeight="900" textAnchor="middle">R</text>
-              <rect
-                x={liveX - candleWidth / 2 - 4}
-                y={scaleY(liveCandle.high) - 4}
-                width={candleWidth + 8}
-                height={Math.max(12, scaleY(liveCandle.low) - scaleY(liveCandle.high) + 8)}
-                fill="none"
-                stroke="#f59e0b"
-                strokeWidth="1.8"
-              />
-              <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#b45309" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
+              <text x={plot.left + 8} y={yHigh + 15} fill="#7c3aed" fontSize="11" fontWeight="900" opacity="0.9">{`CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
+              {!selectedSignal && (
+                <>
+                  <rect
+                    x={rangeX - candleWidth / 2 - 4}
+                    y={scaleY(rangeCandle.high) - 4}
+                    width={candleWidth + 8}
+                    height={Math.max(12, scaleY(rangeCandle.low) - scaleY(rangeCandle.high) + 8)}
+                    fill="none"
+                    stroke="#7c3aed"
+                    strokeWidth="1.8"
+                  />
+                  <text x={rangeX} y={Math.max(plot.top + 12, scaleY(rangeCandle.high) - 8)} fill="#7c3aed" fontSize="10" fontWeight="900" textAnchor="middle">R</text>
+                  <rect
+                    x={liveX - candleWidth / 2 - 4}
+                    y={scaleY(liveCandle.high) - 4}
+                    width={candleWidth + 8}
+                    height={Math.max(12, scaleY(liveCandle.low) - scaleY(liveCandle.high) + 8)}
+                    fill="none"
+                    stroke="#f59e0b"
+                    strokeWidth="1.8"
+                  />
+                  <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#b45309" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
+                </>
+              )}
               {!selectedSignal && (
                 <>
                   {registerEdgeTag(range.high, "#7c3aed", "CRT H", "#2e1065")}

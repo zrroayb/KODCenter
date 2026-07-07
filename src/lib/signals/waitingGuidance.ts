@@ -6,7 +6,7 @@ function executionCandles(signal: TradingSignal): Candle[] {
 }
 
 export type CloseConfirmationRequirement = {
-  timeframe: "15m" | "5m";
+  timeframe: "15m" | "5m" | "1h" | "4h" | "1d";
   level: number;
   side: "above" | "below";
   candleIndex: number;
@@ -18,11 +18,22 @@ export type CloseConfirmationRequirement = {
 
 export function closeConfirmationRequirement(signal: TradingSignal): CloseConfirmationRequirement | null {
   if (signal.plan.entryModel.cisdConfirmed) return null;
-  const candles = executionCandles(signal);
+  // The confirmation candle lives on the signal's confirmation timeframe — a weekly-anchor
+  // setup waits for a 4H close, not a 15m one.
+  const confirmTf = signal.crtAnchor?.confirmTf;
+  const candles = confirmTf === "4h"
+    ? signal.context.timeframes.h4
+    : confirmTf === "1h"
+      ? signal.context.timeframes.h1
+      : confirmTf === "1d"
+        ? signal.context.timeframes.daily
+        : executionCandles(signal);
   if (candles.length < 1) return null;
   const candleIndex = candles.length - 1;
   const referenceCandle = candles[candleIndex];
-  const timeframe = signal.context.timeframes.m15.length ? "15m" : "5m";
+  const timeframe: CloseConfirmationRequirement["timeframe"] = confirmTf === "4h" || confirmTf === "1h" || confirmTf === "1d"
+    ? confirmTf
+    : signal.context.timeframes.m15.length ? "15m" : "5m";
   const side = signal.direction === "long" ? "above" : "below";
   const level = signal.direction === "long" ? referenceCandle.high : referenceCandle.low;
   const reference = signal.direction === "long" ? "last-closed-high" : "last-closed-low";
