@@ -31,16 +31,18 @@ const plot = {
 };
 const plotRight = width - plot.right;
 const plotBottom = height - plot.bottom;
+// Validated on the dark chart surface: bull/bear pair worst-case CVD ΔE 20.3 (protan),
+// both ≥3:1 vs #0f131c — run scripts/validate_palette.js before touching these.
 const bull = "#089981";
 const bear = "#f23645";
-const cleanChartBackground = "#E8E5E0";
-const cleanCandleUp = "#FFFFFF";
-const cleanCandleDown = "#191D24";
-const cleanCandleWick = "#4C5057";
-const cleanCandleUpStroke = "#565A61";
-const cleanCandleDownStroke = "#191D24";
-const grid = "rgba(25, 29, 36, 0.11)";
-const minorGrid = "rgba(25, 29, 36, 0.055)";
+const cleanChartBackground = "#0f131c";
+const cleanCandleUp = "#089981";
+const cleanCandleDown = "#f23645";
+const cleanCandleWick = "#0a9981";
+const cleanCandleUpStroke = "#0bb195";
+const cleanCandleDownStroke = "#f23645";
+const grid = "rgba(151, 163, 189, 0.09)";
+const minorGrid = "rgba(151, 163, 189, 0.045)";
 const dayMs = 24 * 60 * 60 * 1000;
 
 function defaultVisibleCount(mode: ChartMode): number {
@@ -277,7 +279,7 @@ export function CandleChart({
   };
   const showPremiumDiscountBand = Boolean(range && contextLevels.includes(range.high) && contextLevels.includes(range.low) && contextLevels.includes(range.midpoint));
   const timeIndexes = Array.from(new Set([0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => Math.min(visible.length - 1, Math.max(0, Math.round((visible.length - 1) * ratio))))));
-  const lastPriceColor = latest && latest.close >= latest.open ? "#6F7278" : cleanCandleDown;
+  const lastPriceColor = latest && latest.close >= latest.open ? bull : bear;
   const seenLiquidityLevels = new Set<string>();
   const visibleLiquidity = (context?.liquidityPools ?? [])
     .filter((pool) => contextLevels.includes(pool.level))
@@ -292,10 +294,10 @@ export function CandleChart({
   const chartBackground = cleanChartBackground;
   const plotBackground = cleanChartBackground;
   const gridColor = grid;
-  const axisColor = "#6F7278";
-  const axisLineColor = "rgba(25, 29, 36, 0.26)";
-  const hudFill = "rgba(232, 229, 224, 0.88)";
-  const hudText = "#191D24";
+  const axisColor = "#7d879c";
+  const axisLineColor = "rgba(151, 163, 189, 0.22)";
+  const hudFill = "rgba(13, 17, 26, 0.86)";
+  const hudText = "#e8ecf4";
   const sessionRanges = (() => {
     if (mode !== "execution") return [];
 
@@ -477,8 +479,8 @@ export function CandleChart({
     return (
       <g className="selected-signal-overlay">
         <g className="chart-decision-strip">
-          <rect x={plot.left + 10} y={plot.top + 10} width={plotRight - plot.left - 20} height="30" rx="6" fill="rgba(255, 255, 255, 0.72)" stroke={signalColor} strokeWidth="1.2" />
-          <text x={plot.left + 24} y={plot.top + 30} fill="#191D24" fontSize="11" fontWeight="900">
+          <rect x={plot.left + 10} y={plot.top + 10} width={plotRight - plot.left - 20} height="30" rx="6" fill="rgba(13, 17, 26, 0.85)" stroke={signalColor} strokeWidth="1.2" />
+          <text x={plot.left + 24} y={plot.top + 30} fill="#e8ecf4" fontSize="11" fontWeight="900">
             {decisionText}
           </text>
         </g>
@@ -824,7 +826,7 @@ export function CandleChart({
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} onMouseMove={handleChartMove} onMouseLeave={() => setHoverIndex(null)}>
         <rect width={width} height={height} rx="8" fill={chartBackground} />
         <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill={plotBackground} />
-        <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill="none" stroke="rgba(76, 91, 110, 0.46)" strokeWidth="1" />
+        <rect x={plot.left} y={plot.top} width={plotRight - plot.left} height={plotBottom - plot.top} fill="none" stroke="rgba(151, 163, 189, 0.18)" strokeWidth="1" />
         {showPremiumDiscountBand && range && (
           <>
             <rect x={plot.left} y={scaleY(range.high)} width={plotRight - plot.left} height={Math.max(0, scaleY(range.midpoint) - scaleY(range.high))} fill="rgba(242, 54, 69, 0.045)" />
@@ -948,11 +950,11 @@ export function CandleChart({
           const yEq = scaleY(range.midpoint);
           return (
             <g className="crt-range-structure">
-              <rect x={plot.left} y={yHigh} width={plotRight - plot.left} height={Math.max(2, yLow - yHigh)} fill="rgba(124, 58, 237, 0.05)" />
-              <line x1={plot.left} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
-              <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
-              <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#7c3aed" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
-              <text x={plot.left + 8} y={yHigh + 15} fill="#7c3aed" fontSize="11" fontWeight="900" opacity="0.9">{`CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
+              <rect x={plot.left} y={yHigh} width={plotRight - plot.left} height={Math.max(2, yLow - yHigh)} fill="rgba(144, 133, 233, 0.06)" />
+              <line x1={plot.left} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#9085e9" strokeWidth="1.4" opacity="0.8" />
+              <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#9085e9" strokeWidth="1.4" opacity="0.8" />
+              <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#9085e9" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
+              <text x={plot.left + 8} y={yHigh + 15} fill="#9085e9" fontSize="11" fontWeight="900" opacity="0.9">{`CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
               {matched >= 0 && (
                 <>
                   <rect
@@ -961,10 +963,10 @@ export function CandleChart({
                     width={candleWidth + 8}
                     height={Math.max(12, scaleY(rangeCandle.low) - scaleY(rangeCandle.high) + 8)}
                     fill="none"
-                    stroke="#7c3aed"
+                    stroke="#9085e9"
                     strokeWidth="1.8"
                   />
-                  <text x={rangeX} y={Math.max(plot.top + 12, scaleY(rangeCandle.high) - 8)} fill="#7c3aed" fontSize="10" fontWeight="900" textAnchor="middle">R</text>
+                  <text x={rangeX} y={Math.max(plot.top + 12, scaleY(rangeCandle.high) - 8)} fill="#9085e9" fontSize="10" fontWeight="900" textAnchor="middle">R</text>
                   <rect
                     x={liveX - candleWidth / 2 - 4}
                     y={scaleY(liveCandle.high) - 4}
@@ -974,14 +976,14 @@ export function CandleChart({
                     stroke="#f59e0b"
                     strokeWidth="1.8"
                   />
-                  <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#b45309" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
+                  <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#fbbf24" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
                 </>
               )}
               {matched >= 0 && (
                 <>
-                  {registerEdgeTag(range.high, "#7c3aed", "CRT H", "#2e1065")}
-                  {registerEdgeTag(range.midpoint, "#7c3aed", "CRT EQ", "#2e1065")}
-                  {registerEdgeTag(range.low, "#7c3aed", "CRT L", "#2e1065")}
+                  {registerEdgeTag(range.high, "#9085e9", "CRT H", "#2e1065")}
+                  {registerEdgeTag(range.midpoint, "#9085e9", "CRT EQ", "#2e1065")}
+                  {registerEdgeTag(range.low, "#9085e9", "CRT L", "#2e1065")}
                 </>
               )}
             </g>
@@ -989,7 +991,7 @@ export function CandleChart({
         })()}
         {(mode === "daily" || mode === "context") && context && context.crt.selectedBias.drawSide !== "none"
           && context.crt.selectedBias.drawLevel >= low && context.crt.selectedBias.drawLevel <= high
-          && levelLine(context.crt.selectedBias.drawLevel, "#7c3aed", "DOL", true, 0.85, "#2e1065")}
+          && levelLine(context.crt.selectedBias.drawLevel, "#9085e9", "DOL", true, 0.85, "#2e1065")}
         <line x1={plot.left} x2={plotRight} y1={scaleY(latest.close)} y2={scaleY(latest.close)} stroke={lastPriceColor} strokeWidth="1" strokeDasharray="2 5" opacity="0.78" />
         {!selectedIsHigherTimeframe && registerEdgeTag(latest.close, lastPriceColor, "LAST", latest.close >= latest.open ? cleanCandleUp : cleanCandleDown, formatPrice(latest.close))}
         {markers}
@@ -1003,7 +1005,7 @@ export function CandleChart({
               x2={snap(xAtVisibleIndex(hoverIndex))}
               y1={plot.top}
               y2={plotBottom}
-              stroke="#191D24"
+              stroke="#94a3b8"
               strokeWidth="1"
               strokeDasharray="3 4"
               opacity="0.4"
@@ -1013,29 +1015,29 @@ export function CandleChart({
               x2={plotRight}
               y1={snap(scaleY(hovered.close))}
               y2={snap(scaleY(hovered.close))}
-              stroke="#191D24"
+              stroke="#94a3b8"
               strokeWidth="1"
               strokeDasharray="3 4"
               opacity="0.4"
             />
-            {priceTag(hovered.close, "#191D24", "", "#E8E5E0", formatPrice(hovered.close))}
-            <rect x={Math.max(plot.left, Math.min(plotRight - 84, xAtVisibleIndex(hoverIndex) - 42))} y={plotBottom + 3} width="84" height="17" rx="3" fill="#191D24" />
-            <text x={Math.max(plot.left + 42, Math.min(plotRight - 42, xAtVisibleIndex(hoverIndex)))} y={plotBottom + 15} fill="#E8E5E0" fontSize="10" fontWeight="700" textAnchor="middle">
+            {priceTag(hovered.close, "#94a3b8", "", "#232b3d", formatPrice(hovered.close))}
+            <rect x={Math.max(plot.left, Math.min(plotRight - 84, xAtVisibleIndex(hoverIndex) - 42))} y={plotBottom + 3} width="84" height="17" rx="3" fill="#232b3d" />
+            <text x={Math.max(plot.left + 42, Math.min(plotRight - 42, xAtVisibleIndex(hoverIndex)))} y={plotBottom + 15} fill="#e8ecf4" fontSize="10" fontWeight="700" textAnchor="middle">
               {timeLabel(hovered.time, mode)}
             </text>
           </g>
         )}
         <g className="chart-hud compact">
-          <rect x={plot.left + 8} y="14" width={plotRight - plot.left - 16} height="25" rx="4" fill={hudFill} stroke="rgba(25, 29, 36, 0.16)" />
+          <rect x={plot.left + 8} y="14" width={plotRight - plot.left - 16} height="25" rx="4" fill={hudFill} stroke="rgba(151, 163, 189, 0.16)" />
           <text x={plot.left + 18} y="31" fill={hudText} fontSize="11" fontWeight="900">
             {title} · O {formatPrice(hudCandle.open)} H {formatPrice(hudCandle.high)} L {formatPrice(hudCandle.low)} C {formatPrice(hudCandle.close)}
             {" "}
-            <tspan fill={hudCandle.close >= hudCandle.open ? "#0a7d5c" : "#c22f3d"}>
+            <tspan fill={hudCandle.close >= hudCandle.open ? "#34c9a3" : "#ff6674"}>
               {`${hudChangePct >= 0 ? "+" : ""}${hudChangePct.toFixed(2)}%`}
             </tspan>
-            {hovered ? <tspan fill="#555A62">{` · ${timeLabel(hovered.time, mode)}`}</tspan> : null}
+            {hovered ? <tspan fill="#8a93a8">{` · ${timeLabel(hovered.time, mode)}`}</tspan> : null}
           </text>
-          <text x={plotRight - 12} y="31" fill={selectedSignal ? stageColor(selectedSignal) : "#555A62"} fontSize="11" fontWeight="900" textAnchor="end">
+          <text x={plotRight - 12} y="31" fill={selectedSignal ? stageColor(selectedSignal) : "#8a93a8"} fontSize="11" fontWeight="900" textAnchor="end">
             {selectedSignal ? setupStatus(selectedSignal) : `PD ${context?.premiumDiscount.zone ?? "-"}`}
           </text>
         </g>
