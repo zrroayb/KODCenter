@@ -53,7 +53,9 @@ export function signalDecisionReason(signal: TradingSignal): string {
 }
 
 export function signalLifecycleState(signal: TradingSignal): SignalLifecycleState {
-  if (signal.stage === "invalidated" || signal.outcome.status === "stopped") {
+  // The stage IS the verdict: a watch setup whose hypothetical plan grazed the stop zone is
+  // not "stopped" — only a real confirmed-entry invalidation earns this box.
+  if (signal.stage === "invalidated") {
     return {
       status: "invalidated",
       label: "STOP OLDU",
@@ -62,7 +64,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
     };
   }
 
-  if (signal.stage === "missed" || signal.outcome.status === "missed") {
+  if (signal.stage === "missed") {
     return {
       status: "missed",
       label: "KAÇTI",

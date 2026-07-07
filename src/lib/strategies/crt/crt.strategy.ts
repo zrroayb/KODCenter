@@ -624,23 +624,28 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
   if (setup.plan.entryStatus === "confirmed" && outcome.status === "stopped") {
     return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
   }
+  // A hypothetical (unconfirmed) entry cannot be "stopped": no order ever existed. Neutralize
+  // the outcome so no UI layer resurrects a false "STOP OLDU" verdict from it.
+  const safeOutcome: SignalOutcome = setup.plan.entryStatus !== "confirmed" && outcome.status === "stopped"
+    ? { ...outcome, status: "not-triggered", summary: "Onaylı entry yoktu; hipotetik retest seviyesi stop bölgesini gördü. Bu bir trade sonucu değil, setup oluşum aşamasında." }
+    : outcome;
   // But "the trade already played out" is real for any concrete entry level (confirmed OR
   // pending POI): if price consumed the level and ran to the targets, the setup is gone —
   // advertising a limit at last month's liquidity grab is chasing in reverse.
   if (setup.plan.entryStatus !== "fallback"
-    && (outcome.status === "tp1" || outcome.status === "tp2" || outcome.status === "missed")) {
-    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
+    && (safeOutcome.status === "tp1" || safeOutcome.status === "tp2" || safeOutcome.status === "missed")) {
+    return { stage: "missed", outcome: safeOutcome, actionWindow: buildActionWindow(context, setup.plan, safeOutcome, "missed") };
   }
   // Fresh-entry window scales with the confirmation timeframe (m15 base of 16 bars, like the
   // fill timeout). A READY signal whose window has expired is not READY — it is missed;
   // "Plan hazır" and "süresi doldu" must never appear together.
   const windowCandles = 16 * (anchor.spec.confirmTf === "4h" ? 16 : anchor.spec.confirmTf === "1h" ? 4 : 1);
   const stage = readyCandidate ? "ready" : "watch";
-  const actionWindow = buildActionWindow(context, setup.plan, outcome, stage, windowCandles);
+  const actionWindow = buildActionWindow(context, setup.plan, safeOutcome, stage, windowCandles);
   if (stage === "ready" && actionWindow.status === "expired") {
-    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed", windowCandles) };
+    return { stage: "missed", outcome: safeOutcome, actionWindow: buildActionWindow(context, setup.plan, safeOutcome, "missed", windowCandles) };
   }
-  return { stage, outcome, actionWindow };
+  return { stage, outcome: safeOutcome, actionWindow };
 }
 
 function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): SignalEvidenceItem[] {
