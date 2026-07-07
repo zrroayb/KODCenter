@@ -10,7 +10,7 @@ export const defaultRules: UserRules = {
   partialTpEnabled: true,
   moveToBreakevenAtR: 1,
   maxDailyRiskPct: 2,
-  avoidNews: true,
+  avoidNews: false,
   allowedSymbols: ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"],
   allowedKillzones: ["Asia", "London", "New York AM", "London Close", "Outside"],
   usePremiumDiscountFilter: false,

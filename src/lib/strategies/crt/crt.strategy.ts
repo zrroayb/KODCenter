@@ -480,13 +480,13 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
-    context.eventRisk.noTrade && settings.avoidNews !== false ? context.eventRisk.summary : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
     choch && !poi ? "Displacement POI yok; entry ChoCH/MSS seviyesinin retest'i." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
+    context.eventRisk.noTrade && settings.avoidNews === true ? `${context.eventRisk.summary} (hard gate değil; spread/slippage riski notu.)` : undefined,
     !raidClosed && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit LTF reclaim ile sınırlı, boyutu küçük tut." : undefined,
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
     !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
@@ -707,10 +707,23 @@ function anchorSignal(context: MarketContext, settings: StrategyInput["settings"
 const STAGE_RANK: Record<string, number> = { ready: 0, watch: 1, missed: 2, invalidated: 3 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
-  return ANCHORS
+  const signals = ANCHORS
     .map((spec) => anchorSignal(context, settings, spec))
     .filter((signal): signal is TradingSignal => Boolean(signal))
     .sort((a, b) => (STAGE_RANK[a.stage] ?? 9) - (STAGE_RANK[b.stage] ?? 9) || b.score - a.score);
+  // When two anchors hold live raids in opposite directions (e.g. weekly short raid vs daily
+  // long raid), the chop between them IS the market: say it out loud on every signal.
+  const liveRaidDirections = new Set(
+    signals.filter((signal) => signal.crtAnchor?.raidActive && signal.stage !== "missed" && signal.stage !== "invalidated").map((signal) => signal.direction)
+  );
+  if (liveRaidDirections.size > 1) {
+    const note = "Anchor çatışması: üst timeframe'lerde zıt yönlü canlı raid'ler var; LTF onayı gelmeden yön yok, chop bu çatışmanın kendisi.";
+    for (const signal of signals) {
+      signal.governance.warnings = Array.from(new Set([note, ...signal.governance.warnings]));
+      signal.decisionSummary.warnings = Array.from(new Set([note, ...signal.decisionSummary.warnings])).slice(0, 8);
+    }
+  }
+  return signals;
 }
 
 export const crtStrategy: StrategyModule = {
