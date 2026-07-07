@@ -65,6 +65,17 @@ function replayResult(): BacktestResult {
         maxDrawdown: 0,
         verdict: "needs-data"
       }],
+      managementScenarios: [{
+        id: "model",
+        label: "Mevcut model",
+        description: "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.",
+        trades: 0,
+        totalR: 0,
+        expectancyR: 0,
+        profitFactor: 0,
+        deltaR: 0,
+        verdict: "needs-data"
+      }],
       calibration: [{
         label: "READY üretimi",
         value: "0",

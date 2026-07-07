@@ -7,6 +7,7 @@ import {
   type RuntimeReplayCandidate,
   type RuntimeReplayFailureCase,
   type RuntimeReplayFilterScenario,
+  type RuntimeReplayManagementScenario,
   type RuntimeReplayOutcomeReason,
   type RuntimeReplaySetupBreakdown,
   type RuntimeReplayTrade
@@ -52,7 +53,7 @@ type ReplayEntryCandidate = {
   rank: number;
 };
 
-type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note">;
+type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note" | "managementVariants">;
 
 // A retest limit order that has not filled within ~16 confirmation-TF bars is cancelled.
 // Future candles are m15, so patience and hold duration scale with the signal's
@@ -297,7 +298,71 @@ function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeRep
   return "unknown";
 }
 
+// One walk over the same candles answers "would a different management rule have paid
+// more?" — the AI replay review compares these instead of guessing. Event order inside a
+// candle stays conservative (BE scratch and stop before targets), matching the live model.
+function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): RuntimeReplayTrade["managementVariants"] {
+  const eqR = targetR(signal, 0);
+  const dolR = targetR(signal, 1);
+  let armed = false;
+  let maxFavorableR = 0;
+  let firstStop = -1;
+  let firstEq = -1;
+  let firstDol = -1;
+  let firstBeScratch = -1;
+  for (let index = 0; index < afterEntry.length; index += 1) {
+    const candle = afterEntry[index];
+    // Arming comes from PREVIOUS candles' extremes, like the live model.
+    if (firstBeScratch < 0 && armed && priceTouched(candle, signal.plan.entry)) firstBeScratch = index;
+    if (firstStop < 0 && stopHit(signal, candle)) firstStop = index;
+    if (firstDol < 0 && targetHit(signal, candle, 1)) firstDol = index;
+    if (firstEq < 0 && targetHit(signal, candle, 0)) firstEq = index;
+    const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
+    const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
+    maxFavorableR = Math.max(maxFavorableR, highR, lowR);
+    if (maxFavorableR >= 1) armed = true;
+  }
+  const before = (a: number, b: number) => a >= 0 && (b < 0 || a <= b);
+  const expiredR = Number(Math.max(-1, Math.min(maxFavorableR, 0.25)).toFixed(2));
+
+  // BE yok: EQ'da %50 realize, kalan yarım orijinal stopla DOL'u bekler.
+  const noBe = before(firstStop, firstEq)
+    ? -1
+    : firstEq >= 0
+      ? before(firstDol, firstStop)
+        ? Number((0.5 * eqR + 0.5 * dolR).toFixed(2))
+        : firstStop >= 0
+          ? Number((0.5 * eqR - 0.5).toFixed(2))
+          : Number((0.5 * eqR).toFixed(2))
+      : expiredR;
+
+  // Partial yok: tam pozisyon DOL hedefli, +1R sonrası stop BE'de.
+  const fullDol = before(firstDol, firstStop) && before(firstDol, firstBeScratch)
+    ? Number(dolR.toFixed(2))
+    : before(firstBeScratch, firstStop)
+      ? 0
+      : firstStop >= 0
+        ? -1
+        : expiredR;
+
+  // Hepsi EQ'da: tam pozisyon ilk hedefte kapanır, DOL hiç beklenmez.
+  const eqFull = before(firstStop, firstEq)
+    ? -1
+    : firstEq >= 0
+      ? Number(eqR.toFixed(2))
+      : expiredR;
+
+  return { noBe, fullDol, eqFull };
+}
+
 function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[]): ReplayOutcome {
+  return {
+    ...evaluateCrtForwardOutcomeCore(signal, afterEntry, tags),
+    managementVariants: crtManagementVariants(signal, afterEntry)
+  };
+}
+
+function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle[], tags: string[]): ReplayOutcome {
   let maxFavorableR = 0;
   let maxAdverseR = 0;
   let eqHitIndex = -1;
@@ -717,6 +782,38 @@ function scenarioStats(
     maxDrawdown: Number(drawdown.toFixed(2)),
     verdict
   };
+}
+
+// Compare the live management model against its counterfactuals over the SAME entered
+// trades: same entries, same candles, only the exit rule differs. This is what the AI
+// replay review reads instead of recommending "measure BE/partial" as a to-do.
+function managementScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayManagementScenario[] {
+  const sample = trades.filter((trade) => trade.status !== "not-triggered" && trade.managementVariants);
+  const stats = (id: RuntimeReplayManagementScenario["id"], label: string, description: string, rOf: (trade: RuntimeReplayTrade) => number, modelExpectancy: number): RuntimeReplayManagementScenario => {
+    const returns = sample.map(rOf);
+    const totalR = Number(returns.reduce((sum, value) => sum + value, 0).toFixed(2));
+    const expectancyR = sample.length ? Number((totalR / sample.length).toFixed(2)) : 0;
+    const grossWin = returns.filter((value) => value > 0).reduce((sum, value) => sum + value, 0);
+    const grossLoss = Math.abs(returns.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
+    const profitFactor = Number((grossLoss ? grossWin / grossLoss : grossWin).toFixed(2));
+    const deltaR = Number((expectancyR - modelExpectancy).toFixed(2));
+    const verdict: RuntimeReplayManagementScenario["verdict"] = sample.length < 4
+      ? "needs-data"
+      : id === "model" || Math.abs(deltaR) < 0.05
+        ? "similar"
+        : deltaR > 0
+          ? "better"
+          : "worse";
+    return { id, label, description, trades: sample.length, totalR, expectancyR, profitFactor, deltaR, verdict };
+  };
+  const modelTotal = sample.reduce((sum, trade) => sum + trade.rMultiple, 0);
+  const modelExpectancy = sample.length ? Number((modelTotal / sample.length).toFixed(2)) : 0;
+  return [
+    stats("model", "Mevcut model", "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.", (trade) => trade.rMultiple, modelExpectancy),
+    stats("no-be", "BE yok", "EQ'da %50 partial, stop asla taşınmaz; kalan yarım DOL veya stop.", (trade) => trade.managementVariants?.noBe ?? trade.rMultiple, modelExpectancy),
+    stats("full-dol", "Partial yok", "Tam pozisyon DOL hedefli, +1R sonrası stop BE.", (trade) => trade.managementVariants?.fullDol ?? trade.rMultiple, modelExpectancy),
+    stats("eq-full", "Hepsi EQ'da", "Tam pozisyon ilk hedefte (EQ) kapanır, DOL beklenmez.", (trade) => trade.managementVariants?.eqFull ?? trade.rMultiple, modelExpectancy)
+  ];
 }
 
 function filterScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayFilterScenario[] {
@@ -1229,6 +1326,7 @@ export function runMonthlyRuntimeReplay({
       bySymbol,
       calibration: calibrationFromTrades(trades, watchAlerts),
       filterScenarios: filterScenarios(trades),
+      managementScenarios: managementScenarios(trades),
       setupBreakdowns: breakdowns,
       failureCases: failures,
       failureReasons: failureReasonSummary(trades),

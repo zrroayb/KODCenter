@@ -175,6 +175,7 @@ type GeminiReplayPayload = {
   bySymbol?: unknown[];
   calibration?: unknown[];
   filterScenarios?: unknown[];
+  managementScenarios?: unknown[];
   setupBreakdowns?: unknown[];
   failureReasons?: unknown[];
   failureCases?: unknown[];
@@ -484,6 +485,9 @@ ${JSON.stringify((input.calibration ?? []).slice(0, 10), null, 2)}
 FilterScenarios:
 ${JSON.stringify((input.filterScenarios ?? []).slice(0, 8), null, 2)}
 
+ManagementScenarios (aynı girişler, farklı çıkış kuralı; "BE/partial'ı ölç" deme, burada ölçülü):
+${JSON.stringify((input.managementScenarios ?? []).slice(0, 4), null, 2)}
+
 SetupBreakdowns:
 ${JSON.stringify((input.setupBreakdowns ?? []).slice(0, 14), null, 2)}
 
@@ -620,6 +624,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
   const failureReasons = (input.failureReasons ?? []) as Array<Record<string, unknown>>;
   const failureCases = (input.failureCases ?? []) as Array<Record<string, unknown>>;
   const filterScenarios = (input.filterScenarios ?? []) as Array<Record<string, unknown>>;
+  const managementScenarios = (input.managementScenarios ?? []) as Array<Record<string, unknown>>;
   const expectancy = typeof totals.expectancyR === "number" ? totals.expectancyR : 0;
   const profitFactor = typeof totals.profitFactor === "number" ? totals.profitFactor : 0;
   const triggered = typeof totals.triggeredTrades === "number" ? totals.triggeredTrades : 0;
@@ -646,11 +651,21 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
       : `Ana problem: kayıp bucket'ı yok; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`;
 
   const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid" && Number(item.triggered ?? 0) >= 3);
+  // Management counterfactuals arrive measured (same entries, different exit rule): report
+  // the comparison instead of recommending "measure BE/partial" as a to-do.
+  const modelMgmt = managementScenarios.find((item) => item.id === "model");
+  const betterMgmt = managementScenarios
+    .filter((item) => item.verdict === "better")
+    .sort((a, b) => Number(b.deltaR ?? 0) - Number(a.deltaR ?? 0))[0];
   const kural = smallSample
     ? "Kural değişikliği: Yok — bu örneklemle kural değiştirmek overfit olur; aynı kurallarla veri biriktir."
     : worstSetup
       ? `Kural değişikliği: ${String(worstSetup.label)} READY'den WATCH'a düşsün (${String(worstSetup.expectancyR)}R, ${String(worstSetup.triggered)} trade).`
-      : "Kural değişikliği: Tek bir setup bucket'ı suçlu değil; yönetim (BE/partial) senaryolarını ölç.";
+      : betterMgmt
+        ? `Kural değişikliği: yönetim ölçümünde "${String(betterMgmt.label)}" mevcut modeli geçti (${String(betterMgmt.expectancyR)}R vs ${String(modelMgmt?.expectancyR ?? "?")}R, Δ+${String(betterMgmt.deltaR)}R); bir replay penceresi daha doğrulayıp geçmeyi düşün.`
+        : modelMgmt
+          ? `Kural değişikliği: Yok — BE/partial varyantları ölçüldü, mevcut model (${String(modelMgmt.expectancyR)}R) en iyisi ya da farkı anlamsız.`
+          : "Kural değişikliği: Tek bir setup bucket'ı suçlu değil; yönetim (BE/partial) senaryolarını ölç.";
 
   const bestFilter = filterScenarios.find((item) => item.verdict === "edge" && Number(item.triggered ?? 0) >= 3);
   const olcum = bestFilter
