@@ -20,10 +20,10 @@ function readySignal() {
   const m15 = base.timeframes.m15.map((candle, index) =>
     index === 18
       ? { ...candle, low: 99.4 }
-      : index === 22
-        ? { ...candle, high: 101.3, low: 99.7, close: 100.1 }
+    : index === 22
+        ? { ...candle, open: 96, high: 101, low: 96, close: 100.2 }
         : index === 23
-          ? { ...candle, open: 100.1, high: 100.3, low: 98.7, close: 98.8 }
+          ? { ...candle, open: 101, high: 102.1, low: 99.6, close: 100.7 }
           : candle
   );
   const context = createStructureContext({
@@ -84,7 +84,7 @@ describe("Telegram READY alert payload", () => {
     expect(payload.targets).toEqual(signal.plan.targets.slice(0, 2));
     expect(payload.rr).toBeGreaterThanOrEqual(1.5);
     expect(payload.reasons.join(" ")).toContain("CRT bias");
-    expect(payload.reasons.join(" ")).toContain("POI");
+    expect(payload.reasons.join(" ")).toContain("Turtle Soup");
     expect(payload.reasons.join(" ")).toContain("Manipulation");
     expect(payload.reasons.join(" ")).toContain("ChoCH/Just");
     expect(payload.tradeContext?.symbol).toBe("XAUUSD");

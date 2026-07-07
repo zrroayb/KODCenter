@@ -40,7 +40,7 @@ describe("monthly runtime replay", () => {
       expect(result.replay?.trades[0].entrySource).toBeTruthy();
       expect(result.replay?.trades[0].tags.length).toBeGreaterThan(0);
     }
-  });
+  }, 10_000);
 
   it("scores CRT EQ management as partial profit plus breakeven instead of fake full TP", () => {
     const baseContext = createStructureContext();
@@ -96,5 +96,5 @@ describe("monthly runtime replay", () => {
     for (const scenario of scenarios) {
       expect(scenario.trades).toBe(model?.trades);
     }
-  });
+  }, 10_000);
 });

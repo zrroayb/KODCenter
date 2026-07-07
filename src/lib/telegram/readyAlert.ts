@@ -73,7 +73,7 @@ function priceBucket(value: number | undefined): string {
 }
 
 export function readyTelegramDedupeKey(signal: TradingSignal): string {
-  const anchors = ["crt-bias", "crt-range", "poi", "manipulation", "choch", "dol-target"].map((id) => {
+  const anchors = ["crt-bias", "crt-range", "turtle-soup", "poi", "manipulation", "choch", "dol-target"].map((id) => {
     const evidence = signal.evidence.find((item) => item.id === id);
     return `${id}:${evidence?.time ?? evidence?.candleIndex ?? "na"}:${priceBucket(evidence?.price)}`;
   });
@@ -93,6 +93,7 @@ function readyReasons(signal: TradingSignal): string[] {
   const passed = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
   const reasons = [
     passed.has("CRT Bias / DOL") ? "CRT bias ve DOL net" : null,
+    passed.has("Turtle Soup") ? "3 mum Turtle Soup teyidi var" : null,
     passed.has("Premium / Discount") ? "Doğru premium/discount bölgesi" : null,
     passed.has("POI Touch") ? "POI teması var" : null,
     passed.has("Manipulation") ? "Manipulation sweep + reclaim var" : null,

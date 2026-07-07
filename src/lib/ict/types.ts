@@ -243,7 +243,7 @@ export type DataConfidenceContext = {
 export type StopSource = "sweep" | "fvg" | "swing" | "manipulation" | "volatility-floor";
 export type TargetSource = "dealing-range" | "liquidity" | "crt-dol" | "equilibrium" | "projection";
 export type ExecutionCostStress = "off" | "normal" | "high";
-export type EntrySource = "fvg-retest" | "ifvg-retest" | "mss-close" | "choch-close" | "poi-retest" | "fallback-close";
+export type EntrySource = "fvg-retest" | "ifvg-retest" | "mss-close" | "choch-close" | "poi-retest" | "turtle-soup-open" | "fallback-close";
 export type EntryStatus = "confirmed" | "pending" | "fallback";
 
 export type MarketContext = {
@@ -349,6 +349,7 @@ export type SignalEvidenceItem = {
   candleIndex?: number;
   time?: number;
   price?: number;
+  metadata?: Record<string, string | number | boolean | undefined>;
 };
 
 export type SignalOutcomeStatus = "not-triggered" | "open" | "tp1" | "tp2" | "stopped" | "missed";

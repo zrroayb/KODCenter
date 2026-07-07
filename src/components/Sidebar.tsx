@@ -1,12 +1,15 @@
-import { BarChart3, CandlestickChart, ScanSearch, Settings, ScrollText } from "lucide-react";
+import { BarChart3, Bot, CandlestickChart, Gauge, History, ScanSearch, Settings, ScrollText } from "lucide-react";
 import type { ComponentType } from "react";
 import type { ViewId } from "../App";
 
-const ITEMS: Array<{ id: ViewId; label: string; caption: string; icon: ComponentType<{ size?: number }> }> = [
-  { id: "scanner", label: "Bugün", caption: "Radar", icon: ScanSearch },
-  { id: "charts", label: "Chart", caption: "Plan ekranı", icon: CandlestickChart },
-  { id: "records", label: "Kayıtlar", caption: "Not & test", icon: ScrollText },
-  { id: "settings", label: "Ayarlar", caption: "Kurallar", icon: Settings }
+export const NAV_ITEMS: Array<{ id: ViewId; label: string; caption: string; icon: ComponentType<{ size?: number }>; mobile?: boolean }> = [
+  { id: "dashboard", label: "Dashboard", caption: "Today", icon: Gauge, mobile: true },
+  { id: "charts", label: "Chart", caption: "Workspace", icon: CandlestickChart, mobile: true },
+  { id: "scanner", label: "Scanner", caption: "Radar", icon: ScanSearch, mobile: true },
+  { id: "backtest", label: "Backtest", caption: "Replay", icon: History },
+  { id: "journal", label: "Journal", caption: "Trades", icon: ScrollText, mobile: true },
+  { id: "ai", label: "AI", caption: "Coach", icon: Bot, mobile: true },
+  { id: "settings", label: "Settings", caption: "Rules", icon: Settings }
 ];
 
 export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange: (view: ViewId) => void }) {
@@ -15,12 +18,12 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
       <div className="brand-block">
         <span className="brand-mark"><BarChart3 size={22} /></span>
         <div>
-          <strong>Tradebot</strong>
-          <span>CRT karar masası</span>
+          <strong>Finance AI</strong>
+          <span>Trading workspace</span>
         </div>
       </div>
       <nav>
-        {ITEMS.map((item) => {
+        {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           return (
             <button
@@ -40,8 +43,8 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
         })}
       </nav>
       <div className="sidebar-note">
-        <span>CRT</span>
-        <strong>Range + DOL</strong>
+        <span>Status</span>
+        <strong>Decision first</strong>
       </div>
     </aside>
   );

@@ -60,6 +60,8 @@ function simpleChecklistText(label: string, signal: TradingSignal): string | nul
       return `Üst zaman CRT yönü ve DOL ${direction} tarafa net olmalı.`;
     case "4H+ Range":
       return "CRT aralığı 4H veya daha üst mumdan gelmeli.";
+    case "Turtle Soup":
+      return "Önce temiz 3 mum modeli gelsin: range mum, stop avı, içeri kapanış, uzun wick, %50'yi geçmeden dönüş.";
     case "Valid Pullback":
       return "Yeni range kabulü için extreme mum ihlal edilmeden valid pullback oluşmalı.";
     case "Dealing Range":
@@ -176,6 +178,7 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   const retestRequirement = entryRetestRequirement(signal);
   const failedChecklist = signal.decisionSummary.checklist.filter((item) => item.status === "fail");
   const neutralChecklist = signal.decisionSummary.checklist.filter((item) => item.status === "neutral");
+  const passedLabels = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
   if (signal.plan.entryStatus !== "confirmed") {
     if (retestRequirement) needs.push(retestRequirement);
     if (closeRequirement) {
@@ -184,6 +187,9 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
     if (!retestRequirement && !closeRequirement) {
       needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
     }
+  }
+  if (signal.stage === "watch" && !passedLabels.has("Turtle Soup") && !needs.some((item) => item.includes("3 mum"))) {
+    needs.push("Temiz 3 mum Turtle Soup gelsin: range mum -> stop avı -> içeri kapanış.");
   }
   if (signal.stage === "watch" && !needs.some((item) => item.includes("15m mum"))) {
     needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
@@ -199,10 +205,10 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   if (context.premiumDiscount.zone !== pdZone) {
     needs.push(`${simplePdText(signal)} Şu an doğru bölgede değil.`);
   }
-  if (!context.sweeps.some((sweep) => sweep.side === liquiditySide && sweep.reclaimed)) {
+  if (!passedLabels.has("Manipulation") && !context.sweeps.some((sweep) => sweep.side === liquiditySide && sweep.reclaimed)) {
     needs.push(simpleSweepText(signal));
   }
-  if (!context.displacements.some((item) => item.direction === direction)) {
+  if (!passedLabels.has("Turtle Soup") && !passedLabels.has("Displacement") && !context.displacements.some((item) => item.direction === direction)) {
     needs.push(`Fiyat ${simpleDirection} tarafa güçlü bir mum atsın.`);
   }
   if (!signal.plan.entryModel.cisdConfirmed && !closeRequirement && !context.marketStructureShifts.some((item) => item.direction === direction)) {

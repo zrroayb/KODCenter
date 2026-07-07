@@ -110,6 +110,7 @@ function stopSourceText(signal: TradingSignal) {
 }
 
 function entryGapLabel(signal: TradingSignal) {
+  if (signal.plan.entrySource === "turtle-soup-open") return "TS";
   if (signal.plan.entrySource === "ifvg-retest") return "iFVG";
   if (signal.plan.entrySource === "fvg-retest") return "FVG";
   return "POI";
@@ -515,6 +516,69 @@ export function CandleChart({
             <rect x={plotRight - 246} y={plot.top + 14} width="232" height="48" rx="6" fill="rgba(15, 23, 42, 0.92)" stroke="#64748b" strokeWidth="1.5" />
             <text x={plotRight - 230} y={plot.top + 34} fill="#cbd5e1" fontSize="12" fontWeight="900">MISSED · HEDEF GİTMİŞ</text>
             <text x={plotRight - 230} y={plot.top + 51} fill="#f8fafc" fontSize="10" fontWeight="800">Geç entry kovalanmaz. Yeni model bekle.</text>
+          </g>
+        )}
+        {annotations.turtleSoup && (
+          <g className="turtle-soup-structure">
+            <rect
+              x={xForCandleIndex(annotations.turtleSoup.rangeCandleIndex) - candleWidth / 2 - 7}
+              y={scaleY(annotations.turtleSoup.rangeHigh) - 6}
+              width={candleWidth + 14}
+              height={Math.max(14, scaleY(annotations.turtleSoup.rangeLow) - scaleY(annotations.turtleSoup.rangeHigh) + 12)}
+              fill="rgba(248, 250, 252, 0.035)"
+              stroke="#e8ecf4"
+              strokeWidth="1.4"
+              opacity="0.9"
+            />
+            <text
+              x={xForCandleIndex(annotations.turtleSoup.rangeCandleIndex)}
+              y={Math.max(plot.top + 12, scaleY(annotations.turtleSoup.rangeHigh) - 10)}
+              fill="#e8ecf4"
+              fontSize="9"
+              fontWeight="900"
+              textAnchor="middle"
+            >
+              RANGE
+            </text>
+            <line
+              x1={Math.max(plot.left, xForCandleIndex(annotations.turtleSoup.rangeCandleIndex) - 18)}
+              x2={Math.min(plotRight, xForCandleIndex(annotations.turtleSoup.turtleCandleIndex) + 26)}
+              y1={scaleY(annotations.turtleSoup.rangeMidpoint)}
+              y2={scaleY(annotations.turtleSoup.rangeMidpoint)}
+              stroke="#e8ecf4"
+              strokeDasharray="2 5"
+              strokeWidth="1"
+              opacity="0.54"
+            />
+            <rect
+              x={xForCandleIndex(annotations.turtleSoup.turtleCandleIndex) - candleWidth / 2 - 7}
+              y={scaleY(candles[annotations.turtleSoup.turtleCandleIndex]?.high ?? annotations.turtleSoup.sweepLevel) - 6}
+              width={candleWidth + 14}
+              height={Math.max(14, scaleY(candles[annotations.turtleSoup.turtleCandleIndex]?.low ?? annotations.turtleSoup.sweepLevel) - scaleY(candles[annotations.turtleSoup.turtleCandleIndex]?.high ?? annotations.turtleSoup.sweepLevel) + 12)}
+              fill="none"
+              stroke="#f59e0b"
+              strokeWidth="2"
+            />
+            <rect
+              x={Math.min(plotRight - 92, xForCandleIndex(annotations.turtleSoup.turtleCandleIndex) + 12)}
+              y={scaleY(annotations.turtleSoup.sweepLevel) + (selectedSignal.direction === "short" ? -28 : 10)}
+              width="92"
+              height="20"
+              rx="4"
+              fill="rgba(59, 37, 8, 0.92)"
+              stroke="#f59e0b"
+              strokeWidth="1"
+            />
+            <text
+              x={Math.min(plotRight - 92, xForCandleIndex(annotations.turtleSoup.turtleCandleIndex) + 12) + 46}
+              y={scaleY(annotations.turtleSoup.sweepLevel) + (selectedSignal.direction === "short" ? -14 : 24)}
+              fill="#fde68a"
+              fontSize="9"
+              fontWeight="900"
+              textAnchor="middle"
+            >
+              TS · {annotations.turtleSoup.wickRatio.toFixed(1)}x
+            </text>
           </g>
         )}
         {annotations.fairValueGap && (

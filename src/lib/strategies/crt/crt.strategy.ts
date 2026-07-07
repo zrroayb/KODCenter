@@ -11,6 +11,7 @@ import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/out
 import { buildCrtBias, validCrtPullback } from "../../intelligence/crtEngine";
 import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../../intelligence/structureEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
+import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
@@ -66,14 +67,16 @@ type AnchorCtx = {
   htfFvgs: FairValueGap[];
   atr: number;
   averageRange: number;
+  turtleSoup?: TurtleSoupPattern;
 };
 
 type CrtSetup = {
   direction: TradeDirection;
-  directionSource: "raid" | "bias";
+  directionSource: "turtle-soup" | "raid" | "bias";
   manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
   choch?: { level: number; candleIndex: number };
   poi?: CrtPoi;
+  turtleSoup?: TurtleSoupPattern;
   plan: TradePlan;
   warnings: string[];
   blockers: string[];
@@ -193,7 +196,8 @@ function buildAnchorCtx(context: MarketContext, spec: AnchorSpec): AnchorCtx | u
     orderBlocks: detectOrderBlocks(confirmCandles, swings),
     htfFvgs: detectFairValueGaps(rangeCandles),
     atr: averageTrueRange(confirmCandles, 14),
-    averageRange: ranges.reduce((sum, value) => sum + value, 0) / Math.max(ranges.length, 1)
+    averageRange: ranges.reduce((sum, value) => sum + value, 0) / Math.max(ranges.length, 1),
+    turtleSoup: detectLatestTurtleSoup(confirmCandles, spec.confirmTf)
   };
 }
 
@@ -215,9 +219,8 @@ function anchorBias(anchor: AnchorCtx) {
 // not a direction source. Guessing "premium -> short" painted every correlated pair the
 // same side on dollar days: the whole board read SHORT with no pair-specific setup behind it.
 function directionForAnchor(_context: MarketContext, anchor: AnchorCtx): { direction: TradeDirection; source: CrtSetup["directionSource"] } | undefined {
+  if (anchor.turtleSoup) return { direction: anchor.turtleSoup.direction, source: "turtle-soup" };
   if (anchor.raid) return { direction: anchor.raid.direction, source: "raid" };
-  const bias = anchorBias(anchor);
-  if (bias.direction === "long" || bias.direction === "short") return { direction: bias.direction, source: "bias" };
   return undefined;
 }
 
@@ -350,7 +353,7 @@ function executionCostStress(settings: StrategyInput["settings"]): ExecutionCost
   return settings.slippageStress === "high" ? "high" : "normal";
 }
 
-function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
+function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, turtleSoup: TurtleSoupPattern | undefined, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
   const candles = anchor.confirmCandles;
   const latest = candles[candles.length - 1];
   const buffer = symbolBuffer(anchor, context.symbol);
@@ -360,28 +363,34 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
   const retestLevel = choch
     ? (poi && insideRange(poi.midpoint) && (direction === "short" ? poi.midpoint > choch.level : poi.midpoint < choch.level) ? poi.midpoint : choch.level)
     : undefined;
-  const entry = retestLevel ?? poi?.midpoint ?? latest.close;
+  const entry = turtleSoup?.entry ?? retestLevel ?? poi?.midpoint ?? latest.close;
   // Stop must sit on the loss side of the entry.
-  const manipulationStop = manipulation
+  const manipulationStop = turtleSoup
+    ? direction === "short" ? turtleSoup.stopExtreme + buffer : turtleSoup.stopExtreme - buffer
+    : manipulation
     ? direction === "short" ? manipulation.level + buffer : manipulation.level - buffer
     : undefined;
   const manipulationStopValid = typeof manipulationStop === "number"
     && (direction === "short" ? manipulationStop > entry : manipulationStop < entry);
-  const stopSource: StopSource = manipulationStopValid ? "manipulation" : "swing";
+  const stopSource: StopSource = manipulationStopValid ? (turtleSoup ? "sweep" : "manipulation") : "swing";
   const stopLoss = manipulationStopValid && typeof manipulationStop === "number"
     ? manipulationStop
     : direction === "short" ? anchor.range.high + buffer : anchor.range.low - buffer;
   const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
-  const tp1 = anchor.range.midpoint;
-  const realTarget = targetDol(anchor, direction, entry);
+  const tp1 = turtleSoup?.tp1 ?? anchor.range.midpoint;
+  const realTarget = turtleSoup?.tp2 ?? targetDol(anchor, direction, entry);
   const tp2 = realTarget ?? tp1;
   const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
-  const entryStatus = choch ? "confirmed" : poi ? "pending" : "fallback";
-  const entrySource = choch ? "choch-close" : poi ? "poi-retest" : "fallback-close";
+  const entryStatus = turtleSoup || choch ? "confirmed" : poi ? "pending" : "fallback";
+  const entrySource = turtleSoup ? "turtle-soup-open" : choch ? "choch-close" : poi ? "poi-retest" : "fallback-close";
   const planWarnings = [
+    ...(turtleSoup ? [
+      `${anchor.spec.confirmTf} Turtle Soup: range mum #${turtleSoup.rangeCandleIndex}, TS mum #${turtleSoup.turtleCandleIndex}; wick/body ${turtleSoup.wickRatio.toFixed(1)}x.`,
+      `TS %50 filtresi geçti: sweep mumu range midpoint'e ulaşmadı (${formatPrice(turtleSoup.rangeMidpoint)}).`
+    ] : [`${anchor.spec.confirmTf} Turtle Soup mumu bekleniyor: önce range extremi purge, sonra içeri kapanış.`]),
     `CRT ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}; confirmation ${anchor.spec.confirmTf}.`,
     `TP1/EQ yönetim seviyesi ${formatPrice(tp1)}; TP2/DOL ${formatPrice(tp2)}.`,
-    `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
+    `Stop ${turtleSoup ? "TS wick" : "manipulation wick"} dışına ${formatPrice(buffer)} buffer ile kondu.`,
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
     ...(entryStatus !== "confirmed" ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : [])
   ];
@@ -394,8 +403,8 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
       source: entrySource,
       status: entryStatus,
       level: entry,
-      retested: Boolean(poi),
-      cisdConfirmed: Boolean(choch),
+      retested: Boolean(turtleSoup || poi),
+      cisdConfirmed: Boolean(turtleSoup || choch),
       fairValueGap: poi?.type === "fvg" || poi?.type === "breaker"
         ? { direction: poi.direction, low: poi.low, high: poi.high, midpoint: poi.midpoint, candleIndex: poi.candleIndex ?? 0, mitigated: poi.mitigated }
         : undefined,
@@ -441,16 +450,20 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   if (!picked) return undefined;
   const { direction, source: directionSource } = picked;
   const buffer = symbolBuffer(anchor, context.symbol);
-  const manipulation = manipulationForAnchor(anchor, direction);
+  const turtleSoup = anchor.turtleSoup?.direction === direction ? anchor.turtleSoup : undefined;
+  const manipulation: CrtSetup["manipulation"] = turtleSoup
+    ? { side: expectedSweepSide(direction), level: turtleSoup.sweepLevel, candleIndex: turtleSoup.turtleCandleIndex, reclaimed: true }
+    : manipulationForAnchor(anchor, direction);
   const choch = chochForAnchor(anchor, direction, manipulation, buffer);
   const poi = poiForAnchor(anchor, direction, manipulation);
-  const plan = buildAnchorPlan(context, anchor, direction, manipulation, choch, poi, minimumRR, executionCostStress(settings));
+  const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, minimumRR, executionCostStress(settings));
   const bias = anchorBias(anchor);
   const biasConflict = directionSource === "raid" && bias.direction !== "neutral" && bias.direction !== direction;
   const continuationAgainst = (bias.kind === "bullish-continuation" && direction === "short")
     || (bias.kind === "bearish-continuation" && direction === "long");
   const lastClose = anchor.confirmCandles[anchor.confirmCandles.length - 1].close;
-  const reclaimHolds = direction === "short" ? lastClose < anchor.range.high : lastClose > anchor.range.low;
+  const reclaimLevel = turtleSoup?.reclaimLevel ?? (direction === "short" ? anchor.range.high : anchor.range.low);
+  const reclaimHolds = direction === "short" ? lastClose < reclaimLevel : lastClose > reclaimLevel;
   const crtZone = plan.entry >= anchor.range.midpoint ? "premium" : "discount";
   const pdAligned = crtZone === expectedPd(direction);
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
@@ -464,7 +477,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // win/loss asymmetry goes negative even with a decent win rate.
   const eqDistanceR = Math.abs(plan.targets[0] - plan.entry) / Math.max(plan.riskDistance, 0.000001);
   const eqTooClose = tp1Valid && eqDistanceR < 0.5;
-  const hasRealTarget = typeof targetDol(anchor, direction, plan.entry) === "number";
+  const hasRealTarget = Boolean(turtleSoup) || typeof targetDol(anchor, direction, plan.entry) === "number";
   const anchorRanges = anchor.rangeCandles.slice(-20).map((candle) => candle.high - candle.low);
   const anchorAverageRange = anchorRanges.reduce((sum, value) => sum + value, 0) / Math.max(anchorRanges.length, 1);
   const rangeHeight = anchor.range.high - anchor.range.low;
@@ -482,7 +495,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     : context.premiumDiscount.zone === "discount";
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
   const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
-  const sweptExtreme = direction === "short" ? anchor.range.high : anchor.range.low;
+  const sweptExtreme = turtleSoup?.sweepLevel ?? (direction === "short" ? anchor.range.high : anchor.range.low);
   // STEP 3+6: liquidity/location ranking — weekly/monthly beats daily beats HTF-FVG.
   const nearSwept = (level: number) => Math.abs(level - sweptExtreme) <= buffer * 3;
   const weeklyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PWH" || objective.kind === "PWL" || objective.kind === "PMH" || objective.kind === "PML") && nearSwept(objective.level));
@@ -491,8 +504,12 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const locationTier: CrtSetup["locationTier"] = weeklyLocation ? "weekly" : dailyLocation ? "daily" : fvgConfluence ? "fvg" : "none";
   const anchorAtKeyLevel = weeklyLocation || dailyLocation;
   // STEP 7: the range must be respected — closes since the raid stay inside it.
-  const sinceRaid = anchor.raid ? anchor.confirmCandles.filter((candle) => candle.time > (anchor.raid as AnchorRaid).time) : [];
-  const rangeRespect = sinceRaid.length > 0 && sinceRaid.every((candle) => candle.close <= anchor.range.high + buffer && candle.close >= anchor.range.low - buffer);
+  const sinceRaid = turtleSoup
+    ? anchor.confirmCandles.slice(turtleSoup.turtleCandleIndex)
+    : anchor.raid ? anchor.confirmCandles.filter((candle) => candle.time > (anchor.raid as AnchorRaid).time) : [];
+  const respectHigh = turtleSoup?.rangeHigh ?? anchor.range.high;
+  const respectLow = turtleSoup?.rangeLow ?? anchor.range.low;
+  const rangeRespect = sinceRaid.length > 0 && sinceRaid.every((candle) => candle.close <= respectHigh + buffer && candle.close >= respectLow - buffer);
   // STEP 8: displacement after the raid is mandatory.
   const displacementStrength = manipulation ? displacementSince(anchor, direction, manipulation.candleIndex) : "none";
   // The 01/05/09 NY opens are the 4H doctrine's key candles; a raid on one of them carries
@@ -500,20 +517,21 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
+    !turtleSoup ? `${anchor.spec.confirmTf} 3 mum Turtle Soup yok: range mum + purge/reclaim + wick/body + %50 filtresi bekleniyor.` : undefined,
     htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); anlatısız CRT aranmaz." : undefined,
     htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
     dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
-    !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
-    !anchorAtKeyLevel && !fvgConfluence ? "Raid HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
+    !turtleSoup && !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
+    !turtleSoup && !anchorAtKeyLevel && !fvgConfluence ? "Raid HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
     !manipulation ? "Manipulation raid/sweep + reclaim yok." : undefined,
     continuationAgainst ? "HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz." : undefined,
     !reclaimHolds ? "Fiyat hâlâ range extreminin ötesinde; reclaim tutmuyor, bu manipulation değil breakout." : undefined,
-    !choch ? `${anchor.spec.confirmTf} ChoCH/Just mum kapanışı yok.` : undefined,
+    !turtleSoup && !choch ? `${anchor.spec.confirmTf} ChoCH/Just mum kapanışı yok.` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range gürültüdür, trade edilmez.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız.` : undefined,
-    manipulation && displacementStrength === "none" ? `Displacement yok; raid sonrası ${anchor.spec.confirmTf} agresif repricing gelmedi.` : undefined,
+    manipulation && !turtleSoup && displacementStrength === "none" ? `Displacement yok; raid sonrası ${anchor.spec.confirmTf} agresif repricing gelmedi.` : undefined,
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Retest uzak; fiyat entry alanını terk etmiş, kovalanmaz — yeni raid bekle." : undefined,
@@ -524,6 +542,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
+    turtleSoup ? turtleSoup.summary : undefined,
     choch && !poi ? "Displacement POI yok; entry ChoCH/MSS seviyesinin retest'i." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
@@ -542,10 +561,11 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const score = Math.max(0, Math.min(100,
     (htfNarrative !== "neutral" && direction === htfNarrative ? 15 : 0)
     + (locationTier === "weekly" ? 20 : locationTier === "daily" ? 15 : locationTier === "fvg" ? 10 : 0)
+    + (turtleSoup ? 30 : 0)
     + (raidClosed ? 15 : anchor.raid && anchor.raid.direction === direction ? 12 : manipulation ? 8 : 0)
-    + (poi ? 15 : 0)
-    + (displacementStrength === "strong" ? 10 : displacementStrength === "medium" ? 6 : 0)
-    + (choch ? 10 : 0)
+    + (poi ? 10 : 0)
+    + (displacementStrength === "strong" ? 8 : displacementStrength === "medium" ? 5 : 0)
+    + (choch ? 7 : turtleSoup ? 4 : 0)
     + (poi?.type === "fvg" ? 5 : 0)
     + (rangeRespect ? 10 : 0)
     + (inSession ? 3 : 0)
@@ -561,6 +581,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     manipulation,
     choch,
     poi,
+    turtleSoup,
     plan: { ...plan, planWarnings: Array.from(new Set(warnings)) },
     warnings,
     blockers,
@@ -592,9 +613,16 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
   return [
     checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : bias.direction === "neutral" ? "neutral" : "fail", bias.summary),
     checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, "pass", anchor.range.source),
+    checklistItem(
+      "Turtle Soup",
+      setup.turtleSoup ? "pass" : "fail",
+      setup.turtleSoup
+        ? `${anchor.spec.confirmTf} range #${setup.turtleSoup.rangeCandleIndex} -> TS #${setup.turtleSoup.turtleCandleIndex}; wick/body ${setup.turtleSoup.wickRatio.toFixed(1)}x, %50 filtresi geçti.`
+        : `${anchor.spec.confirmTf} range mum + purge/reclaim + uzun wick + %50 filtresi bekleniyor.`
+    ),
     checklistItem("Valid Pullback", validCrtPullback(anchor.rangeCandles, direction).valid ? "pass" : "neutral", validCrtPullback(anchor.rangeCandles, direction).summary),
     checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; entry ${crtZone}.`),
-    checklistItem("POI Touch", setup.poi ? "pass" : setup.choch ? "neutral" : "fail", setup.poi ? `Raid sonrası ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : setup.choch ? "Displacement POI yok; entry ChoCH retest seviyesi." : "Raid sonrası FVG/OB oluşmadı."),
+    checklistItem("POI Touch", setup.poi ? "pass" : setup.turtleSoup || setup.choch ? "neutral" : "fail", setup.poi ? `Raid sonrası ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : setup.turtleSoup ? "EA modeli POI şart koşmaz; TS mumu entry referansı." : setup.choch ? "Displacement POI yok; entry ChoCH retest seviyesi." : "Raid sonrası FVG/OB oluşmadı."),
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}.` : "Raid/sweep + reclaim bekleniyor."),
     checklistItem("HTF Narrative", setup.htfNarrative !== "neutral" && setup.direction === setup.htfNarrative ? "pass" : setup.htfNarrative === "neutral" ? "fail" : "fail", setup.htfNarrative === "neutral" ? "M/W/D/4H anlatısı karışık; anlatısız CRT aranmaz." : setup.direction === setup.htfNarrative ? "Setup HTF anlatıyla aynı yönde." : "Setup HTF anlatıya karşı."),
     checklistItem("Location", setup.locationTier === "weekly" ? "pass" : setup.locationTier === "daily" ? "pass" : setup.locationTier === "fvg" ? "neutral" : "fail", `Raid lokasyonu: ${setup.locationTier === "weekly" ? "haftalık/aylık seviye (en güçlü)" : setup.locationTier === "daily" ? "günlük seviye" : setup.locationTier === "fvg" ? "HTF FVG" : "hiçbir yer — ortada"}.`),
@@ -612,7 +640,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
       isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside") ? "pass" : "neutral",
       "Killzone içi zamanlama ihtimali artırır; hard şart değil."
     ),
-    checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
+    checklistItem("ChoCH / Just", setup.choch || setup.turtleSoup ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : setup.turtleSoup ? "TS mumu purge sonrası içeri kapandı; EA modelinde kapanış teyidi tamam." : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("RR to DOL", setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "fail", `TP2/DOL net RR ${formatR(setup.plan.rr)}.`),
     checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
@@ -626,6 +654,7 @@ function crtDecisionSummary(context: MarketContext, anchor: AnchorCtx, setup: Cr
     `${context.symbol} ${side} CRT setup (${anchor.spec.rangeTf} range, ${anchor.spec.confirmTf} confirmation).`,
     anchorBias(anchor).summary,
     `Aktif CRT range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}, EQ ${formatPrice(anchor.range.midpoint)}.`,
+    setup.turtleSoup ? `Turtle Soup: ${setup.turtleSoup.summary} Entry ${formatPrice(setup.turtleSoup.entry)}, TP1 ${formatPrice(setup.turtleSoup.tp1)}, TP2 ${formatPrice(setup.turtleSoup.tp2)}.` : `${anchor.spec.confirmTf} Turtle Soup bekleniyor.`,
     setup.poi ? `POI: ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : "POI bekleniyor.",
     setup.manipulation ? `Manipulation: ${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}${setup.raidClosed ? " (HTF close-back teyitli)" : ""}.` : "Manipulation/raid bekleniyor.",
     setup.choch ? `ChoCH/Just close ${formatPrice(setup.choch.level)} kırdı.` : `${anchor.spec.confirmTf} ChoCH/Just kapanışı bekleniyor.`,
@@ -701,10 +730,30 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
   return [
     { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "fail", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: `${anchor.spec.rangeTf} range high/low/mid used.`, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
+    {
+      id: "turtle-soup",
+      label: "Turtle Soup",
+      status: setup.turtleSoup ? "pass" : "fail",
+      detail: setup.turtleSoup ? setup.turtleSoup.summary : "3 mum TS modeli yok.",
+      timeframe: anchor.spec.confirmTf,
+      candleIndex: setup.turtleSoup?.turtleCandleIndex,
+      time: typeof setup.turtleSoup?.turtleCandleIndex === "number" ? anchor.confirmCandles[setup.turtleSoup.turtleCandleIndex]?.time : undefined,
+      price: setup.turtleSoup?.sweepLevel,
+      metadata: setup.turtleSoup ? {
+        rangeCandleIndex: setup.turtleSoup.rangeCandleIndex,
+        turtleCandleIndex: setup.turtleSoup.turtleCandleIndex,
+        rangeHigh: setup.turtleSoup.rangeHigh,
+        rangeLow: setup.turtleSoup.rangeLow,
+        rangeMidpoint: setup.turtleSoup.rangeMidpoint,
+        sweepLevel: setup.turtleSoup.sweepLevel,
+        reclaimLevel: setup.turtleSoup.reclaimLevel,
+        wickRatio: setup.turtleSoup.wickRatio
+      } : undefined
+    },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
     { id: "poi", label: "POI", status: setup.poi ? "pass" : "fail", detail: setup.poi ? `${setup.poi.label} touched.` : "FVG/OB/Breaker/OTE touch bekleniyor.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
     { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${setup.manipulation.side} raid + reclaim${setup.raidClosed ? " (closed)" : ""}.` : "Raid/sweep + reclaim yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
-    { id: "choch", label: "ChoCH / Just", status: setup.choch ? "pass" : "fail", detail: setup.choch ? `Close broke ${formatPrice(setup.choch.level)}.` : "Kapanışla kırılma yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.choch?.candleIndex, price: setup.choch?.level },
+    { id: "choch", label: "ChoCH / Just", status: setup.choch || setup.turtleSoup ? "pass" : "fail", detail: setup.choch ? `Close broke ${formatPrice(setup.choch.level)}.` : setup.turtleSoup ? "TS mumu purge sonrası içeri kapandı." : "Kapanışla kırılma yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.choch?.candleIndex ?? setup.turtleSoup?.turtleCandleIndex, price: setup.choch?.level ?? setup.turtleSoup?.reclaimLevel },
     { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `0.5 range management: ${formatPrice(setup.plan.targets[0])}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
     { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
@@ -719,7 +768,7 @@ function anchorSignal(context: MarketContext, settings: StrategyInput["settings"
   if (!setup) return undefined;
   // A raided range candle that sits at no meaningful location is not a CRT candle at all —
   // it is an ordinary candle. Don't stage it, don't chart it, don't alert it: cancel.
-  if (anchor.raid && setup.locationTier === "none") return undefined;
+  if (anchor.raid && setup.locationTier === "none" && !setup.turtleSoup) return undefined;
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
   const readyCandidate = setup.blockers.length === 0 && setup.plan.entryStatus === "confirmed" && setup.plan.rr >= minimumRR;
   const life = lifecycle(context, anchor, setup, readyCandidate);

@@ -18,6 +18,16 @@ export type SelectedSignalAnnotations = {
   fairValueGap?: FairValueGap;
   smtDivergence?: SmtDivergence;
   judasSwing?: JudasSwing;
+  turtleSoup?: {
+    rangeCandleIndex: number;
+    turtleCandleIndex: number;
+    rangeHigh: number;
+    rangeLow: number;
+    rangeMidpoint: number;
+    sweepLevel: number;
+    reclaimLevel: number;
+    wickRatio: number;
+  };
 };
 
 export type ConfirmationTimeframe = Extract<Timeframe, "5m" | "15m" | "1h" | "4h">;
@@ -78,6 +88,28 @@ export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignal
     && typeof manipulationEvidence.price === "number" && typeof manipulationEvidence.candleIndex === "number"
     ? { side: sweepSide, level: manipulationEvidence.price, candleIndex: manipulationEvidence.candleIndex, reclaimed: true }
     : undefined;
+  const turtleSoupEvidence = crt ? evidenceOf("turtle-soup") : undefined;
+  const turtleSoupMeta = turtleSoupEvidence?.metadata;
+  const turtleSoup = turtleSoupMeta
+    && typeof turtleSoupMeta.rangeCandleIndex === "number"
+    && typeof turtleSoupMeta.turtleCandleIndex === "number"
+    && typeof turtleSoupMeta.rangeHigh === "number"
+    && typeof turtleSoupMeta.rangeLow === "number"
+    && typeof turtleSoupMeta.rangeMidpoint === "number"
+    && typeof turtleSoupMeta.sweepLevel === "number"
+    && typeof turtleSoupMeta.reclaimLevel === "number"
+    && typeof turtleSoupMeta.wickRatio === "number"
+    ? {
+        rangeCandleIndex: turtleSoupMeta.rangeCandleIndex,
+        turtleCandleIndex: turtleSoupMeta.turtleCandleIndex,
+        rangeHigh: turtleSoupMeta.rangeHigh,
+        rangeLow: turtleSoupMeta.rangeLow,
+        rangeMidpoint: turtleSoupMeta.rangeMidpoint,
+        sweepLevel: turtleSoupMeta.sweepLevel,
+        reclaimLevel: turtleSoupMeta.reclaimLevel,
+        wickRatio: turtleSoupMeta.wickRatio
+      }
+    : undefined;
 
   return {
     sweep: crt
@@ -89,7 +121,8 @@ export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignal
       : latestByIndex(signal.context.marketStructureShifts.filter((item) => item.direction === signal.direction)),
     fairValueGap: planFairValueGap(signal),
     smtDivergence: contextIsConfirm ? latestByIndex(signal.context.smtDivergences.filter((item) => item.direction === signal.direction)) : undefined,
-    judasSwing: contextIsConfirm ? signal.context.judasSwings.find((item) => item.direction === signal.direction) : undefined
+    judasSwing: contextIsConfirm ? signal.context.judasSwings.find((item) => item.direction === signal.direction) : undefined,
+    turtleSoup
   };
 }
 
@@ -100,6 +133,8 @@ export function signalAnchorIndex(signal: TradingSignal): number {
     annotations.displacement?.candleIndex,
     annotations.marketStructureShift?.candleIndex,
     annotations.fairValueGap?.candleIndex,
+    annotations.turtleSoup?.rangeCandleIndex,
+    annotations.turtleSoup?.turtleCandleIndex,
     annotations.smtDivergence?.candleIndex
   ].filter((index): index is number => typeof index === "number");
   return indexes.length ? Math.max(...indexes) : confirmationCandles(signal).length - 1;
@@ -126,6 +161,8 @@ export function focusChartOnSignal(signal: TradingSignal, paddingCandles = 30): 
     annotations.displacement?.candleIndex,
     annotations.marketStructureShift?.candleIndex,
     annotations.fairValueGap?.candleIndex,
+    annotations.turtleSoup?.rangeCandleIndex,
+    annotations.turtleSoup?.turtleCandleIndex,
     annotations.smtDivergence?.candleIndex,
     candles.length - 1
   ].filter((index): index is number => typeof index === "number");
