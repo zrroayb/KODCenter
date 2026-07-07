@@ -1,7 +1,7 @@
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
-import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, type FocusedTimeRange } from "../lib/charts/selectedSignal";
+import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, signalConfirmTimeframe, type FocusedTimeRange } from "../lib/charts/selectedSignal";
 import { formatPrice, formatR } from "../lib/ict/format";
-import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
+import type { Candle, DealingRange, MarketContext, Timeframe, TradingSignal } from "../lib/ict/types";
 import { sessionDurationHours, sessionWindows } from "../lib/session/sessionClock";
 import { closeConfirmationRequirement, type CloseConfirmationRequirement } from "../lib/signals/waitingGuidance";
 
@@ -17,6 +17,7 @@ type CandleChartProps = {
   selectedSignal?: TradingSignal | null;
   focusedTimeRange?: FocusedTimeRange;
   showSignalMarkers?: boolean;
+  chartTimeframe?: Timeframe;
   onSelectSignal?: (signal: TradingSignal) => void;
 };
 
@@ -188,6 +189,7 @@ export function CandleChart({
   selectedSignal,
   focusedTimeRange,
   showSignalMarkers = true,
+  chartTimeframe,
   onSelectSignal
 }: CandleChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -201,13 +203,20 @@ export function CandleChart({
     );
   }
 
-  const selectedIsExecution = Boolean(selectedSignal && mode === "execution");
-  const selectedIsHigherTimeframe = Boolean(selectedSignal && mode !== "execution");
+  // The setup overlay (ChoCH, manipulation, POI box, reference candle) is drawn on the
+  // signal's OWN confirmation timeframe chart: 4H anchor -> 15m, 1D -> 1H, 1W -> 4H.
+  // Its annotation candleIndex values point into exactly these candles.
+  const selectedConfirmTf = selectedSignal ? signalConfirmTimeframe(selectedSignal) : undefined;
+  const chartTf = chartTimeframe ?? (mode === "execution" ? "15m" : undefined);
+  const selectedIsConfirmationChart = Boolean(selectedSignal && chartTf
+    && (selectedConfirmTf === chartTf || (chartTf === "15m" && selectedConfirmTf === "5m")));
+  const selectedIsHigherTimeframe = Boolean(selectedSignal && !selectedIsConfirmationChart);
   const annotations = selectedSignal ? selectedSignalAnnotations(selectedSignal) : undefined;
   const closeRequirement = selectedSignal ? closeConfirmationRequirement(selectedSignal) : null;
-  // The close-requirement reference candle is indexed on the confirmation TF; drawing its box
-  // on the m15 execution chart is only valid when that TF IS m15.
-  const closeReqOnChart = Boolean(closeRequirement && (closeRequirement.timeframe === "15m" || closeRequirement.timeframe === "5m"));
+  // The close-requirement reference candle is indexed on the confirmation TF; its box only
+  // lands on the right candle when this chart IS that timeframe.
+  const closeReqOnChart = Boolean(closeRequirement && chartTf
+    && (closeRequirement.timeframe === chartTf || (chartTf === "15m" && closeRequirement.timeframe === "5m")));
   const latest = visible[visible.length - 1] as Candle;
   const first = visible[0] as Candle;
   const selectedLevels = selectedSignal
@@ -215,7 +224,7 @@ export function CandleChart({
         selectedSignal.plan.entry,
         selectedSignal.plan.stopLoss,
         ...selectedSignal.plan.targets,
-        ...(selectedIsExecution ? [
+        ...(selectedIsConfirmationChart ? [
         annotations?.fairValueGap?.high,
         annotations?.fairValueGap?.low,
         annotations?.sweep?.level,
@@ -440,7 +449,7 @@ export function CandleChart({
   };
 
   const selectedOverlay = (() => {
-    if (!selectedIsExecution || !selectedSignal || !annotations || !latest) return null;
+    if (!selectedIsConfirmationChart || !selectedSignal || !annotations || !latest) return null;
 
     const anchorX = Math.min(Math.max(xForTime(signalAnchorTime(selectedSignal)), plot.left + 18), plotRight - 18);
     const signalColor = stageColor(selectedSignal);
@@ -533,7 +542,7 @@ export function CandleChart({
               stroke={manualLineColor}
               strokeWidth="1.4"
               strokeDasharray="2 4"
-              opacity={selectedIsExecution ? 0.58 : 0.72}
+              opacity={selectedIsConfirmationChart ? 0.58 : 0.72}
             />
             <circle cx={xForCandleIndex(annotations.sweep.candleIndex)} cy={scaleY(annotations.sweep.level)} r="5" fill="#f59e0b" stroke="#06080c" strokeWidth="2" />
             <text x={Math.min(plotRight - 8, xForCandleIndex(annotations.sweep.candleIndex) + 18)} y={scaleY(annotations.sweep.level) - 8} fill="#f59e0b" fontSize="9" fontWeight="900">
@@ -810,7 +819,7 @@ export function CandleChart({
   };
 
   return (
-    <figure className={selectedIsExecution ? "chart-panel tradingview-chart selected" : "chart-panel tradingview-chart"}>
+    <figure className={selectedIsConfirmationChart ? "chart-panel tradingview-chart selected" : "chart-panel tradingview-chart"}>
       <figcaption>{title}</figcaption>
       <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} onMouseMove={handleChartMove} onMouseLeave={() => setHoverIndex(null)}>
         <rect width={width} height={height} rx="8" fill={chartBackground} />
@@ -897,7 +906,7 @@ export function CandleChart({
           const rawBodyHeight = Math.abs(openY - closeY);
           const bodyHeight = Math.max(2.4, rawBodyHeight);
           const bodyTop = rawBodyHeight < 2.4 ? (openY + closeY) / 2 - bodyHeight / 2 : Math.min(openY, closeY);
-          const opacity = selectedSignal && !selectedIsExecution ? 0.78 : 1;
+          const opacity = selectedSignal && !selectedIsConfirmationChart ? 0.78 : 1;
           return (
             <g key={candle.time}>
               <line

@@ -1,4 +1,4 @@
-import type { Displacement, FairValueGap, JudasSwing, MarketStructureShift, SmtDivergence, Sweep, TradingSignal } from "../ict/types";
+import type { Candle, Displacement, FairValueGap, JudasSwing, MarketStructureShift, SmtDivergence, Sweep, Timeframe, TradingSignal } from "../ict/types";
 
 export type FocusedTimeRange = {
   from: number;
@@ -20,7 +20,28 @@ export type SelectedSignalAnnotations = {
   judasSwing?: JudasSwing;
 };
 
-function executionCandles(signal: TradingSignal) {
+export type ConfirmationTimeframe = Extract<Timeframe, "5m" | "15m" | "1h" | "4h">;
+
+const TF_MS: Record<ConfirmationTimeframe, number> = {
+  "5m": 5 * 60 * 1000,
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "4h": 4 * 60 * 60 * 1000
+};
+
+// The timeframe a signal's setup structure lives on: CRT anchors confirm on their own lower
+// timeframe (4H->15m, 1D->1H, 1W->4H); everything else confirms on the execution TF.
+export function signalConfirmTimeframe(signal: TradingSignal): ConfirmationTimeframe {
+  const tf = signal.crtAnchor?.confirmTf;
+  if (tf === "1h" || tf === "4h") return tf;
+  return signal.context.timeframes.m15.length ? "15m" : "5m";
+}
+
+// Candles of the signal's confirmation timeframe — annotation candleIndex values point here.
+export function confirmationCandles(signal: TradingSignal): Candle[] {
+  const tf = signalConfirmTimeframe(signal);
+  if (tf === "1h") return signal.context.timeframes.h1;
+  if (tf === "4h") return signal.context.timeframes.h4;
   return signal.context.timeframes.m15.length ? signal.context.timeframes.m15 : signal.context.timeframes.m5;
 }
 
@@ -38,29 +59,37 @@ function planFairValueGap(signal: TradingSignal): FairValueGap | undefined {
 
 export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignalAnnotations {
   const sweepSide = expectedSweepSide(signal);
-  // The plan FVG's candleIndex lives on the signal's confirmation timeframe; drawing it on the
-  // m15 chart is only valid when the confirmation timeframe IS m15 (a 1H/4H index lands weeks
-  // back on the m15 axis and drags the focus window with it).
-  const planGapIsM15 = !signal.crtAnchor || signal.crtAnchor.confirmTf === "15m";
-  // The ChoCH chip must show the SETUP's own confirmation level (carried in evidence), not a
-  // random market structure shift from the global m15 context.
-  const chochEvidence = signal.strategyId === "crt"
-    ? signal.evidence.find((item) => item.id === "choch" && item.status === "pass")
-    : undefined;
-  const crtChoch: MarketStructureShift | undefined = planGapIsM15 && chochEvidence
+  const confirmTf = signalConfirmTimeframe(signal);
+  // Context-wide structures (sweeps, displacement, SMT, Judas) are detected on the execution
+  // TF; they only belong next to the setup when the signal confirms there too — a 1D-anchor
+  // setup's structure lives on 1H candles and an m15 sweep index means nothing there.
+  const contextIsConfirm = confirmTf === "15m" || confirmTf === "5m";
+  const crt = signal.strategyId === "crt";
+  const evidenceOf = (id: string) => signal.evidence.find((item) => item.id === id && item.status === "pass");
+  // CRT setup structure comes from the signal's own evidence (indexed on the confirmation
+  // TF), not from random global m15 context items that may describe another move entirely.
+  const chochEvidence = crt ? evidenceOf("choch") : undefined;
+  const crtChoch: MarketStructureShift | undefined = chochEvidence
     && typeof chochEvidence.price === "number" && typeof chochEvidence.candleIndex === "number"
     ? { direction: signal.direction, level: chochEvidence.price, candleIndex: chochEvidence.candleIndex, brokenIndex: chochEvidence.candleIndex, kind: "choch" }
     : undefined;
+  const manipulationEvidence = crt ? evidenceOf("manipulation") : undefined;
+  const crtSweep: Sweep | undefined = manipulationEvidence
+    && typeof manipulationEvidence.price === "number" && typeof manipulationEvidence.candleIndex === "number"
+    ? { side: sweepSide, level: manipulationEvidence.price, candleIndex: manipulationEvidence.candleIndex, reclaimed: true }
+    : undefined;
 
   return {
-    sweep: latestByIndex(signal.context.sweeps.filter((sweep) => sweep.side === sweepSide && sweep.reclaimed)) ?? latestByIndex(signal.context.sweeps),
-    displacement: latestByIndex(signal.context.displacements.filter((item) => item.direction === signal.direction)),
-    marketStructureShift: signal.strategyId === "crt"
+    sweep: crt
+      ? crtSweep
+      : latestByIndex(signal.context.sweeps.filter((sweep) => sweep.side === sweepSide && sweep.reclaimed)) ?? latestByIndex(signal.context.sweeps),
+    displacement: contextIsConfirm ? latestByIndex(signal.context.displacements.filter((item) => item.direction === signal.direction)) : undefined,
+    marketStructureShift: crt
       ? crtChoch
       : latestByIndex(signal.context.marketStructureShifts.filter((item) => item.direction === signal.direction)),
-    fairValueGap: planGapIsM15 ? planFairValueGap(signal) : undefined,
-    smtDivergence: latestByIndex(signal.context.smtDivergences.filter((item) => item.direction === signal.direction)),
-    judasSwing: signal.context.judasSwings.find((item) => item.direction === signal.direction)
+    fairValueGap: planFairValueGap(signal),
+    smtDivergence: contextIsConfirm ? latestByIndex(signal.context.smtDivergences.filter((item) => item.direction === signal.direction)) : undefined,
+    judasSwing: contextIsConfirm ? signal.context.judasSwings.find((item) => item.direction === signal.direction) : undefined
   };
 }
 
@@ -73,20 +102,21 @@ export function signalAnchorIndex(signal: TradingSignal): number {
     annotations.fairValueGap?.candleIndex,
     annotations.smtDivergence?.candleIndex
   ].filter((index): index is number => typeof index === "number");
-  return indexes.length ? Math.max(...indexes) : executionCandles(signal).length - 1;
+  return indexes.length ? Math.max(...indexes) : confirmationCandles(signal).length - 1;
 }
 
 export function signalAnchorTime(signal: TradingSignal): number {
-  const candles = executionCandles(signal);
+  const candles = confirmationCandles(signal);
   return candles[Math.min(Math.max(signalAnchorIndex(signal), 0), candles.length - 1)]?.time ?? signal.createdAt;
 }
 
 export function focusChartOnSignal(signal: TradingSignal, paddingCandles = 30): FocusedTimeRange {
-  const candles = executionCandles(signal);
+  const candles = confirmationCandles(signal);
+  const stepMs = TF_MS[signalConfirmTimeframe(signal)];
   if (candles.length === 0) {
     return {
-      from: signal.createdAt - paddingCandles * 15 * 60 * 1000,
-      to: signal.createdAt + 50 * 15 * 60 * 1000
+      from: signal.createdAt - paddingCandles * stepMs,
+      to: signal.createdAt + 50 * stepMs
     };
   }
 
@@ -105,10 +135,10 @@ export function focusChartOnSignal(signal: TradingSignal, paddingCandles = 30): 
   const maxSpan = 150;
   const last = Math.min(candles.length - 1, Math.max(...indexes) + paddingCandles);
   const first = Math.max(0, last - maxSpan, Math.min(...indexes) - paddingCandles);
-  const fallbackTo = signal.createdAt + 50 * 15 * 60 * 1000;
+  const fallbackTo = signal.createdAt + 50 * stepMs;
 
   return {
-    from: candles[first]?.time ?? signal.createdAt - paddingCandles * 15 * 60 * 1000,
+    from: candles[first]?.time ?? signal.createdAt - paddingCandles * stepMs,
     to: candles[last]?.time ?? fallbackTo
   };
 }

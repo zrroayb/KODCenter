@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
-import type { FocusedTimeRange } from "../lib/charts/selectedSignal";
-import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
+import { signalConfirmTimeframe, type FocusedTimeRange } from "../lib/charts/selectedSignal";
+import type { Candle, MarketContext, Timeframe, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
 import { CandleChart } from "./CandleChart";
@@ -24,6 +24,15 @@ function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
   if (tab === "h4") return market.timeframes.h4;
   if (tab === "weekly") return market.timeframes.weekly;
   return market.timeframes.daily;
+}
+
+const TAB_TIMEFRAME: Record<ChartTab, Timeframe> = { m15: "15m", h1: "1h", h4: "4h", daily: "1d", weekly: "1w" };
+
+// The tab a signal's setup structure belongs on: its confirmation timeframe (4H anchor ->
+// 15m, 1D -> 1H, 1W -> 4H). ChoCH/POI/manipulation indices only make sense there.
+function confirmTabFor(signal: TradingSignal): ChartTab {
+  const tf = signalConfirmTimeframe(signal);
+  return tf === "4h" ? "h4" : tf === "1h" ? "h1" : "m15";
 }
 
 function MarketContextPanel({ context, signals }: { context: MarketContext; signals: TradingSignal[] }) {
@@ -96,8 +105,17 @@ export function ChartsView({
   const [activeTab, setActiveTab] = useState<ChartTab>("m15");
   const symbolSignals = useMemo(() => signals.filter((signal) => signal.symbol === market.symbol), [market.symbol, signals]);
   const activeSelectedSignal = selectedSignal?.symbol === market.symbol ? selectedSignal : null;
+  const selectedConfirmTab = activeSelectedSignal ? confirmTabFor(activeSelectedSignal) : null;
+  // Selecting a signal jumps to ITS confirmation tab: a 1D-anchor setup opens on the 1H
+  // chart where its ChoCH/manipulation structure actually lives, not on a generic 15m view.
+  useEffect(() => {
+    if (selectedConfirmTab) setActiveTab(selectedConfirmTab);
+  }, [activeSelectedSignal?.id, selectedConfirmTab]);
   const tab = CHART_TABS.find((item) => item.id === activeTab) ?? CHART_TABS[0];
-  const activeFocus = activeSelectedSignal && activeTab === "m15" ? focusedTimeRange : undefined;
+  const activeFocus = activeSelectedSignal && activeTab === selectedConfirmTab ? focusedTimeRange : undefined;
+  // Each signal's chip belongs on its own confirmation tab; a 1D anchor's marker on the m15
+  // chart would sit on an unrelated candle.
+  const markerSignals = useMemo(() => symbolSignals.filter((signal) => confirmTabFor(signal) === activeTab), [symbolSignals, activeTab]);
 
   return (
     <section className={activeSelectedSignal ? "charts-workspace with-selection" : "charts-workspace single-chart-mode"}>
@@ -134,10 +152,11 @@ export function ChartsView({
               }
             : context.crt.activeRange}
           context={context}
-          signals={symbolSignals}
+          signals={markerSignals}
           selectedSignal={activeSelectedSignal}
           focusedTimeRange={activeFocus}
-          showSignalMarkers={showSignalMarkers && activeTab === "m15"}
+          showSignalMarkers={showSignalMarkers}
+          chartTimeframe={TAB_TIMEFRAME[activeTab]}
           onSelectSignal={onSelectSignal}
         />
       </div>
