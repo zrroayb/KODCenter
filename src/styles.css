@@ -2977,3 +2977,341 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ============================================================
+   Simple decision-first pass
+   ============================================================ */
+
+@media (min-width: 901px) {
+  .finance-topnav {
+    display: none;
+  }
+}
+
+.simple-dashboard {
+  gap: 16px;
+}
+
+.simple-hero {
+  min-height: 168px;
+  border-color: rgba(124, 140, 255, 0.22);
+}
+
+.simple-hero.ready {
+  border-color: rgba(16, 185, 129, 0.38);
+}
+
+.simple-hero.watch {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.decision-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 14px;
+}
+
+.decision-list-card {
+  padding: 18px;
+}
+
+.decision-list-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.decision-list-card h2 {
+  margin-top: 4px;
+  font-size: clamp(22px, 2.2vw, 32px);
+}
+
+.decision-signal-list {
+  display: grid;
+  gap: 8px;
+}
+
+.decision-signal-card {
+  min-height: 74px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 82px 82px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+
+.decision-signal-card.ready {
+  border-left-color: #10b981;
+}
+
+.decision-signal-card.watch {
+  border-left-color: #f59e0b;
+}
+
+.decision-signal-card.rejected {
+  border-left-color: var(--line-strong);
+  opacity: 0.88;
+}
+
+.decision-signal-card.rejected:hover {
+  transform: none;
+}
+
+.decision-signal-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 140, 255, 0.32);
+}
+
+.decision-signal-card.rejected:hover {
+  transform: none;
+}
+
+.decision-rank {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue-ink);
+  font-weight: 820;
+}
+
+.decision-main,
+.decision-meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.decision-main strong {
+  font-size: 17px;
+}
+
+.decision-main small,
+.decision-meta small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decision-meta {
+  justify-items: end;
+}
+
+.decision-meta strong {
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.decision-rr {
+  justify-self: end;
+  padding: 7px 10px;
+  border: 1px solid rgba(124, 140, 255, 0.26);
+  border-radius: 999px;
+  color: var(--blue-ink);
+  font-size: 13px;
+  font-weight: 820;
+  font-variant-numeric: tabular-nums;
+}
+
+.decision-reason {
+  overflow: hidden;
+  justify-self: end;
+  max-width: 280px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-decision-state {
+  min-height: 150px;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  padding: 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-decision-state strong {
+  color: var(--ink);
+  font-size: 22px;
+}
+
+.dashboard-brief {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-brief .metric-card {
+  min-height: 106px;
+}
+
+.charts-workspace.with-selection {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  gap: 16px;
+}
+
+.signal-details-panel.compact {
+  gap: 12px;
+  padding: 18px;
+}
+
+.simple-signal-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+
+.simple-signal-card.ready {
+  border-left-color: #10b981;
+}
+
+.simple-signal-card.watch {
+  border-left-color: #f59e0b;
+}
+
+.simple-signal-card.invalidated,
+.simple-signal-card.missed {
+  border-left-color: #ef4444;
+}
+
+.simple-signal-card > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.simple-signal-card h3 {
+  font-size: 23px;
+  line-height: 1.12;
+}
+
+.simple-signal-card p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.simple-plan-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.simple-plan-grid div {
+  padding: 11px 12px;
+  border-radius: 16px;
+}
+
+.simple-plan-grid strong {
+  font-size: 16px;
+}
+
+.simple-next-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.34);
+  border-radius: 18px;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.simple-next-card span {
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.simple-next-card strong {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.simple-next-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.simple-ai-commentary {
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.simple-ai-commentary h3 {
+  font-size: 13px;
+}
+
+.simple-ai-commentary p {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.compact-details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.compact-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 760;
+}
+
+@media (max-width: 1180px) {
+  .decision-board,
+  .charts-workspace.with-selection {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-brief {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .decision-signal-card {
+    grid-template-columns: 34px minmax(0, 1fr) 66px;
+  }
+
+  .decision-rr {
+    display: none;
+  }
+
+  .dashboard-brief {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, Bot, Moon, Plus, Search, Sparkles, UserCircle } from "lucide-react";
+import { Bot, Plus, Sparkles } from "lucide-react";
 import { BacktestView } from "./components/BacktestView";
 import { ChartsView } from "./components/ChartsView";
-import { DashboardView } from "./components/DashboardView";
 import { ScannerView } from "./components/ScannerView";
 import { SettingsView } from "./components/SettingsView";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
@@ -12,6 +11,7 @@ import { runMonthlyRuntimeReplay } from "./lib/backtest/runtimeReplay";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
 import { buildDataHealthReport } from "./lib/data/dataHealth";
 import { loadYahooMarkets, type MarketDataLoadResult } from "./lib/data/yahooProvider";
+import { formatR } from "./lib/ict/format";
 import type { MarketContext, MarketSymbol, TradingSignal } from "./lib/ict/types";
 import { buildMarketContext } from "./lib/intelligence/marketContext";
 import { attachSmtDivergences } from "./lib/intelligence/smtEngine";
@@ -81,10 +81,34 @@ function bestScanSignal(signals: TradingSignal[]): TradingSignal | undefined {
 }
 
 function decisionText(signal: TradingSignal | undefined) {
-  if (!signal) return "No active trade. Wait for a clean CRT setup.";
-  if (signal.stage === "ready") return `${signal.symbol} ${signal.direction.toUpperCase()} is ready. Entry, stop and DOL are defined.`;
-  if (signal.stage === "watch") return `${signal.symbol} ${signal.direction.toUpperCase()} is on watch. Wait for confirmation before taking action.`;
-  return `${signal.symbol} is no longer actionable. Wait for a fresh setup.`;
+  if (!signal) return "Şu an temiz trade yok.";
+  if (signal.stage === "ready") return `${signal.symbol} ${signal.direction.toUpperCase()} hazır. Önce buna bak.`;
+  if (signal.stage === "watch") return `${signal.symbol} ${signal.direction.toUpperCase()} izleniyor. Onay gelmeden işlem yok.`;
+  return `${signal.symbol} artık işlem değil. Yeni setup bekle.`;
+}
+
+function stageText(signal: TradingSignal) {
+  if (signal.stage === "ready") return "Hazır";
+  if (signal.stage === "watch") return "Bekle";
+  if (signal.stage === "invalidated") return "Geçersiz";
+  return "Kaçtı";
+}
+
+function aiCardHint(signal: TradingSignal, rank: number) {
+  if (signal.stage === "ready" && rank === 0) return "AI: ilk bakılacak aday.";
+  if (signal.stage === "ready") return "AI: plan var, risk/entry kontrol et.";
+  if (signal.score >= 75) return "AI: kaliteli izleme, onay bekle.";
+  if (signal.score >= 55) return "AI: sadece radar; acele etme.";
+  return "AI: zayıf, chart açmadan önce seçici ol.";
+}
+
+function rankedDecisionSignals(signals: TradingSignal[]) {
+  return [...signals]
+    .filter((signal) => signal.stage === "ready" || signal.stage === "watch")
+    .sort((a, b) => {
+      const stageScore = (b.stage === "ready" ? 1000 : 0) - (a.stage === "ready" ? 1000 : 0);
+      return stageScore || b.score - a.score || b.plan.rr - a.plan.rr;
+    });
 }
 
 function FinanceDashboard({
@@ -115,62 +139,96 @@ function FinanceDashboard({
   const best = bestScanSignal(signals);
   const ready = signals.filter((signal) => signal.stage === "ready").length;
   const watch = signals.filter((signal) => signal.stage === "watch").length;
-  const recentJournal = journalEntries[0];
-  const recentInactive = inactiveSignals[0];
+  const ranked = rankedDecisionSignals(signals).slice(0, 6);
+  const nearMisses = [...rejectedSetups].sort((a, b) => b.score - a.score).slice(0, 5);
+  const totalActive = ready + watch;
   return (
-    <section className="finance-dashboard">
-      <article className="panel decision-hero">
+    <section className="finance-dashboard simple-dashboard">
+      <article className={`panel decision-hero simple-hero ${best?.stage ?? "empty"}`}>
         <div>
-          <span className="eyebrow">AI Market Outlook</span>
+          <span className="eyebrow">Bugünün Kararı</span>
           <h2>{decisionText(best)}</h2>
-          <p>{best ? best.decisionSummary.shortSummary : "Scanner will surface only the cleanest decision candidates."}</p>
+          <p>{best ? best.decisionSummary.shortSummary : "Açılışta araman gereken şey burada tek liste olarak düşer: sembol, puan, durum ve AI kısa notu."}</p>
         </div>
         <div className="hero-actions">
           <button className="primary-btn" onClick={best ? () => onOpenChart(best) : onRunScan} type="button">
-            <Sparkles size={16} /> {best ? "Open setup" : "Run scanner"}
+            <Sparkles size={16} /> {best ? "Chartta aç" : "Tümünü tara"}
           </button>
-          <button className="ghost-btn" onClick={onRunBacktest} type="button">Replay month</button>
+          <button className="ghost-btn" onClick={onRunBacktest} type="button">1 ay replay</button>
         </div>
       </article>
-      <div className="finance-card-grid">
-        <article className="metric-card calm-card">
-          <span>Today's Performance</span>
-          <strong>{backtestResult.totalTrades}</strong>
-          <small>model trades · PF {backtestResult.profitFactor.toFixed(2)}</small>
+
+      <div className="decision-board">
+        <article className="panel decision-list-card">
+          <header>
+            <div>
+              <span className="eyebrow">Setup Listesi</span>
+              <h2>{totalActive ? `${totalActive} aday var` : nearMisses.length ? `${nearMisses.length} yakın aday` : "Aday yok"}</h2>
+            </div>
+            <button className="ghost-btn" type="button" onClick={onRunScan}>Yenile</button>
+          </header>
+          <div className="decision-signal-list">
+            {ranked.map((signal, index) => (
+              <button className={`decision-signal-card ${signal.stage}`} key={signal.id} type="button" onClick={() => onOpenChart(signal)}>
+                <span className="decision-rank">{index + 1}</span>
+                <span className="decision-main">
+                  <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
+                  <small>{aiCardHint(signal, index)}</small>
+                </span>
+                <span className="decision-meta">
+                  <strong>{signal.score}</strong>
+                  <small>{signal.grade} · {stageText(signal)}</small>
+                </span>
+                <span className="decision-rr">{formatR(signal.plan.rr)}</span>
+              </button>
+            ))}
+            {!ranked.length && (
+              nearMisses.length ? nearMisses.map((setup, index) => (
+                <div className="decision-signal-card rejected" key={`${setup.symbol}-${setup.reason}-${index}`}>
+                  <span className="decision-rank">{index + 1}</span>
+                  <span className="decision-main">
+                    <strong>{setup.symbol}</strong>
+                    <small>AI: işlem değil, sebebi oku.</small>
+                  </span>
+                  <span className="decision-meta">
+                    <strong>{setup.score}</strong>
+                    <small>Yakın aday</small>
+                  </span>
+                  <span className="decision-reason">{setup.reason}</span>
+                </div>
+              )) : (
+                <div className="empty-decision-state">
+                  <strong>Bekle.</strong>
+                  <span>Scanner temiz CRT Turtle Soup adayı bulunca burada sembol + puan olarak direkt görünecek.</span>
+                </div>
+              )
+            )}
+          </div>
         </article>
-        <article className="metric-card calm-card">
-          <span>Scanner Alerts</span>
-          <strong>{ready} / {watch}</strong>
-          <small>ready / watch · {rejectedSetups.length} rejected</small>
-        </article>
-        <article className="metric-card calm-card">
-          <span>Watchlist</span>
-          <strong>{memory.activeSymbol}</strong>
-          <small>{sessionName} · data {dataHealth.status}</small>
-        </article>
-        <article className="metric-card calm-card">
-          <span>Recent Trades</span>
-          <strong>{journalEntries.length}</strong>
-          <small>{recentJournal ? `${recentJournal.symbol} ${recentJournal.direction}` : "no approved trades yet"}</small>
-        </article>
-        <article className="panel ai-snapshot-card">
-          <span className="eyebrow">Scanner Summary</span>
-          <h2>{best ? `${best.symbol} ${best.direction.toUpperCase()} · ${best.stage.toUpperCase()}` : "Nothing urgent"}</h2>
-          <p>{best ? best.governance.summary : recentInactive?.decisionSummary.shortSummary ?? "No clean active setup is currently asking for attention."}</p>
-        </article>
-        <article className="panel ai-snapshot-card">
-          <span className="eyebrow">Economic Calendar</span>
-          <h2>{signals[0]?.context.eventRisk.level ?? "clear"}</h2>
-          <p>{signals[0]?.context.eventRisk.summary ?? "No active event warning in the current workspace."}</p>
-        </article>
+
+        <aside className="dashboard-brief">
+          <article className="metric-card calm-card">
+            <span>Ready / Watch</span>
+            <strong>{ready} / {watch}</strong>
+            <small>{rejectedSetups.length} elendi</small>
+          </article>
+          <article className="metric-card calm-card">
+            <span>Data</span>
+            <strong>{dataHealth.status}</strong>
+            <small>{sessionName} · aktif {memory.activeSymbol}</small>
+          </article>
+          <article className="metric-card calm-card">
+            <span>Replay</span>
+            <strong>{backtestResult.profitFactor.toFixed(2)} PF</strong>
+            <small>{backtestResult.totalTrades} işlem · {backtestResult.maxDrawdown.toFixed(1)}R DD</small>
+          </article>
+          <article className="metric-card calm-card">
+            <span>Journal</span>
+            <strong>{journalEntries.length}</strong>
+            <small>lokal not</small>
+          </article>
+        </aside>
       </div>
-      <DashboardView
-        signals={signals}
-        inactiveSignals={inactiveSignals}
-        rejectedSetups={rejectedSetups}
-        backtestResult={backtestResult}
-        memory={memory}
-      />
     </section>
   );
 }
@@ -524,15 +582,6 @@ export default function App() {
               <strong>Finance AI</strong>
               <span>Decision workspace</span>
             </div>
-          </div>
-          <label className="topnav-search">
-            <Search size={16} />
-            <input readOnly aria-label="Search workspace" placeholder="Search markets, trades, notes" />
-          </label>
-          <div className="topnav-actions">
-            <button className="icon-btn" type="button" aria-label="Notifications" title="Notifications"><Bell size={17} /></button>
-            <button className="icon-btn" type="button" aria-label="Theme" title="Theme"><Moon size={17} /></button>
-            <button className="profile-chip" type="button" aria-label="Profile"><UserCircle size={18} /><span>Ayberk</span></button>
           </div>
         </header>
         <main className="workspace">

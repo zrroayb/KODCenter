@@ -5,7 +5,6 @@ import { fetchGeminiTradeCommentary, type GeminiTradeCommentaryResponse } from "
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
-import { signalLifecycleState } from "../lib/signals/signalClassification";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { waitingRequirementsForMinimumRR } from "./ScannerView";
 
@@ -81,7 +80,6 @@ export function SignalDetailsPanel({
   const [aiLoading, setAiLoading] = useState(false);
   const annotations = selectedSignalAnnotations(signal);
   const structureAudit = buildStructureAudit(signal);
-  const lifecycle = signalLifecycleState(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const setupTime = new Date(signalAnchorTime(signal)).toLocaleString();
   const planGapLabel = signal.plan.entrySource === "ifvg-retest" ? "iFVG" : signal.plan.entrySource === "fvg-retest" ? "FVG" : "POI";
@@ -98,6 +96,12 @@ export function SignalDetailsPanel({
   const actualEntryNumber = optionalNumber(actualEntry);
   const actualExitNumber = optionalNumber(actualExit);
   const calculatedR = tradeRMultiple(signal, actualEntryNumber, actualExitNumber);
+  const primaryWait = signal.stage === "ready"
+    ? "Plan hazır: entry, stop ve DOL belli. Sadece kendi risk limitin uygunsa işlem alınır."
+    : waitItems[0] ?? "Yeni CRT Turtle Soup kapanışı bekle.";
+  const secondaryWait = signal.stage === "ready"
+    ? signal.decisionSummary.invalidation[0] ?? "Stop seviyesi görülürse plan iptal."
+    : waitItems[1] ?? signal.decisionSummary.invalidation[0] ?? "Onay gelmezse işlem yok.";
   useEffect(() => {
     setNotes(journalEntry?.notes ?? "");
     setMistake(journalEntry?.mistake ?? "");
@@ -168,37 +172,27 @@ export function SignalDetailsPanel({
         </div>
         <button className="icon-btn" onClick={onClear} type="button" aria-label="Seçili sinyali temizle"><X size={16} /></button>
       </header>
-      <div className={`signal-ticket-state ${signal.stage}`}>
-        <strong>{actionTitle(signal)}</strong>
-        <span>{signal.grade} · Score {signal.score} · {formatR(signal.plan.rr)}</span>
-      </div>
-      <div className={`signal-lifecycle-strip ${lifecycle.severity}`}>
-        <strong>{lifecycle.label}</strong>
-        <span>{lifecycle.nextAction}</span>
-      </div>
-      <div className="signal-ticket-levels">
+      <section className={`simple-signal-card ${signal.stage}`}>
+        <div>
+          <span>{actionTitle(signal)}</span>
+          <strong>{signal.grade} · {signal.score} puan</strong>
+        </div>
+        <h3>{signal.symbol} {signal.direction.toUpperCase()} · {formatR(signal.plan.rr)}</h3>
+        <p>{structureAudit.decision}</p>
+      </section>
+      <div className="simple-plan-grid">
         <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
         <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
-        <div><span>EQ / TP1</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
-        <div><span>DOL RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
+        <div><span>TP / DOL</span><strong>{formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}</strong></div>
+        <div><span>RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
       </div>
-      <section className="ticket-structure">
-        <h3>Yapı okuması</h3>
-        <p>{structureAudit.decision}</p>
-        <div>
-          {structureAudit.items.slice(0, 4).map((item) => (
-            <span className={`structure-chip ${item.status}`} key={item.label}>{item.label}</span>
-          ))}
-        </div>
+      <section className="simple-next-card">
+        <span>{signal.stage === "ready" ? "Ne yapacağım?" : "Tek beklenen şey"}</span>
+        <strong>{primaryWait}</strong>
+        <small>{secondaryWait}</small>
       </section>
-      <section className="ticket-wait">
-        <h3>{signal.stage === "ready" ? "Durum" : "Ne bekliyoruz?"}</h3>
-        <ul>
-          {waitItems.map((item) => <li key={item}>{item}</li>)}
-        </ul>
-      </section>
-      <section className={`ai-commentary ${aiCommentary.status}`}>
-        <h3>AI chart mentoru</h3>
+      <section className={`ai-commentary simple-ai-commentary ${aiCommentary.status}`}>
+        <h3>AI mentor</h3>
         <p>
           {aiLoading
             ? "Gemini chartı CRT mentor gibi okuyor..."
