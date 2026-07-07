@@ -229,12 +229,19 @@ export function CandleChart({
   const candleLow = Math.min(...visible.map((candle) => candle.low));
   const candleSpan = Math.max(candleHigh - candleLow, 0.000001);
   const contextLevels = allContextLevels.filter((level) => level >= candleLow - candleSpan * 0.35 && level <= candleHigh + candleSpan * 0.35);
-  const rawHigh = Math.max(candleHigh, ...contextLevels, ...selectedLevels);
-  const rawLow = Math.min(candleLow, ...contextLevels, ...selectedLevels);
+  // A higher-anchor plan's far targets must not define the y-domain: stretching the axis to a
+  // level 5 ranges away squeezes the candles into unreadable dots. Far levels stay as clamped
+  // edge tags instead.
+  const nearSelectedLevels = selectedLevels.filter((level) => level >= candleLow - candleSpan * 1.2 && level <= candleHigh + candleSpan * 1.2);
+  const rawHigh = Math.max(candleHigh, ...contextLevels, ...nearSelectedLevels);
+  const rawLow = Math.min(candleLow, ...contextLevels, ...nearSelectedLevels);
   const padding = Math.max((rawHigh - rawLow) * 0.12, candleSpan * 0.1);
   const high = rawHigh + padding;
   const low = rawLow - padding;
-  const scaleY = (price: number) => plot.top + ((high - price) / Math.max(high - low, 0.000001)) * (plotBottom - plot.top);
+  const scaleYRaw = (price: number) => plot.top + ((high - price) / Math.max(high - low, 0.000001)) * (plotBottom - plot.top);
+  // Overlay drawing clamps into the plot so off-domain plan levels render at the edge
+  // (their edge tags carry the real price) instead of painting outside the canvas.
+  const scaleY = (price: number) => Math.max(plot.top, Math.min(plotBottom, scaleYRaw(price)));
   const futureBars = selectedSignal ? (mode === "execution" ? 10 : 6) : 0;
   const step = (plotRight - plot.left) / Math.max(visible.length + futureBars, 1);
   const candleWidth = Math.max(4, Math.min(13, Math.floor(step * 0.72)));

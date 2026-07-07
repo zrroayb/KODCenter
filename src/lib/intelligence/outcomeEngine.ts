@@ -93,18 +93,18 @@ export function evaluateSignalOutcome(context: MarketContext, direction: TradeDi
   };
 }
 
-export function buildActionWindow(context: MarketContext, plan: TradePlan, outcome: SignalOutcome, stage: string): SignalActionWindow {
+export function buildActionWindow(context: MarketContext, plan: TradePlan, outcome: SignalOutcome, stage: string, windowCandles = 3): SignalActionWindow {
   if (stage === "invalidated" || stage === "missed" || outcome.status === "stopped" || outcome.status === "tp1" || outcome.status === "tp2") {
     return { status: "inactive", candlesRemaining: 0, summary: "Setup artık aktif action window içinde değil." };
   }
   if (!outcome.entryTouched || plan.entryStatus !== "confirmed") {
-    return { status: "waiting", candlesRemaining: 3, summary: "Entry alanı ve kapanış onayı bekleniyor." };
+    return { status: "waiting", candlesRemaining: windowCandles, summary: "Entry alanı ve kapanış onayı bekleniyor." };
   }
   const candles = executionCandles(context);
   const latestIndex = candles.length - 1;
   const elapsed = typeof outcome.entryCandleIndex === "number" ? Math.max(0, latestIndex - outcome.entryCandleIndex) : 0;
-  const candlesRemaining = Math.max(0, 3 - elapsed);
-  const validUntil = typeof outcome.entryCandleIndex === "number" ? candles[outcome.entryCandleIndex + 3]?.time : undefined;
+  const candlesRemaining = Math.max(0, windowCandles - elapsed);
+  const validUntil = typeof outcome.entryCandleIndex === "number" ? candles[outcome.entryCandleIndex + windowCandles]?.time : undefined;
   return {
     status: candlesRemaining > 0 ? "valid" : "expired",
     candlesRemaining,

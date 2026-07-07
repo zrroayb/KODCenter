@@ -631,8 +631,16 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
     && (outcome.status === "tp1" || outcome.status === "tp2" || outcome.status === "missed")) {
     return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
   }
+  // Fresh-entry window scales with the confirmation timeframe (m15 base of 16 bars, like the
+  // fill timeout). A READY signal whose window has expired is not READY — it is missed;
+  // "Plan hazır" and "süresi doldu" must never appear together.
+  const windowCandles = 16 * (anchor.spec.confirmTf === "4h" ? 16 : anchor.spec.confirmTf === "1h" ? 4 : 1);
   const stage = readyCandidate ? "ready" : "watch";
-  return { stage, outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, stage) };
+  const actionWindow = buildActionWindow(context, setup.plan, outcome, stage, windowCandles);
+  if (stage === "ready" && actionWindow.status === "expired") {
+    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed", windowCandles) };
+  }
+  return { stage, outcome, actionWindow };
 }
 
 function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): SignalEvidenceItem[] {
