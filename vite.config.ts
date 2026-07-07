@@ -184,6 +184,28 @@ type GeminiReplayPayload = {
   sampleWarning?: string;
 };
 
+type GeminiMarketPickPayload = {
+  generatedAt?: number;
+  dataSource?: string;
+  marketCount?: number;
+  candidates?: Array<{
+    symbol?: string;
+    direction?: string;
+    stage?: string;
+    grade?: string;
+    score?: number;
+    rr?: number;
+    anchor?: string;
+    entry?: number;
+    stopLoss?: number;
+    targets?: number[];
+    summary?: string;
+    governance?: string;
+    blockers?: string[];
+    warnings?: string[];
+  }>;
+};
+
 type TelegramEnv = {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
@@ -551,6 +573,95 @@ function extractGeminiText(body: unknown): string | undefined {
   return undefined;
 }
 
+function buildGeminiMarketPickPrompt(input: GeminiMarketPickPayload) {
+  return clampText(`
+Sen bir prop firmada masa şefisin; sabah taramasında junior trader'a hangi setup'ın alınacağını söylüyorsun.
+Bu yatırım tavsiyesi değil, sistem içi analiz notudur; ama kaçamak konuşma — TEK bir tercih söyle.
+Türkçe yaz, 3-5 cümle. Format: "Masa görüşü:" ile başla.
+Kurallar:
+- Adaylardan BİRİNİ seç ve nedenini söyle (stage/skor/RR/blocker karşılaştır).
+- İkinci adayı neden tercih etmediğini tek cümlede söyle ("şu daha mantıklı çünkü ...").
+- Seçtiğin READY değilse "henüz alınmaz, şunu bekle" de; hiçbir aday sağlam değilse "bugün hiçbir şey alma" de.
+- Kararı neyin çevireceğini söyle (onay kapanışı / stop bozulması).
+- dataSource "demo" ise gerçek karar verilmeyeceğini ekle.
+
+Adaylar (sıralı):
+${JSON.stringify((input.candidates ?? []).slice(0, 6), null, 2)}
+
+Bağlam:
+${JSON.stringify({ dataSource: input.dataSource, marketCount: input.marketCount }, null, 2)}
+`, 5200);
+}
+
+function fallbackMarketPick(input: GeminiMarketPickPayload, reason?: string) {
+  const candidates = input.candidates ?? [];
+  const demoNote = input.dataSource === "demo" ? " (Dikkat: veri demo fallback — gerçek karar verme.)" : "";
+  if (!candidates.length) {
+    return {
+      status: "fallback" as const,
+      model: "local-fallback",
+      reason,
+      commentary: `Masa görüşü: Alınabilir aday yok. Bence hiçbir şey alma; yeni raid bekle.${demoNote}`
+    };
+  }
+  const [pick, second] = candidates;
+  const parts = [
+    pick.stage === "ready" && !(pick.blockers ?? []).length
+      ? `Masa görüşü: Bence ${pick.symbol} ${String(pick.direction).toUpperCase()} alınır — READY, skor ${pick.score}, RR ${pick.rr}.`
+      : `Masa görüşü: En mantıklı aday ${pick.symbol} ${String(pick.direction).toUpperCase()} (skor ${pick.score}, RR ${pick.rr}) ama henüz alınmaz${(pick.blockers ?? [])[0] ? `: ${(pick.blockers ?? [])[0]}` : "."}`
+  ];
+  if (second) parts.push(`${second.symbol} ikinci sırada; skor/RR olarak daha zayıf.`);
+  return { status: "fallback" as const, model: "local-fallback", reason, commentary: clampText(parts.join(" ") + demoNote, 900) };
+}
+
+async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: TelegramEnv) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  if (!apiKey) {
+    return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
+  }
+
+  const timeouts = [14_000, 8_000];
+  let lastError = "";
+  for (let attempt = 0; attempt < timeouts.length; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), timeouts[attempt]);
+    try {
+      const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          model,
+          input: buildGeminiMarketPickPrompt(input)
+        }),
+        signal: controller.signal
+      });
+      const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
+      if (!upstream.ok) {
+        lastError = JSON.stringify(body).slice(0, 900);
+        if (attempt === 0 && (upstream.status === 429 || upstream.status >= 500)) continue;
+        return fallbackMarketPick(input, lastError);
+      }
+      const commentary = extractGeminiText(body)?.trim();
+      if (!commentary) {
+        lastError = "Gemini boş masa görüşü döndürdü.";
+        if (attempt === 0) continue;
+        return fallbackMarketPick(input, lastError);
+      }
+      return { status: "ready" as const, commentary: cleanModelCommentary(commentary, 900), model };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      if (attempt === timeouts.length - 1) return fallbackMarketPick(input, lastError);
+    } finally {
+      globalThis.clearTimeout(timeoutId);
+    }
+  }
+  return fallbackMarketPick(input, lastError || "Gemini masa görüşü alınamadı.");
+}
+
 async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
   const model = env.GEMINI_MODEL || "gemini-3.5-flash";
@@ -771,6 +882,20 @@ async function handleGeminiTradeCommentary(request: JsonRequest, response: Yahoo
   }
 }
 
+async function handleGeminiMarketPick(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "POST") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  try {
+    const payload = await readJsonBody(request) as GeminiMarketPickPayload;
+    const result = await generateGeminiMarketPick(payload, env);
+    jsonResponse(response, 200, result);
+  } catch (error) {
+    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 async function handleGeminiReplayReview(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
   if (request.method !== "POST") {
     jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
@@ -846,6 +971,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiReplayReview(request, response, env);
       });
+      server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiMarketPick(request, response, env);
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -859,6 +987,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiReplayReview(request, response, env);
+      });
+      server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiMarketPick(request, response, env);
       });
     }
   };
