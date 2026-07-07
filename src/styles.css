@@ -140,6 +140,13 @@ textarea {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   color: var(--ink);
+  max-width: 100%;
+  min-width: 0;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
 }
 
 input:hover,
@@ -2151,6 +2158,41 @@ textarea:hover {
   }
 }
 
+@media (max-width: 900px) {
+  /* A shrunken chart is decoration, not a chart: keep the candles at a readable size and
+     let the panel pan horizontally instead. RTL on the scroller starts the pan at the
+     right edge, where the live candle and price tags are. */
+  .chart-panel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    direction: rtl;
+  }
+
+  .chart-panel svg,
+  .chart-panel figcaption,
+  .chart-panel .empty-chart {
+    direction: ltr;
+  }
+
+  .chart-panel svg {
+    min-width: 760px;
+  }
+
+  .timeframe-tabs {
+    width: 100%;
+  }
+
+  .timeframe-tabs span {
+    display: none;
+  }
+
+  .timeframe-tabs button {
+    flex: 1;
+    min-width: 46px;
+    padding: 7px 8px;
+  }
+}
+
 @media (max-width: 760px) {
   body {
     font-size: 13.5px;
@@ -2162,12 +2204,27 @@ textarea:hover {
 
   .topbar-actions {
     width: 100%;
+    gap: 6px;
   }
 
   .session-clock,
   .auto-refresh-badge {
-    flex: 1 1 46%;
+    flex: 1 1 auto;
     min-width: 0;
+    padding: 5px 10px;
+  }
+
+  .session-clock small,
+  .auto-refresh-badge small {
+    display: none;
+  }
+
+  .market-universe {
+    display: none;
+  }
+
+  .ghost-btn {
+    justify-content: center;
   }
 
   .panel {
@@ -2183,12 +2240,41 @@ textarea:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .timeframe-tabs button {
-    min-width: 62px;
-    padding: 5px 9px;
-  }
-
   .chart-panel figcaption {
     font-size: 11px;
+  }
+
+  /* iOS zooms any focused control below 16px — keep inputs at 16px on touch widths. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .sidebar {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+
+  .sidebar nav {
+    flex: 1;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    overflow: visible;
+  }
+
+  /* Icon-only nav: four evenly spread 44px tap targets instead of clipped labels. */
+  .sidebar button {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    min-height: 44px;
+    padding: 4px 6px;
+  }
+
+  .sidebar button > span {
+    display: none;
   }
 }
