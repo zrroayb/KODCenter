@@ -38,8 +38,13 @@ const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
   SOLUSD: 0.4
 };
 
-// CRT works on multiple anchors; each anchor confirms on its own lower timeframe:
-// 1W -> 4H, 1D -> 1H, 4H -> 15m.
+// CRT anchor/confirmation canon: each anchor timeframe confirms on its own lower timeframe.
+//   1W range -> 4H confirmation
+//   1D range -> 1H confirmation
+//   4H range -> 15m confirmation (5m acceptable when 15m is unavailable)
+// The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY); the
+// 01:00 / 05:00 / 09:00 NY opens are the doctrine's key candles — London raids Asia's
+// candle, New York raids London's.
 type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "15m" | "1h" | "4h"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
@@ -77,6 +82,12 @@ type CrtSetup = {
   anchorAtKeyLevel: boolean;
   fvgConfluence: boolean;
 };
+
+const NY_HOUR_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
+
+function nyHour(time: number): number {
+  return Number(NY_HOUR_FORMAT.format(time)) % 24;
+}
 
 function expectedPd(direction: TradeDirection) {
   return direction === "short" ? "premium" : "discount";
@@ -445,6 +456,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const anchorAtKeyLevel = context.liquidityObjectives.some((objective) => Math.abs(objective.level - sweptExtreme) <= buffer * 3);
   // "CRT hep FVG içinde": the raid zone overlapping an unmitigated HTF FVG is quality confluence.
   const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
+  // The 01/05/09 NY opens are the 4H doctrine's key candles; a raid on one of them carries
+  // the session-raid narrative (London raids Asia, NY raids London).
+  const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
     directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
@@ -494,6 +508,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (raidClosed ? 8 : 0)
     + (anchorAtKeyLevel ? 5 : 0)
     + (fvgConfluence ? 5 : 0)
+    + (keyOpenRaid ? 4 : 0)
     + (inSession ? 6 : 0)
     + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
   ));
@@ -539,6 +554,11 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."),
     checklistItem("Key Level Anchor", setup.anchorAtKeyLevel ? "pass" : "neutral", "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."),
     checklistItem("HTF FVG Confluence", setup.fvgConfluence ? "pass" : "neutral", "Raid bölgesi bir HTF FVG'ye denk gelirse kalite artar."),
+    checklistItem(
+      "Key Open (NY 1/5/9)",
+      anchor.spec.rangeTf === "4h" && anchor.raid && [1, 5, 9].includes(nyHour(anchor.raid.time)) ? "pass" : "neutral",
+      "4H raid'in 01/05/09 NY mumunda gelmesi session-raid anlatısını taşır; hard şart değil."
+    ),
     checklistItem(
       "Killzone",
       isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside") ? "pass" : "neutral",

@@ -23,14 +23,29 @@ const SESSION_DEFS: Array<{ name: Exclude<Killzone["name"], "Outside">; timeZone
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function tzOffsetHours(timeZone: string, at: number): number {
-  const value = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
+const offsetFormatters = new Map<string, Intl.DateTimeFormat>();
+const offsetCache = new Map<string, number>();
+
+export function tzOffsetHours(timeZone: string, at: number): number {
+  // Intl.DateTimeFormat construction is expensive; the offset only changes at DST
+  // transitions, so cache per timezone-day.
+  const cacheKey = `${timeZone}:${Math.floor(at / (24 * 60 * 60 * 1000))}`;
+  const cached = offsetCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let formatter = offsetFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" });
+    offsetFormatters.set(timeZone, formatter);
+  }
+  const value = formatter
     .formatToParts(at)
     .find((part) => part.type === "timeZoneName")?.value ?? "GMT+00:00";
   const match = value.match(/GMT([+-])(\d{2}):(\d{2})/);
   if (!match) return 0;
   const sign = match[1] === "-" ? -1 : 1;
-  return sign * (Number(match[2]) + Number(match[3]) / 60);
+  const offset = sign * (Number(match[2]) + Number(match[3]) / 60);
+  offsetCache.set(cacheKey, offset);
+  return offset;
 }
 
 type SessionWindow = Pick<Killzone, "name" | "startHourUtc" | "endHourUtc"> & { name: Exclude<Killzone["name"], "Outside"> };

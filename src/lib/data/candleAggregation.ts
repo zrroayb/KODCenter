@@ -1,5 +1,8 @@
 import type { Candle, Timeframe } from "../ict/types";
 import { timeframeToMs } from "./timeframes";
+import { tzOffsetHours } from "../session/sessionClock";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 function mergeBucket(bucket: Candle[], bucketTime: number): Candle {
   const first = bucket[0];
@@ -26,6 +29,15 @@ function bucketStart(time: number, targetTimeframe: Timeframe): number {
   if (targetTimeframe === "1M") {
     const date = new Date(time);
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  }
+  if (targetTimeframe === "4h") {
+    // CRT reads 4H candles off New York-close charts: the daily opens at 17:00 New York, so
+    // 4H candles open at 17/21/01/05/09/13 NY — the 01/05/09 trio are the session candles
+    // the doctrine is built around. Epoch-UTC buckets point at entirely different candles.
+    const offset = tzOffsetHours("America/New_York", time);
+    const anchorShift = ((((17 - offset) % 24) + 24) % 24) * HOUR_MS;
+    const bucketSize = timeframeToMs("4h");
+    return Math.floor((time - anchorShift) / bucketSize) * bucketSize + anchorShift;
   }
   const bucketSize = timeframeToMs(targetTimeframe);
   return Math.floor(time / bucketSize) * bucketSize;
