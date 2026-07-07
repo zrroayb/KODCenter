@@ -1,6 +1,8 @@
-import { ArrowRight, CircleAlert, CircleCheck, Clock3, Play } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowRight, CircleAlert, CircleCheck, Clock3, Play, Sparkles } from "lucide-react";
 import type { TradingSignal } from "../lib/ict/types";
 import type { RejectedSetup } from "../lib/strategies/types";
+import { buildMarketPickPayload, fetchGeminiMarketPick, type GeminiMarketPickResponse } from "../lib/gemini/marketPick";
 import { formatPrice, formatR } from "../lib/ict/format";
 import { isCryptoSymbol } from "../lib/ict/symbols";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
@@ -300,6 +302,28 @@ export function ScannerView({
 }) {
   const sortedSignals = dataLoading ? [] : sortForAction(signals);
   const best = sortedSignals.find((signal) => signal.stage === "ready" || signal.stage === "watch");
+  // Desk view: the moment the scan lands, the AI reads the whole board and names ONE pick
+  // ("bence şunu al, şu daha zayıf çünkü ...") — re-generated only when the board changes.
+  const [deskView, setDeskView] = useState<GeminiMarketPickResponse | null>(null);
+  const [deskLoading, setDeskLoading] = useState(false);
+  const deskKey = `${lastScanTime}:${dataSource}:${signals.map((signal) => `${signal.id}-${signal.stage}`).join(",")}`;
+  const lastDeskKey = useRef("");
+  useEffect(() => {
+    if (dataLoading || lastDeskKey.current === deskKey) return;
+    lastDeskKey.current = deskKey;
+    let cancelled = false;
+    setDeskLoading(true);
+    fetchGeminiMarketPick(buildMarketPickPayload(signals, dataSource, marketCount))
+      .then((view) => {
+        if (!cancelled) setDeskView(view);
+      })
+      .finally(() => {
+        if (!cancelled) setDeskLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deskKey, dataLoading, signals, dataSource, marketCount]);
   const latestInactive = inactiveSignals[0];
   const readySignals = signals.filter((signal) => signal.stage === "ready");
   const actionState = dataLoading
@@ -412,6 +436,20 @@ export function ScannerView({
         ) : (
           <p className="trade-now-reason">{dataLoading ? "Canlı veriler geldikten sonra en iyi aday burada görünecek." : actionReason}</p>
         )}
+      </article>
+      <article className={`panel market-pick-panel ${deskView?.status ?? "loading"}`}>
+        <header className="panel-head">
+          <div>
+            <span className="eyebrow">AI</span>
+            <h2><Sparkles size={15} /> Masa görüşü</h2>
+          </div>
+          <span className="badge">{deskLoading ? "yazıyor…" : deskView?.status === "ready" ? deskView.model ?? "Gemini" : "lokal analiz"}</span>
+        </header>
+        <p className="market-pick-text">
+          {deskLoading && !deskView
+            ? "AI masaya bakıyor; adaylar kıyaslanıyor…"
+            : deskView?.commentary ?? "Tarama sonucu geldiğinde masa görüşü burada olacak."}
+        </p>
       </article>
       <article className="panel hero-panel">
         <header className="panel-head">

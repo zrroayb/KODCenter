@@ -2003,6 +2003,27 @@ textarea:hover {
 
 /* ============ ai commentary ============ */
 
+.market-pick-panel {
+  border-left: 3px solid var(--violet);
+}
+
+.market-pick-panel h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--violet);
+}
+
+.market-pick-panel .market-pick-text {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.market-pick-panel.fallback .badge {
+  color: var(--amber-ink);
+}
+
 .ai-commentary {
   border: 1px solid var(--line);
   border-left: 3px solid var(--violet);
