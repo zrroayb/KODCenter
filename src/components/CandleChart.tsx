@@ -47,7 +47,7 @@ function defaultVisibleCount(mode: ChartMode): number {
   if (mode === "execution") return 72;
   if (mode === "confirmation") return 72;
   if (mode === "context") return 48;
-  return 60;
+  return 45;
 }
 
 function visibleCandles(candles: Candle[], range: FocusedTimeRange | undefined, mode: ChartMode): Candle[] {
@@ -923,14 +923,17 @@ export function CandleChart({
             </g>
           );
         })}
-        {mode === "context" && range && visible.length >= 2 && (() => {
+        {range && visible.length >= 2 && (mode === "context" || (mode === "daily" && selectedSignal?.crtAnchor)) && (() => {
           // TradingView-style CRT structure: full-width range band with H/EQ/L lines,
           // the range candle and the live manipulation candle outlined — readable at a glance.
-          const rangeIndex = visible.length - 2;
+          // Locate the actual range candle by matching its extremes (raid persistence means it
+          // is not always the second-to-last bar); no exact match on this TF -> band only.
+          const matched = visible.findIndex((candle) => candle.high === range.high && candle.low === range.low);
+          const rangeIndex = matched >= 0 ? matched : visible.length - 2;
           const rangeCandle = visible[rangeIndex];
-          const liveCandle = visible[visible.length - 1];
+          const liveCandle = visible[Math.min(rangeIndex + 1, visible.length - 1)];
           const rangeX = xAtVisibleIndex(rangeIndex);
-          const liveX = xAtVisibleIndex(visible.length - 1);
+          const liveX = xAtVisibleIndex(Math.min(rangeIndex + 1, visible.length - 1));
           const yHigh = scaleY(range.high);
           const yLow = scaleY(range.low);
           const yEq = scaleY(range.midpoint);
@@ -941,7 +944,7 @@ export function CandleChart({
               <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#7c3aed" strokeWidth="1.4" opacity="0.8" />
               <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#7c3aed" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
               <text x={plot.left + 8} y={yHigh + 15} fill="#7c3aed" fontSize="11" fontWeight="900" opacity="0.9">{`CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
-              {!selectedSignal && (
+              {matched >= 0 && (
                 <>
                   <rect
                     x={rangeX - candleWidth / 2 - 4}
@@ -965,7 +968,7 @@ export function CandleChart({
                   <text x={liveX} y={Math.max(plot.top + 12, scaleY(liveCandle.high) - 8)} fill="#b45309" fontSize="10" fontWeight="900" textAnchor="middle">M</text>
                 </>
               )}
-              {!selectedSignal && (
+              {matched >= 0 && (
                 <>
                   {registerEdgeTag(range.high, "#7c3aed", "CRT H", "#2e1065")}
                   {registerEdgeTag(range.midpoint, "#7c3aed", "CRT EQ", "#2e1065")}
