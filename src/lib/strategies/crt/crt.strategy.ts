@@ -39,17 +39,17 @@ const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
 };
 
 // CRT anchor/confirmation canon: each anchor timeframe confirms on its own lower timeframe.
-//   1W range -> 1D confirmation
+//   1W range -> 4H confirmation
 //   1D range -> 1H confirmation
 //   4H range -> 15m confirmation (5m acceptable when 15m is unavailable)
 // The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY); the
 // 01:00 / 05:00 / 09:00 NY opens are the doctrine's key candles — London raids Asia's
 // candle, New York raids London's.
-type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "15m" | "1h" | "1d"> };
+type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "15m" | "1h" | "4h"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
   { rangeTf: "1d", confirmTf: "1h" },
-  { rangeTf: "1w", confirmTf: "1d" }
+  { rangeTf: "1w", confirmTf: "4h" }
 ];
 
 type AnchorRaid = { direction: TradeDirection; level: number; time: number; closed: boolean };
@@ -109,7 +109,7 @@ function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
 function confirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
   if (spec.confirmTf === "15m") return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
   if (spec.confirmTf === "1h") return context.timeframes.h1;
-  return context.timeframes.daily;
+  return context.timeframes.h4;
 }
 
 function rangeFromCandle(candle: Candle, spec: AnchorSpec): DealingRange {
@@ -687,7 +687,7 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
   // Fresh-entry window scales with the confirmation timeframe (m15 base of 16 bars, like the
   // fill timeout). A READY signal whose window has expired is not READY — it is missed;
   // "Plan hazır" and "süresi doldu" must never appear together.
-  const windowCandles = 16 * (anchor.spec.confirmTf === "1d" ? 96 : anchor.spec.confirmTf === "1h" ? 4 : 1);
+  const windowCandles = 16 * (anchor.spec.confirmTf === "4h" ? 16 : anchor.spec.confirmTf === "1h" ? 4 : 1);
   const stage = readyCandidate ? "ready" : "watch";
   const actionWindow = buildActionWindow(context, setup.plan, safeOutcome, stage, windowCandles);
   if (stage === "ready" && actionWindow.status === "expired") {
