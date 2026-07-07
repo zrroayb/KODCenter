@@ -81,6 +81,9 @@ type CrtSetup = {
   raidClosed: boolean;
   anchorAtKeyLevel: boolean;
   fvgConfluence: boolean;
+  htfNarrative: TradeDirection | "neutral";
+  displacementStrength: "none" | "medium" | "strong";
+  locationTier: "weekly" | "daily" | "fvg" | "none";
 };
 
 const NY_HOUR_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
@@ -411,6 +414,26 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
   };
 }
 
+// STEP 8: after the raid, price must reprice aggressively. Scans every confirmation candle
+// since the manipulation (not just a trailing window) so a valid displacement cannot age out
+// while the ChoCH is still fresh.
+function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromIndex: number): "none" | "medium" | "strong" {
+  const candles = anchor.confirmCandles;
+  let best: "none" | "medium" | "strong" = "none";
+  for (let index = Math.max(1, fromIndex); index < candles.length; index += 1) {
+    const candle = candles[index];
+    if ((direction === "long") !== (candle.close > candle.open)) continue;
+    const range = Math.max(candle.high - candle.low, 0.000001);
+    const bodyRatio = Math.abs(candle.close - candle.open) / range;
+    const rangeAtr = range / Math.max(anchor.averageRange, 0.000001);
+    if (bodyRatio >= 0.58 && rangeAtr >= 1.05) {
+      if (rangeAtr >= 1.6 && bodyRatio >= 0.7) return "strong";
+      best = "medium";
+    }
+  }
+  return best;
+}
+
 function buildAnchorSetup(context: MarketContext, settings: StrategyInput["settings"], anchor: AnchorCtx): CrtSetup | undefined {
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
   const picked = directionForAnchor(context, anchor);
@@ -446,22 +469,40 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const rangeHeight = anchor.range.high - anchor.range.low;
   const rangeTooSmall = anchorAverageRange > 0 && rangeHeight < anchorAverageRange * 0.6;
   const stopInNoise = plan.riskDistance < anchor.atr * 0.6;
-  const opposite: TradeDirection = direction === "short" ? "long" : "short";
-  const oppositeStructure = direction === "short" ? "bullish" : "bearish";
-  const fullHtfConflict = context.bias.daily === oppositeStructure && context.bias.h4 === oppositeStructure
-    && anchor.spec.rangeTf === "4h";
+  // STEP 1: the HTF narrative (M/W/D/4H) is mandatory — never search against it, and an
+  // unclear narrative is a rejection, not a discount.
+  const votes = [context.bias.monthly, context.bias.weekly, context.bias.daily, context.bias.h4];
+  const bullishVotes = votes.filter((vote) => vote === "bullish").length;
+  const bearishVotes = votes.filter((vote) => vote === "bearish").length;
+  const htfNarrative: TradeDirection | "neutral" = bullishVotes - bearishVotes >= 2 ? "long" : bearishVotes - bullishVotes >= 2 ? "short" : "neutral";
+  // STEP 2: dealing-range discipline — never buy in premium, never sell in discount.
+  const dealingPdViolation = direction === "long"
+    ? context.premiumDiscount.zone === "premium"
+    : context.premiumDiscount.zone === "discount";
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
   const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
   const sweptExtreme = direction === "short" ? anchor.range.high : anchor.range.low;
-  const anchorAtKeyLevel = context.liquidityObjectives.some((objective) => Math.abs(objective.level - sweptExtreme) <= buffer * 3);
-  // "CRT hep FVG içinde": the raid zone overlapping an unmitigated HTF FVG is quality confluence.
+  // STEP 3+6: liquidity/location ranking — weekly/monthly beats daily beats HTF-FVG.
+  const nearSwept = (level: number) => Math.abs(level - sweptExtreme) <= buffer * 3;
+  const weeklyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PWH" || objective.kind === "PWL" || objective.kind === "PMH" || objective.kind === "PML") && nearSwept(objective.level));
+  const dailyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PDH" || objective.kind === "PDL" || objective.kind === "DRH" || objective.kind === "DRL") && nearSwept(objective.level));
   const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
+  const locationTier: CrtSetup["locationTier"] = weeklyLocation ? "weekly" : dailyLocation ? "daily" : fvgConfluence ? "fvg" : "none";
+  const anchorAtKeyLevel = weeklyLocation || dailyLocation;
+  // STEP 7: the range must be respected — closes since the raid stay inside it.
+  const sinceRaid = anchor.raid ? anchor.confirmCandles.filter((candle) => candle.time > (anchor.raid as AnchorRaid).time) : [];
+  const rangeRespect = sinceRaid.length > 0 && sinceRaid.every((candle) => candle.close <= anchor.range.high + buffer && candle.close >= anchor.range.low - buffer);
+  // STEP 8: displacement after the raid is mandatory.
+  const displacementStrength = manipulation ? displacementSince(anchor, direction, manipulation.candleIndex) : "none";
   // The 01/05/09 NY opens are the 4H doctrine's key candles; a raid on one of them carries
   // the session-raid narrative (London raids Asia, NY raids London).
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
     directionSource === "pd" ? "Range extreme raid yok ve HTF bias neutral; trade yönü net değil." : undefined,
+    htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); anlatısız CRT aranmaz." : undefined,
+    htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
+    dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
     !anchorAtKeyLevel && !fvgConfluence ? "Raid HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
@@ -472,7 +513,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range gürültüdür, trade edilmez.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız.` : undefined,
-    fullHtfConflict ? "Daily ve 4H bias birlikte ters yönde; tam HTF conflict'te reversal alınmaz." : undefined,
+    manipulation && displacementStrength === "none" ? `Displacement yok; raid sonrası ${anchor.spec.confirmTf} agresif repricing gelmedi.` : undefined,
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Retest uzak; fiyat entry alanını terk etmiş, kovalanmaz — yeni raid bekle." : undefined,
@@ -495,25 +536,25 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !smtAligned ? "SMT yok; hard şart değil, sadece kalite notu." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
+  // CRT quality rubric (master doctrine): HTF 15, Location 20, Sweep 15, PD Array 15,
+  // Displacement 10, MSS 10, FVG 5, Range Respect 10 = 100; below 70 is a rejection.
+  // Small timing/SMT bonuses ride on top, clamped at 100.
   const score = Math.max(0, Math.min(100,
-    14
-    + (directionSource === "raid" ? (biasConflict ? 12 : 18) : directionSource === "bias" ? 10 : 0)
-    + (pullback.valid ? 8 : 0)
-    + (pdAligned ? 10 : 0)
-    + (poi ? 10 : 0)
-    + (manipulation ? 14 : 0)
-    + (choch ? 14 : 0)
-    + (plan.rr >= minimumRR ? 8 : 0)
-    + (smtAligned ? 4 : 0)
-    + (raidClosed ? 8 : 0)
-    + (anchorAtKeyLevel ? 5 : 0)
-    + (fvgConfluence ? 5 : 0)
-    + (keyOpenRaid ? 4 : 0)
-    + (inSession ? 6 : 0)
-    + Math.min(6, Math.max(0, (context.dataConfidence.score - 50) / 10))
+    (htfNarrative !== "neutral" && direction === htfNarrative ? 15 : 0)
+    + (locationTier === "weekly" ? 20 : locationTier === "daily" ? 15 : locationTier === "fvg" ? 10 : 0)
+    + (raidClosed ? 15 : anchor.raid && anchor.raid.direction === direction ? 12 : manipulation ? 8 : 0)
+    + (poi ? 15 : 0)
+    + (displacementStrength === "strong" ? 10 : displacementStrength === "medium" ? 6 : 0)
+    + (choch ? 10 : 0)
+    + (poi?.type === "fvg" ? 5 : 0)
+    + (rangeRespect ? 10 : 0)
+    + (inSession ? 3 : 0)
+    + (smtAligned ? 2 : 0)
+    + (keyOpenRaid ? 3 : 0)
   ));
-  // A setup with open blockers is not A-grade material no matter how many boxes it ticks.
-  const cappedScore = blockers.length ? Math.min(score, 72) : score;
+  if (score < 70) blockers.push(`CRT kalite skoru ${score} — 70 altı doktrin gereği reddedilir.`);
+  // A setup with open blockers is never tradable-grade material.
+  const cappedScore = blockers.length ? Math.min(score, 69) : score;
   return {
     direction,
     directionSource,
@@ -526,15 +567,19 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     score: cappedScore,
     raidClosed,
     anchorAtKeyLevel,
-    fvgConfluence
+    fvgConfluence,
+    htfNarrative,
+    displacementStrength,
+    locationTier
   };
 }
 
 function gradeFromScore(score: number): QualityGrade {
+  // Doctrine tiers: 90+ institutional, 80-89 high probability, 70-79 tradable, below reject.
   if (score >= 90) return "A+";
-  if (score >= 78) return "A";
-  if (score >= 64) return "B";
-  if (score >= 48) return "C";
+  if (score >= 80) return "A";
+  if (score >= 70) return "B";
+  if (score >= 50) return "C";
   return "D";
 }
 
@@ -551,6 +596,9 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `${direction.toUpperCase()} için CRT range ${expectedPd(direction)}; entry ${crtZone}.`),
     checklistItem("POI Touch", setup.poi ? "pass" : setup.choch ? "neutral" : "fail", setup.poi ? `Raid sonrası ${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)}.` : setup.choch ? "Displacement POI yok; entry ChoCH retest seviyesi." : "Raid sonrası FVG/OB oluşmadı."),
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${setup.manipulation.side} raid ${formatPrice(setup.manipulation.level)}.` : "Raid/sweep + reclaim bekleniyor."),
+    checklistItem("HTF Narrative", setup.htfNarrative !== "neutral" && setup.direction === setup.htfNarrative ? "pass" : setup.htfNarrative === "neutral" ? "fail" : "fail", setup.htfNarrative === "neutral" ? "M/W/D/4H anlatısı karışık; anlatısız CRT aranmaz." : setup.direction === setup.htfNarrative ? "Setup HTF anlatıyla aynı yönde." : "Setup HTF anlatıya karşı."),
+    checklistItem("Location", setup.locationTier === "weekly" ? "pass" : setup.locationTier === "daily" ? "pass" : setup.locationTier === "fvg" ? "neutral" : "fail", `Raid lokasyonu: ${setup.locationTier === "weekly" ? "haftalık/aylık seviye (en güçlü)" : setup.locationTier === "daily" ? "günlük seviye" : setup.locationTier === "fvg" ? "HTF FVG" : "hiçbir yer — ortada"}.`),
+    checklistItem("Displacement", setup.displacementStrength === "strong" ? "pass" : setup.displacementStrength === "medium" ? "neutral" : "fail", setup.displacementStrength === "none" ? "Raid sonrası agresif repricing yok." : `Displacement ${setup.displacementStrength}.`),
     checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."),
     checklistItem("Key Level Anchor", setup.anchorAtKeyLevel ? "pass" : "neutral", "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."),
     checklistItem("HTF FVG Confluence", setup.fvgConfluence ? "pass" : "neutral", "Raid bölgesi bir HTF FVG'ye denk gelirse kalite artar."),
