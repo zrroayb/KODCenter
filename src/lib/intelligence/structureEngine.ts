@@ -132,15 +132,17 @@ export function detectFairValueGaps(candles: Candle[]): FairValueGap[] {
       const midpoint = (left.high + right.low) / 2;
       const future = candles.slice(index + 1);
       const fullyFilled = future.some((candle) => candle.low <= left.high);
-      if (!middleIsBullishDisplacement || gapSize < minGapSize || fullyFilled) continue;
+      if (!middleIsBullishDisplacement || gapSize < minGapSize) continue;
       const mitigatedIndex = future.findIndex((candle) => candle.low <= right.low);
+      // A fully traded-through gap does not vanish: it inverts (IFVG) and works as
+      // resistance for shorts from then on.
       gaps.push({
-        direction: "long",
+        direction: fullyFilled ? "short" : "long",
         low: left.high,
         high: right.low,
         midpoint,
         candleIndex: index,
-        mitigated: mitigatedIndex >= 0,
+        mitigated: fullyFilled || mitigatedIndex >= 0,
         mitigatedIndex: mitigatedIndex >= 0 ? index + 1 + mitigatedIndex : undefined
       });
     }
@@ -149,15 +151,15 @@ export function detectFairValueGaps(candles: Candle[]): FairValueGap[] {
       const midpoint = (right.high + left.low) / 2;
       const future = candles.slice(index + 1);
       const fullyFilled = future.some((candle) => candle.high >= left.low);
-      if (!middleIsBearishDisplacement || gapSize < minGapSize || fullyFilled) continue;
+      if (!middleIsBearishDisplacement || gapSize < minGapSize) continue;
       const mitigatedIndex = future.findIndex((candle) => candle.high >= right.high);
       gaps.push({
-        direction: "short",
+        direction: fullyFilled ? "long" : "short",
         low: right.high,
         high: left.low,
         midpoint,
         candleIndex: index,
-        mitigated: mitigatedIndex >= 0,
+        mitigated: fullyFilled || mitigatedIndex >= 0,
         mitigatedIndex: mitigatedIndex >= 0 ? index + 1 + mitigatedIndex : undefined
       });
     }
