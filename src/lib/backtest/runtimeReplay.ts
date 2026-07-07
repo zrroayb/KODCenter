@@ -61,7 +61,7 @@ const ENTRY_FILL_TIMEOUT_CANDLES = 16;
 
 function confirmTfFactor(signal: TradingSignal): number {
   const tf = signal.crtAnchor?.confirmTf;
-  return tf === "4h" ? 16 : tf === "1h" ? 4 : 1;
+  return tf === "1d" ? 96 : tf === "4h" ? 16 : tf === "1h" ? 4 : 1;
 }
 
 export type RuntimeReplayInput = {

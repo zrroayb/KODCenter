@@ -16,7 +16,13 @@ function scanWithH4(patches: Record<number, CandlePatch>) {
   );
   // Keep the confirmation TF's last close consistent with the h4 story (~98).
   const m15 = base.timeframes.m15.map((candle) => ({ ...candle, open: 98, high: 98.4, low: 97.6, close: 98 }));
-  const context = createStructureContext({ timeframes: { ...base.timeframes, h4, m15, m5: m15 } });
+  const context = createStructureContext({
+    timeframes: { ...base.timeframes, h4, m15, m5: m15 },
+    liquidityObjectives: [
+      { id: "PDH", kind: "PDH", side: "buy-side", level: 98.5, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
+      { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
+    ]
+  });
   return crtStrategy.scan({
     context,
     settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
