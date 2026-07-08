@@ -10,6 +10,7 @@ import { performanceFromSignals } from "../../analytics/performance";
 import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/outcomeEngine";
 import { buildCrtBias, validCrtPullback } from "../../intelligence/crtEngine";
 import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../../intelligence/structureEngine";
+import { buildKillzoneContext } from "../../intelligence/killzoneContextEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 
@@ -113,6 +114,26 @@ function confirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
   if (spec.confirmTf === "15m") return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
   if (spec.confirmTf === "1h") return context.timeframes.h1;
   return context.timeframes.h4;
+}
+
+// AMT point of control: the price level inside the range the confirmation candles touched
+// most — the real magnet, unlike the arithmetic midpoint. Used as the EQ/TP1 target.
+function pointOfControl(candles: Candle[], range: DealingRange): number {
+  const bins = 24;
+  const span = Math.max(range.high - range.low, 0.000001);
+  const step = span / bins;
+  const counts = new Array<number>(bins).fill(0);
+  for (const candle of candles.slice(-60)) {
+    const lo = Math.max(candle.low, range.low);
+    const hi = Math.min(candle.high, range.high);
+    if (hi < lo) continue;
+    const from = Math.max(0, Math.floor((lo - range.low) / step));
+    const to = Math.min(bins - 1, Math.floor((hi - range.low) / step));
+    for (let b = from; b <= to; b += 1) counts[b] += 1;
+  }
+  let best = 0;
+  for (let b = 1; b < bins; b += 1) if (counts[b] > counts[best]) best = b;
+  return range.low + (best + 0.5) * step;
 }
 
 function rangeFromCandle(candle: Candle, spec: AnchorSpec): DealingRange {
@@ -377,7 +398,10 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     ? manipulationStop
     : direction === "short" ? anchor.range.high + buffer : anchor.range.low - buffer;
   const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
-  const tp1 = turtleSoup?.tp1 ?? anchor.range.midpoint;
+  // #3 EQ/TP1 = POC (AMT fair value) when it sits on the profit side of entry, else midpoint.
+  const poc = pointOfControl(anchor.confirmCandles, anchor.range);
+  const pocValid = direction === "short" ? poc < entry : poc > entry;
+  const tp1 = turtleSoup?.tp1 ?? (pocValid ? poc : anchor.range.midpoint);
   const realTarget = turtleSoup?.tp2 ?? targetDol(anchor, direction, entry);
   const tp2 = realTarget ?? tp1;
   const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
@@ -512,8 +536,11 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const rangeRespect = sinceRaid.length > 0 && sinceRaid.every((candle) => candle.close <= respectHigh + buffer && candle.close >= respectLow - buffer);
   // STEP 8: displacement after the raid is mandatory.
   const displacementStrength = manipulation ? displacementSince(anchor, direction, manipulation.candleIndex) : "none";
-  // The 01/05/09 NY opens are the 4H doctrine's key candles; a raid on one of them carries
-  // the session-raid narrative (London raids Asia, NY raids London).
+  // #4 Session-timed raid: manipulation landing inside a killzone carries the session-sweep
+  // narrative (Asia raided by London, London raided by NY) — applied to every anchor.
+  const raidKillzone = anchor.raid ? buildKillzoneContext(anchor.raid.time).find((zone) => zone.active && zone.name !== "Outside")?.name : undefined;
+  const sessionTimedRaid = Boolean(raidKillzone);
+  // The 01/05/09 NY opens remain the 4H doctrine's key candles (extra weight on top).
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
@@ -552,7 +579,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
     biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
     context.regime.tradeability === "caution" ? context.regime.summary : undefined,
-    !smtAligned ? "SMT yok; hard şart değil, sadece kalite notu." : undefined,
+    !smtAligned ? "SMT (correlated pair divergence) yok; en güçlü kurumsal teyit eksik." : undefined,
+    !sessionTimedRaid && anchor.raid ? "Raid bir killzone dışında oluştu; session-sweep anlatısı zayıf." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
   // CRT quality rubric (master doctrine): HTF 15, Location 20, Sweep 15, PD Array 15,
@@ -569,7 +597,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (poi?.type === "fvg" ? 5 : 0)
     + (rangeRespect ? 10 : 0)
     + (inSession ? 3 : 0)
-    + (smtAligned ? 2 : 0)
+    + (smtAligned ? 8 : 0)
+    + (sessionTimedRaid ? 5 : 0)
     + (keyOpenRaid ? 3 : 0)
   ));
   if (score < 70) blockers.push(`CRT kalite skoru ${score} — 70 altı doktrin gereği reddedilir.`);
