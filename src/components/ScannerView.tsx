@@ -10,6 +10,7 @@ import type { DataHealthReport } from "../lib/data/dataHealth";
 import { signalDecisionLabel, signalDecisionReason } from "../lib/signals/signalClassification";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../lib/signals/waitingGuidance";
+import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
 
 function stagePriority(signal: TradingSignal) {
   if (signal.stage === "ready") return 3000;
@@ -59,7 +60,7 @@ function simpleChecklistText(label: string, signal: TradingSignal): string | nul
     case "CRT Bias / DOL":
       return `Üst zaman CRT yönü ve DOL ${direction} tarafa net olmalı.`;
     case "4H+ Range":
-      return "CRT aralığı 4H veya daha üst mumdan gelmeli.";
+      return `CRT aralığı ${(signal.crtAnchor?.rangeTf ?? "4h").toUpperCase()} mumdan gelmeli.`;
     case "Turtle Soup":
       return "Önce temiz 3 mum modeli gelsin: range mum, stop avı, içeri kapanış, uzun wick, %50'yi geçmeden dönüş.";
     case "Valid Pullback":
@@ -173,6 +174,9 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   const context = signal.context;
   const direction = signal.direction;
   const simpleDirection = simpleDirectionText(signal);
+  // The confirmation candle is on the signal's own confirmation timeframe (15m/1h/4h), not
+  // always 15m — a 1D-anchor setup waits for a 1H close, a 1W-anchor for a 4H close.
+  const confTf = signalConfirmTimeframe(signal);
   const needs: string[] = [];
   const closeRequirement = closeConfirmationRequirement(signal);
   const retestRequirement = entryRetestRequirement(signal);
@@ -185,14 +189,14 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
       needs.push(`${closeRequirement.label} kapanmalı. ${closeRequirement.reason}`);
     }
     if (!retestRequirement && !closeRequirement) {
-      needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
+      needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
     }
   }
   if (signal.stage === "watch" && !passedLabels.has("Turtle Soup") && !needs.some((item) => item.includes("3 mum"))) {
     needs.push("Temiz 3 mum Turtle Soup gelsin: range mum -> stop avı -> içeri kapanış.");
   }
-  if (signal.stage === "watch" && !needs.some((item) => item.includes("15m mum"))) {
-    needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
+  if (signal.stage === "watch" && !needs.some((item) => item.includes("mum " + simpleDirection))) {
+    needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
   for (const item of [...failedChecklist, ...neutralChecklist].filter((item) => item.label !== "Entry Model" && item.label !== "MSS" && item.label !== "ChoCH / Just").slice(0, 3)) {
     const simple = simpleChecklistText(item.label, signal);
@@ -212,7 +216,7 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
     needs.push(`Fiyat ${simpleDirection} tarafa güçlü bir mum atsın.`);
   }
   if (!signal.plan.entryModel.cisdConfirmed && !closeRequirement && !context.marketStructureShifts.some((item) => item.direction === direction)) {
-    needs.push(`15m mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
+    needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
   if ((signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") && !signal.plan.entryModel.fairValueGap) {
     needs.push("Temiz bir giriş boşluğu oluşsun veya korunmuş kalsın.");

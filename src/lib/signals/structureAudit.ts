@@ -1,4 +1,4 @@
-import { selectedSignalAnnotations } from "../charts/selectedSignal";
+import { selectedSignalAnnotations, signalConfirmTimeframe } from "../charts/selectedSignal";
 import { formatPrice, formatR } from "../ict/format";
 import type { Sweep, TradingSignal } from "../ict/types";
 import { closeConfirmationRequirement, entryRetestRequirement } from "./waitingGuidance";
@@ -74,7 +74,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
         ? `Yön değişimi ${directionText(signal)} tarafa ChoCH/Just kapanışı ile onaylı${mss ? `: ${formatPrice(mss.level)}` : "."}`
         : closeRequirement
           ? `${closeRequirement.label} kapanışı bekleniyor. Sebep: ${closeRequirement.reason}`
-          : `15m mum ${directionText(signal)} tarafa kapanış vermeli.`
+          : `${signalConfirmTimeframe(signal)} mum ${directionText(signal)} tarafa kapanış vermeli.`
     },
     {
       label: "Entry",
