@@ -35,6 +35,18 @@ function confirmTabFor(signal: TradingSignal): ChartTab {
   return tf === "4h" ? "h4" : tf === "1h" ? "h1" : "m15";
 }
 
+const ANCHOR_TAB: Record<string, ChartTab> = { "4h": "h4", "1d": "daily", "1w": "weekly" };
+
+// CRT lives on 4h/1d/1w depending on the setup. When a signal is selected, label the tab that
+// actually holds ITS range candle as "CRT Range" and its confirmation tab as "Confirmation",
+// instead of the static "4h = CRT / 1D = DOL" assumption.
+function captionFor(item: { id: ChartTab; caption: string }, signal: TradingSignal | null): string {
+  if (!signal?.crtAnchor) return item.caption;
+  if (ANCHOR_TAB[signal.crtAnchor.rangeTf] === item.id) return "CRT Range";
+  if (confirmTabFor(signal) === item.id) return "Confirmation";
+  return item.caption;
+}
+
 function MarketContextPanel({ context, signals }: { context: MarketContext; signals: TradingSignal[] }) {
   const activeKillzone = context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const ready = signals.filter((signal) => signal.stage === "ready").length;
@@ -135,13 +147,13 @@ export function ChartsView({
           {CHART_TABS.map((item) => (
             <button key={item.id} className={activeTab === item.id ? "active" : ""} onClick={() => setActiveTab(item.id)} type="button">
               <strong>{item.label}</strong>
-              <span>{item.caption}</span>
+              <span>{captionFor(item, activeSelectedSignal)}</span>
             </button>
           ))}
         </div>
         <CandleChart
           candles={candlesForTab(market, activeTab)}
-          title={`${market.symbol} · ${tab.label} ${tab.caption}`}
+          title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           mode={tab.mode}
           range={activeSelectedSignal?.crtAnchor
             ? {
