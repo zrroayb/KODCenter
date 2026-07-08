@@ -89,6 +89,11 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
           <div className="metric-grid replay-metric-grid">
             {replayMetrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
           </div>
+          {replay.liveReadyEntries === 0 && replay.watchPromotedEntries > 0 && (
+            <p className="provider-warning" style={{ borderColor: "var(--border-warning, #ba7517)" }}>
+              ⚠ Canlı-READY girişi: 0. Yukarıdaki Profit Factor, Total R ve Win Rate <b>canlı performans değil</b> — hepsi WATCH-promoted counterfactual ("READY'yi beklemeyip eligible-watch'ta girseydin"). Canlı sistem bu pencerede hiç trade almadı; doktrin sıkı, READY nadir.
+            </p>
+          )}
           {replay.sampleWarning && <p className="provider-warning">{replay.sampleWarning}</p>}
           <div className="strategy-learning-list replay-ai-review">
             <strong>AI replay yorumu</strong>

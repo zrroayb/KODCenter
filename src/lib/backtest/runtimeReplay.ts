@@ -1128,8 +1128,18 @@ function replayDiagnosis(trades: RuntimeReplayTrade[], breakdowns: RuntimeReplay
   const promoted = trades.filter((trade) => trade.origin === "watch-promoted");
   const live = trades.filter((trade) => trade.origin === "live-ready");
   const avoid = breakdowns.filter((item) => item.verdict === "avoid").slice(0, 3);
+  // When the live system produced zero READY entries, every headline number below is a
+  // watch-promoted counterfactual ("had you entered the eligible watch early"), NOT the live
+  // system's performance. Say this first and unmistakably so no PF/R is read as live edge.
+  const counterfactualR = Number(promoted.reduce((sum, trade) => sum + trade.rMultiple, 0).toFixed(2));
   const notes = [
-    promoted.length > live.length
+    live.length === 0 && promoted.length > 0
+      ? `⚠ Canlı-READY girişi: 0. Aşağıdaki tüm P&L (${counterfactualR}R) WATCH-promoted counterfactual'dır — "READY'yi beklemeyip eligible-watch'ta girseydin" senaryosu, canlı performans DEĞİL. Bu sonuç doktrinin sıkı olduğunu gösterir: kusursuz A-grade setup nadir, canlı sistem RAID ön-uyarısı dışında bildirim üretmez.`
+      : undefined,
+    live.length === 0 && promoted.length > 0
+      ? "Karar seni bekliyor: (a) sıkı kal — az ama öz, RAID uyarısıyla erken haber; (b) eşiği eligible-watch seviyesine indir — daha çok READY ama daha düşük seçicilik. Kural değiştirmeden önce 30+ trade örneklem şart."
+      : undefined,
+    live.length > 0 && promoted.length > live.length
       ? `Replay'in çoğu WATCH-promoted (${promoted.length}/${trades.length}); canlı strateji başarısı gibi okunmamalı.`
       : undefined,
     avoid.length
