@@ -897,6 +897,28 @@ export function CandleChart({
             <rect x={plot.left} y={scaleY(range.midpoint)} width={plotRight - plot.left} height={Math.max(0, scaleY(range.low) - scaleY(range.midpoint))} fill="rgba(34, 171, 148, 0.045)" />
           </>
         )}
+        {range && showPremiumDiscountBand && (() => {
+          // Right-edge premium/discount projection: a solid box in the future area (past the
+          // last candle) with EQ down the middle — the TradingView-style dealing-range read.
+          const projX1 = Math.min(plotRight - 4, xAtVisibleIndex(visible.length - 1) + step / 2);
+          const projW = plotRight - projX1;
+          if (projW < 24) return null;
+          const yHigh = scaleY(range.high);
+          const yMid = scaleY(range.midpoint);
+          const yLow = scaleY(range.low);
+          return (
+            <g className="pd-projection" pointerEvents="none">
+              <rect x={projX1} y={yHigh} width={projW} height={Math.max(0, yMid - yHigh)} fill="rgba(120, 130, 150, 0.18)" />
+              <rect x={projX1} y={yMid} width={projW} height={Math.max(0, yLow - yMid)} fill="rgba(34, 171, 148, 0.16)" />
+              <line x1={projX1} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#5F5E5A" strokeWidth="1" />
+              <line x1={projX1} x2={plotRight} y1={yLow} y2={yLow} stroke="#0F6E56" strokeWidth="1" />
+              <line x1={projX1} x2={plotRight} y1={yMid} y2={yMid} stroke="#4C5057" strokeWidth="1" strokeDasharray="3 3" />
+              <text x={projX1 + 6} y={yHigh + 13} fill="#44443F" fontSize="9.5" fontWeight="800">PREMIUM</text>
+              <text x={projX1 + 6} y={Math.max(yMid - 5, yHigh + 26)} fill="#4C5057" fontSize="9.5" fontWeight="800">EQ {formatPrice(range.midpoint)}</text>
+              <text x={projX1 + 6} y={yLow - 6} fill="#0F6E56" fontSize="9.5" fontWeight="800">DISCOUNT</text>
+            </g>
+          );
+        })()}
         {sessionRanges.map((session) => (
           <g key={`${session.key}-box`}>
             <rect
@@ -945,12 +967,12 @@ export function CandleChart({
 
           return (
             <g key={`${session.key}-levels`}>
-              <line x1={session.x1} x2={session.x2} y1={session.yHigh} y2={session.yHigh} stroke={session.stroke} strokeWidth="1" opacity="0.52" />
-              <line x1={session.x1} x2={session.x2} y1={session.yLow} y2={session.yLow} stroke={session.stroke} strokeWidth="1" opacity="0.52" />
-              <text x={labelX} y={highLabelY} fill={session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.8">
+              <line x1={session.x1} x2={session.x2} y1={session.yHigh} y2={session.yHigh} stroke={session.stroke} strokeWidth="1.2" opacity="0.72" />
+              <line x1={session.x1} x2={session.x2} y1={session.yLow} y2={session.yLow} stroke={session.stroke} strokeWidth="1.2" opacity="0.72" />
+              <text x={labelX} y={highLabelY} fill={session.text} fontSize="10" fontWeight="900" textAnchor="middle" opacity="0.95">
                 {session.short}.H
               </text>
-              <text x={labelX} y={lowLabelY} fill={session.text} fontSize="9" fontWeight="800" textAnchor="middle" opacity="0.8">
+              <text x={labelX} y={lowLabelY} fill={session.text} fontSize="10" fontWeight="900" textAnchor="middle" opacity="0.95">
                 {session.short}.L
               </text>
             </g>
