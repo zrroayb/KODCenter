@@ -3315,3 +3315,66 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ==== Chart pair rail: pick a pair, see its most tradeable CRT setup ==== */
+.charts-workspace {
+  grid-template-columns: 178px minmax(0, 1fr) minmax(300px, 0.26fr);
+}
+.charts-workspace.single-chart-mode {
+  grid-template-columns: 178px minmax(0, 1fr);
+}
+.pair-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+}
+.pair-rail-title {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--text-muted, #8a8f98);
+  text-transform: uppercase;
+  padding: 2px 4px 4px;
+}
+.pair-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 130, 150, 0.16);
+  background: rgba(120, 130, 150, 0.05);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pair-row:hover { border-color: rgba(120, 130, 150, 0.4); }
+.pair-row.active {
+  border-color: rgba(56, 189, 248, 0.6);
+  background: rgba(56, 189, 248, 0.09);
+}
+.pair-name { font-weight: 500; font-size: 13px; }
+.pair-signal { display: flex; flex-direction: column; gap: 1px; }
+.pair-stage { font-size: 11px; font-weight: 500; }
+.pair-meta { font-size: 10.5px; color: var(--text-muted, #8a8f98); }
+.pair-signal.ready .pair-stage { color: #2fbf88; }
+.pair-signal.watch .pair-stage { color: #d99b2f; }
+.pair-signal.missed .pair-stage,
+.pair-signal.invalidated .pair-stage,
+.pair-signal.muted .pair-stage { color: var(--text-muted, #8a8f98); }
+
+@media (max-width: 820px) {
+  .charts-workspace,
+  .charts-workspace.single-chart-mode {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .pair-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+  }
+  .pair-rail-title { display: none; }
+  .pair-row { flex: 0 0 auto; min-width: 128px; }
+}

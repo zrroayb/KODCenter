@@ -305,6 +305,8 @@ function AiWorkspace({ signal, signals, journalEntries }: { signal: TradingSigna
   );
 }
 
+const STAGE_RANK_CHART: Record<string, number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
+
 export default function App() {
   const demoMarkets = useMemo(() => createDemoMarkets(), []);
   const [markets, setMarkets] = useState(demoMarkets);
@@ -547,6 +549,24 @@ export default function App() {
     setActiveView("charts");
   };
 
+  // Picking a pair from the chart rail switches to it and auto-opens its most tradeable setup
+  // (live READY beats watch, higher score breaks ties) so the "en mantıklı CRT" shows at once.
+  const selectSymbolBest = (symbol: MarketSymbol) => {
+    setActiveSymbol(symbol);
+    const best = visibleSignals
+      .filter((signal) => signal.symbol === symbol)
+      .sort((a, b) => (STAGE_RANK_CHART[b.stage] ?? 0) - (STAGE_RANK_CHART[a.stage] ?? 0) || b.score - a.score)[0];
+    if (best) {
+      setSelectedSignalState((current) => ({
+        selectedSignalId: best.id,
+        focusedTimeRange: focusChartOnSignal(best),
+        showSelectedSignalOnly: current.showSelectedSignalOnly
+      }));
+    } else {
+      setSelectedSignalState((current) => ({ ...current, selectedSignalId: null, focusedTimeRange: undefined }));
+    }
+  };
+
   const saveSignalJournal = (signal: TradingSignal, patch: Partial<JournalEntry>) => {
     setJournalEntries((current) => upsertJournalEntry(current, signal, patch));
   };
@@ -665,6 +685,9 @@ export default function App() {
             onPreviousSignal={() => selectAdjacentSignal(-1)}
             onToggleSignalMarkers={setShowSignalMarkers}
             onSaveJournal={saveSignalJournal}
+            symbols={markets.map((market) => market.symbol)}
+            activeSymbol={activeSymbol}
+            onSelectSymbol={(symbol) => selectSymbolBest(symbol as MarketSymbol)}
           />
         )}
         {activeView === "backtest" && (

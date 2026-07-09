@@ -37,6 +37,16 @@ function confirmTabFor(signal: TradingSignal): ChartTab {
 
 const ANCHOR_TAB: Record<string, ChartTab> = { "4h": "h4", "1d": "daily", "1w": "weekly" };
 
+const STAGE_RANK: Record<string, number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
+const STAGE_LABEL: Record<string, string> = { ready: "ALINABİLİR", watch: "İZLE", missed: "GEÇMİŞ", invalidated: "STOP" };
+
+// The most tradeable signal for a symbol: a live READY beats a watch, higher score breaks ties.
+function bestSignalForSymbol(signals: TradingSignal[], symbol: string): TradingSignal | undefined {
+  return signals
+    .filter((signal) => signal.symbol === symbol)
+    .sort((a, b) => (STAGE_RANK[b.stage] ?? 0) - (STAGE_RANK[a.stage] ?? 0) || b.score - a.score)[0];
+}
+
 // CRT lives on 4h/1d/1w depending on the setup. When a signal is selected, label the tab that
 // actually holds ITS range candle as "CRT Range" and its confirmation tab as "Confirmation",
 // instead of the static "4h = CRT / 1D = DOL" assumption.
@@ -98,7 +108,10 @@ export function ChartsView({
   onNextSignal,
   onPreviousSignal,
   onToggleSignalMarkers,
-  onSaveJournal
+  onSaveJournal,
+  symbols,
+  activeSymbol,
+  onSelectSymbol
 }: {
   market: DemoMarket;
   context: MarketContext;
@@ -113,6 +126,9 @@ export function ChartsView({
   onPreviousSignal: () => void;
   onToggleSignalMarkers: (show: boolean) => void;
   onSaveJournal: (signal: TradingSignal, patch: Partial<JournalEntry>) => void;
+  symbols: string[];
+  activeSymbol: string;
+  onSelectSymbol: (symbol: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ChartTab>("m15");
   const symbolSignals = useMemo(() => signals.filter((signal) => signal.symbol === market.symbol), [market.symbol, signals]);
@@ -129,8 +145,31 @@ export function ChartsView({
   // chart would sit on an unrelated candle.
   const markerSignals = useMemo(() => symbolSignals.filter((signal) => confirmTabFor(signal) === activeTab), [symbolSignals, activeTab]);
 
+  const pairRail = symbols.map((symbol) => ({ symbol, best: bestSignalForSymbol(signals, symbol) }));
+
   return (
     <section className={activeSelectedSignal ? "charts-workspace with-selection" : "charts-workspace single-chart-mode"}>
+      <aside className="pair-rail" aria-label="Pariteler">
+        <span className="pair-rail-title">Pariteler · en mantıklı CRT</span>
+        {pairRail.map(({ symbol, best }) => (
+          <button
+            key={symbol}
+            type="button"
+            className={symbol === activeSymbol ? "pair-row active" : "pair-row"}
+            onClick={() => onSelectSymbol(symbol)}
+          >
+            <span className="pair-name">{symbol}</span>
+            {best ? (
+              <span className={`pair-signal ${best.stage}`}>
+                <span className="pair-stage">{STAGE_LABEL[best.stage] ?? best.stage.toUpperCase()}</span>
+                <span className="pair-meta">{best.direction === "long" ? "LONG" : "SHORT"} · {best.grade} · {best.crtAnchor?.rangeTf.toUpperCase() ?? ""}</span>
+              </span>
+            ) : (
+              <span className="pair-signal muted"><span className="pair-stage">—</span><span className="pair-meta">setup yok</span></span>
+            )}
+          </button>
+        ))}
+      </aside>
       <div className="charts-main">
         <header className="chart-toolbar">
           <div>
