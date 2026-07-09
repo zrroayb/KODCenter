@@ -27,7 +27,7 @@ export type PositionSizeResult = {
 // Size by conviction: an A+ setup earns full risk, a C setup a token size or watch-only.
 // Grade already reflects how many confluences lined up, so "size by grade" becomes automatic
 // instead of a note the trader has to remember.
-const GRADE_RISK_FACTOR: Record<QualityGrade, number> = {
+export const GRADE_RISK_FACTOR: Record<QualityGrade, number> = {
   "A+": 1,
   A: 0.85,
   B: 0.55,

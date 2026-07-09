@@ -224,9 +224,16 @@ def _telegram_caption(payload: dict[str, Any], ai_commentary: str | None = None)
             lines.append("- Raid + reclaim aktif")
         return "\n".join(lines)
     target = payload.get("targets", [None])[0] if isinstance(payload.get("targets"), list) else None
+    priority = payload.get("priority")
+    priority_tag = "READY SETUP" if priority == "high" else "READY (orta grade)" if priority == "normal" else "READY (düşük grade · küçük boyut)"
+    risk_pct = payload.get("riskPct")
     lines = [
-        f"<b>READY SETUP</b> {html.escape(str(payload.get('symbol', '-')))} {html.escape(str(payload.get('direction', '')).upper())}",
+        f"<b>{priority_tag}</b> {html.escape(str(payload.get('symbol', '-')))} {html.escape(str(payload.get('direction', '')).upper())}",
         f"{html.escape(str(payload.get('grade', '-')))} · Score {payload.get('score', '-')} · Net RR {_format_r(payload.get('rr'))}",
+    ]
+    if isinstance(risk_pct, (int, float)):
+        lines.append(f"Önerilen risk: <b>%{risk_pct}</b> (grade'e göre boyut)")
+    lines += [
         "",
         f"Entry: <b>{_format_price(payload.get('entry'))}</b>",
         f"Stop: <b>{_format_price(payload.get('stopLoss'))}</b>",

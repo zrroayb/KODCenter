@@ -1,6 +1,8 @@
 import { formatR } from "../ict/format";
 import type { TradingSignal } from "../ict/types";
 import { buildGeminiTradeCommentaryPayload, type GeminiTradeCommentaryPayload } from "../gemini/tradeCommentary";
+import { GRADE_RISK_FACTOR } from "../risk/positionSizing";
+import { defaultAccountModel } from "../risk/accountModel";
 
 const SENT_READY_ALERTS_KEY = "tradebot.telegram.sentReadyIds";
 const pendingReadyAlerts = new Set<string>();
@@ -20,6 +22,8 @@ export type TelegramReadyAlertPayload = {
   rr: number;
   grossRR: number;
   reasons: string[];
+  riskPct?: number;
+  priority?: "high" | "normal" | "low";
   rangeTf?: string;
   confirmTf?: string;
   rangeHigh?: number;
@@ -105,6 +109,12 @@ function readyReasons(signal: TradingSignal): string[] {
 }
 
 export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramReadyAlertPayload {
+  // Grade drives the suggested size: an A+ full risk, a C a token size. Carry the concrete
+  // percentage into the alert so a low-grade READY is never mistaken for a full-size trade.
+  const riskPct = Number((defaultAccountModel.riskPerTradePct * (GRADE_RISK_FACTOR[signal.grade] ?? 1)).toFixed(2));
+  const priority: "high" | "normal" | "low" = signal.grade === "A+" || signal.grade === "A"
+    ? "high"
+    : signal.grade === "B" ? "normal" : "low";
   return {
     id: signal.id,
     symbol: signal.symbol,
@@ -119,6 +129,8 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     rr: signal.plan.rr,
     grossRR: signal.plan.grossRR,
     reasons: readyReasons(signal),
+    riskPct,
+    priority,
     tradeContext: buildGeminiTradeCommentaryPayload(signal)
   };
 }

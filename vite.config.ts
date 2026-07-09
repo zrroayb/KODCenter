@@ -29,6 +29,8 @@ type ReadyTelegramPayload = {
   rr?: number;
   grossRR?: number;
   reasons?: string[];
+  riskPct?: number;
+  priority?: string;
   aiCommentary?: string;
   tradeContext?: GeminiTradePayload;
 };
@@ -274,9 +276,14 @@ function telegramCaption(payload: ReadyTelegramPayload) {
   const aiCommentary = payload.aiCommentary?.trim()
     ? ["", "<b>AI Yorumu</b>", escapeHtml(payload.aiCommentary.trim())]
     : [];
+  const priorityTag = payload.priority === "high" ? "READY SETUP" : payload.priority === "normal" ? "READY (orta grade)" : "READY (düşük grade · küçük boyut)";
+  const riskLine = typeof payload.riskPct === "number"
+    ? `Önerilen risk: <b>%${payload.riskPct}</b> (grade'e göre boyut)`
+    : undefined;
   return [
-    `<b>READY SETUP</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())}`,
+    `<b>${priorityTag}</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())}`,
     `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}`,
+    ...(riskLine ? [riskLine] : []),
     "",
     `Entry: <b>${formatTelegramPrice(payload.entry)}</b>`,
     `Stop: <b>${formatTelegramPrice(payload.stopLoss)}</b>`,
