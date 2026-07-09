@@ -2928,17 +2928,27 @@ button {
   }
 
   .quick-action-fab {
-    left: 50%;
-    right: auto;
-    bottom: 74px;
-    width: 58px;
-    height: 58px;
+    left: auto;
+    right: 16px;
+    bottom: 88px;
+    width: 54px;
+    height: 54px;
     padding: 0;
-    transform: translateX(-50%);
+    transform: none;
   }
 
   .quick-action-fab span {
     display: none;
+  }
+
+  /* The tab bar and FAB are position:fixed; give the scroll content room so the last
+     panel (chart / signal details) is never hidden under them. */
+  .app-main,
+  .workspace {
+    padding-bottom: 92px;
+  }
+  .chart-panel svg {
+    min-height: 340px;
   }
 
   .safety-note {
