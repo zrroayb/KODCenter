@@ -681,7 +681,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("HTF Narrative", setup.htfNarrative !== "neutral" && setup.direction === setup.htfNarrative ? "pass" : setup.htfNarrative === "neutral" ? "fail" : "fail", setup.htfNarrative === "neutral" ? "M/W/D/4H anlatısı karışık; anlatısız CRT aranmaz." : setup.direction === setup.htfNarrative ? "Setup HTF anlatıyla aynı yönde." : "Setup HTF anlatıya karşı."),
     checklistItem("Location", setup.locationTier === "weekly" ? "pass" : setup.locationTier === "daily" ? "pass" : setup.locationTier === "fvg" ? "neutral" : "fail", `Raid lokasyonu: ${setup.locationTier === "weekly" ? "haftalık/aylık seviye (en güçlü)" : setup.locationTier === "daily" ? "günlük seviye" : setup.locationTier === "fvg" ? "HTF FVG" : "hiçbir yer — ortada"}.`),
     checklistItem("Displacement", setup.displacementStrength === "strong" ? "pass" : setup.displacementStrength === "medium" ? "neutral" : "fail", setup.displacementStrength === "none" ? "Raid sonrası agresif repricing yok." : `Displacement ${setup.displacementStrength}.`),
-    checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun range içine kapanışı en güçlü teyit; yoksa teyit LTF reclaim ile sınırlı."),
+    checklistItem("HTF Raid Close-Back", setup.raidClosed ? "pass" : "neutral", "Raid mumunun kapanışı ekstra teyittir ama şart değil; reclaim tuttuğu sürece canlı raid de geçerli."),
     checklistItem("Key Level Anchor", setup.anchorAtKeyLevel ? "pass" : "neutral", "Anchor mumun swept extremi PDH/PDL/PWH/PWL gibi bir key seviyeye yakın olmalı."),
     checklistItem("HTF FVG Confluence", setup.fvgConfluence ? "pass" : "neutral", "Raid bölgesi bir HTF FVG'ye denk gelirse kalite artar."),
     checklistItem(
@@ -891,7 +891,7 @@ function signalsFromContext(context: MarketContext, settings: StrategyInput["set
 export const crtStrategy: StrategyModule = {
   id: CRT_STRATEGY_ID,
   name: "CRT Candle Range",
-  description: "Candle Range Theory: 4H/1D/1W range, raid + close-back, LTF ChoCH confirmation, retest entry, EQ/DOL plan.",
+  description: "Candle Range Theory: 4H/1D/1W range, raid + reclaim, LTF ChoCH confirmation, retest entry, EQ/DOL plan.",
   requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m"],
   defaultSettings: {
     minimumRR: 1.5,
