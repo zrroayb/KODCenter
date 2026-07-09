@@ -825,7 +825,8 @@ function anchorSignal(context: MarketContext, settings: StrategyInput["settings"
     symbol: context.symbol,
     entry: setup.plan.entry,
     stopLoss: setup.plan.stopLoss,
-    target: setup.plan.targets[1] ?? setup.plan.targets[0]
+    target: setup.plan.targets[1] ?? setup.plan.targets[0],
+    grade
   });
   return {
     id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${spec.rangeTf}`,

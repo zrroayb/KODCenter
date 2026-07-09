@@ -1,4 +1,4 @@
-import type { MarketSymbol } from "../ict/types";
+import type { MarketSymbol, QualityGrade } from "../ict/types";
 import type { AccountModel } from "./accountModel";
 import { riskReward } from "./riskReward";
 
@@ -9,6 +9,7 @@ export type PositionSizeInput = {
   stopLoss: number;
   target: number;
   pointValue?: number;
+  grade?: QualityGrade;
 };
 
 export type PositionSizeResult = {
@@ -19,7 +20,19 @@ export type PositionSizeResult = {
   riskDistance: number;
   rr: number;
   approximate: boolean;
+  gradeRiskFactor: number;
   warnings: string[];
+};
+
+// Size by conviction: an A+ setup earns full risk, a C setup a token size or watch-only.
+// Grade already reflects how many confluences lined up, so "size by grade" becomes automatic
+// instead of a note the trader has to remember.
+const GRADE_RISK_FACTOR: Record<QualityGrade, number> = {
+  "A+": 1,
+  A: 0.85,
+  B: 0.55,
+  C: 0.3,
+  D: 0.15
 };
 
 const APPROX_POINT_VALUE: Record<MarketSymbol, number> = {
@@ -42,7 +55,9 @@ const APPROX_POINT_VALUE: Record<MarketSymbol, number> = {
 export function calculatePositionSize(input: PositionSizeInput): PositionSizeResult {
   const pointValue = input.pointValue ?? APPROX_POINT_VALUE[input.symbol] ?? 1;
   const approximate = input.pointValue === undefined;
-  const riskAmount = input.account.accountSize * (input.account.riskPerTradePct / 100);
+  const gradeRiskFactor = input.grade ? GRADE_RISK_FACTOR[input.grade] : 1;
+  const baseRisk = input.account.accountSize * (input.account.riskPerTradePct / 100);
+  const riskAmount = baseRisk * gradeRiskFactor;
   const riskDistance = Math.abs(input.entry - input.stopLoss);
   const positionSize = riskDistance > 0 ? riskAmount / (riskDistance * pointValue) : 0;
   const rr = riskReward(input.entry, input.stopLoss, input.target);
@@ -50,6 +65,10 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
   const warnings: string[] = [];
   if (approximate) warnings.push("Symbol point value yaklaşık.");
   if (rr < input.account.minimumRR) warnings.push("Risk reward minimumun altında.");
+  if (input.grade && gradeRiskFactor < 1) {
+    const pct = (input.account.riskPerTradePct * gradeRiskFactor).toFixed(2);
+    warnings.push(`${input.grade} grade: risk %${input.account.riskPerTradePct} yerine %${pct}'e düşürüldü (grade'e göre boyut).`);
+  }
   if (input.account.riskPerTradePct * input.account.maxTradesPerDay > input.account.maxDailyLossPct) {
     warnings.push("Tüm izinli tradeler loss olursa daily max risk aşılır.");
   }
@@ -62,6 +81,7 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
     riskDistance,
     rr,
     approximate,
+    gradeRiskFactor,
     warnings
   };
 }

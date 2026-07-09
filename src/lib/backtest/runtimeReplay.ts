@@ -22,7 +22,9 @@ import { closeConfirmationRequirement, entryRetestRequirement } from "../signals
 import type { StrategyModule, StrategySettings } from "../strategies/types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_WINDOW_DAYS = 30;
+// 60d is the deepest window Yahoo serves 15m history for — use all of it to roughly double
+// the trade sample versus the old 30d, so edge stats reach significance sooner.
+const DEFAULT_WINDOW_DAYS = 60;
 const DEFAULT_MAX_HOLD_CANDLES = 96;
 const DEFAULT_SCAN_EVERY_CANDLES = 4;
 const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
