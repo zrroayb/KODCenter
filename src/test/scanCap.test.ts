@@ -39,6 +39,19 @@ describe("cross-symbol scan cap", () => {
     expect(symbolOrderCap.length).toBe(Math.min(6, visible.length));
   });
 
+  it("never flags a setup as both READY-eligible and '70 altı reddedilir'", () => {
+    const raw = scanAll();
+    // The old blanket score<70 blocker contradicted READY_MIN_SCORE=60: quality below 70 must
+    // cost score/grade, not push a 'rejected' blocker. No signal may carry that phrase.
+    const contradictions = raw.filter((signal) =>
+      signal.governance.blockers.some((blocker) => blocker.includes("70 altı")));
+    expect(contradictions).toHaveLength(0);
+    // And a READY signal must not simultaneously be governance-blocked.
+    for (const signal of raw.filter((s) => s.stage === "ready")) {
+      expect(signal.governance.blockers).toHaveLength(0);
+    }
+  });
+
   it("surfaces daily/weekly CRT anchors, not only the 4h anchor", () => {
     const raw = scanAll();
     const anchorTfs = new Set(raw.map((signal) => signal.crtAnchor?.rangeTf).filter(Boolean));
