@@ -514,8 +514,13 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const bullishVotes = votes.filter((vote) => vote === "bullish").length;
   const bearishVotes = votes.filter((vote) => vote === "bearish").length;
   const htfNarrative: TradeDirection | "neutral" = bullishVotes - bearishVotes >= 2 ? "long" : bearishVotes - bullishVotes >= 2 ? "short" : "neutral";
-  // STEP 2: dealing-range discipline — never buy in premium, never sell in discount.
-  const dealingPdViolation = direction === "long"
+  // STEP 2: premium/discount discipline. The CRT setup's OWN range PD (pdAligned, below) is the
+  // hard gate — that is the range this setup actually trades. The GLOBAL dealing-range PD is a
+  // separate, broader structure; when it disagrees it is a size-down note, not a second veto.
+  // (HTF narrative already carries broad-context alignment, so vetoing on dealing-range PD too
+  // was a third overlapping gate that killed textbook CRT setups sitting correctly in their own
+  // range.) Kept as a quality warning only.
+  const dealingPdConflict = direction === "long"
     ? context.premiumDiscount.zone === "premium"
     : context.premiumDiscount.zone === "discount";
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
@@ -549,7 +554,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // profitable core. Its absence must not veto or cap a valid ChoCH/POI setup; the real
     // "no entry reference" and "no ChoCH" gates below already cover a setup with neither.
     htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
-    dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !turtleSoup && !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
     !turtleSoup && !anchorAtKeyLevel && !fvgConfluence ? "Raid HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
@@ -583,6 +587,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
     !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
     biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
+    dealingPdConflict ? "Global dealing range PD ters (CRT range PD doğru); geniş resimde ters yarıda, boyutu küçük tut." : undefined,
     htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); setup TF'ine güven ama boyutu küçük tut." : undefined,
     context.regime.type === "chop" ? "Chop/low-energy rejim; fake MSS ve zayıf FVG riski, boyutu küçük tut." : undefined,
     eqTooClose ? `EQ/TP1 mesafesi ${eqDistanceR.toFixed(2)}R (0.5R altı); partial'ı atla, tek hedef DOL/TP2 olsun.` : undefined,
@@ -591,9 +596,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !sessionTimedRaid && anchor.raid ? "Raid bir killzone dışında oluştu; session-sweep anlatısı zayıf." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
-  // CRT quality rubric (master doctrine): HTF 15, Location 20, Sweep 15, PD Array 15,
-  // Displacement 10, MSS 10, FVG 5, Range Respect 10 = 100; below 70 is a rejection.
-  // Small timing/SMT bonuses ride on top, clamped at 100.
+  // CRT quality rubric (master doctrine): HTF, Location, Sweep, PD Array, Displacement, MSS,
+  // FVG, Range Respect. Score sets grade and READY eligibility (60 choch / 74 turtle); it is
+  // NOT a separate veto. Small timing/SMT bonuses ride on top, clamped at 100.
   const score = Math.max(0, Math.min(100,
     (htfNarrative !== "neutral" && direction === htfNarrative ? 15 : 0)
     + (locationTier === "weekly" ? 20 : locationTier === "daily" ? 15 : locationTier === "fvg" ? 10 : 0)
@@ -630,7 +635,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // Narrative: only an against-the-narrative setup is vetoed; an unclear (2-2) narrative can
     // still be READY, trusting the anchor's own structure (it costs score, not eligibility).
     && !(htfNarrative !== "neutral" && direction !== htfNarrative)
-    && !dealingPdViolation && pdAligned
+    && pdAligned
     && Boolean(manipulation) && !continuationAgainst && reclaimHolds
     && hasRealTarget && tp1Valid && stopValid && !retestFar && !stopInNoise
     && (Boolean(turtleSoup) || displacementStrength !== "none")
