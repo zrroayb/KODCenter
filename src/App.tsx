@@ -60,9 +60,15 @@ function scanContexts(contexts: MarketContext[], strategyId: string, rules: User
       }
     }));
   const rawSignals = results.flatMap((result) => result.signals);
+  // Rank across ALL symbols/anchors before the cap: the flatMap concatenates in symbol order
+  // (XAUUSD, NAS100, …), so an unsorted slice starves later symbols — GBP's daily CRT could be
+  // computed correctly yet chopped off because earlier symbols filled the quota. Cap by merit.
+  const stageRank = (signal: TradingSignal) =>
+    signal.stage === "ready" ? 3 : signal.stage === "watch" ? 2 : signal.stage === "missed" ? 1 : 0;
   return {
     signals: rawSignals
       .filter((signal) => ruleAllowsSignal(signal, rules))
+      .sort((a, b) => stageRank(b) - stageRank(a) || b.score - a.score || b.plan.rr - a.plan.rr)
       .slice(0, rules.maxSignalsPerScan),
     inactiveSignals: rawSignals
       .filter((signal) => signal.stage === "invalidated" || signal.stage === "missed")
