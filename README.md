@@ -19,7 +19,7 @@ Create a local `.env` from `.env.example` and restart the dev server:
 TELEGRAM_BOT_TOKEN=123456:your_bot_token
 TELEGRAM_CHAT_ID=123456789
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-2.0-flash
 ```
 
 Only `READY` setups send Telegram notifications. The alert includes entry, stop, TP1, RR, grade, score, and the main reasons. If the env values are empty, alerts stay disabled and the app keeps running.
@@ -29,7 +29,7 @@ For Render, add these in the service **Environment** tab and redeploy:
 
 ```bash
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-2.0-flash
 ```
 
 `GOOGLE_API_KEY` is also accepted as a fallback key name.

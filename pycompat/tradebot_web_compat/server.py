@@ -285,12 +285,12 @@ def _gemini_commentary(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         return _fallback_commentary(payload, "GEMINI_API_KEY missing")
-    model = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
     prompt = _build_gemini_prompt(payload)
     try:
         _, body = _post_json(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-            {"model": model, "input": prompt},
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0.6, "maxOutputTokens": 640}},
             headers={"x-goog-api-key": api_key},
             timeout=18,
         )

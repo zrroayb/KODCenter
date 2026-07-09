@@ -623,7 +623,7 @@ function fallbackMarketPick(input: GeminiMarketPickPayload, reason?: string) {
 
 async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }
@@ -634,15 +634,15 @@ async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: Tel
     const controller = new AbortController();
     const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), timeouts[attempt]);
     try {
-      const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": apiKey
         },
         body: JSON.stringify({
-          model,
-          input: buildGeminiMarketPickPrompt(input)
+          contents: [{ parts: [{ text: buildGeminiMarketPickPrompt(input) }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 640 }
         }),
         signal: controller.signal
       });
@@ -671,7 +671,7 @@ async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: Tel
 
 async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }
@@ -682,15 +682,15 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
     const controller = new AbortController();
     const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), timeouts[attempt]);
     try {
-    const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "x-goog-api-key": apiKey
       },
       body: JSON.stringify({
-        model,
-        input: buildGeminiPrompt(input)
+        contents: [{ parts: [{ text: buildGeminiPrompt(input) }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 640 }
       }),
       signal: controller.signal
     });
@@ -800,7 +800,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
 
 async function generateGeminiReplayReview(input: GeminiReplayPayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-3.5-flash";
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }
@@ -811,15 +811,15 @@ async function generateGeminiReplayReview(input: GeminiReplayPayload, env: Teleg
     const controller = new AbortController();
     const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), timeouts[attempt]);
     try {
-      const upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-goog-api-key": apiKey
         },
         body: JSON.stringify({
-          model,
-          input: buildGeminiReplayPrompt(input)
+          contents: [{ parts: [{ text: buildGeminiReplayPrompt(input) }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 640 }
         }),
         signal: controller.signal
       });
