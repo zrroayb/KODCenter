@@ -607,7 +607,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // gaps (weak location, no SMT, no session raid, medium displacement, tight EQ) only cost
   // score/grade — they no longer block READY, since scoring them twice (score + veto) is what
   // starved the live system to zero signals. Real invalidators still veto.
-  const READY_MIN_SCORE = 66;
+  const READY_MIN_SCORE = 60;
   const readyEligible = plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
     && score >= READY_MIN_SCORE

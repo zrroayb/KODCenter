@@ -76,11 +76,11 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
       <header className="panel-head">
         <div>
           <span className="eyebrow">Backtest</span>
-          <h2>{replay ? "Son ~2 ay runtime replay" : "Strategy bazlı runtime replay"}</h2>
+          <h2>{replay ? "Son 1 ay runtime replay" : "Strategy bazlı runtime replay"}</h2>
         </div>
         <div className="panel-actions">
           {replay && <button className="ghost-btn" onClick={runAiReview} type="button" disabled={aiLoading}>{aiLoading ? "Gemini okuyor" : "AI replay yorumu"}</button>}
-          <button className="ghost-btn" onClick={onRun} type="button"><RefreshCcw size={15} /> Son ~2 ayı replay et</button>
+          <button className="ghost-btn" onClick={onRun} type="button"><RefreshCcw size={15} /> Son 1 ayı replay et</button>
         </div>
       </header>
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
@@ -99,7 +99,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             <strong>AI replay yorumu</strong>
             {aiReview.commentary
               ? <p>{aiReview.commentary}</p>
-              : <p className="muted-note">{aiReview.reason ?? "Son ~2 ayı replay et, sonra Geminiye yorumlat."}</p>}
+              : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
           </div>
           <div className="strategy-learning-list replay-diagnosis-list">
             <strong>Replay teşhisi</strong>
@@ -204,7 +204,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
                 <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · DOL {formatPrice(trade.target)} · MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
-            {!replay.trades.length && <p className="muted-note">Son ~2 ayda replay entry tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
+            {!replay.trades.length && <p className="muted-note">Son 1 ayda replay entry tetiklenmedi; WATCH sayısına ve şartlara bak.</p>}
           </div>
           <div className="journal-entry-list replay-candidate-list">
             <strong>Aylık setup akışı</strong>
