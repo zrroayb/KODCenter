@@ -575,7 +575,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
     context.eventRisk.noTrade && settings.avoidNews === true ? `${context.eventRisk.summary} (hard gate değil; spread/slippage riski notu.)` : undefined,
-    !raidClosed && manipulation ? "HTF raid mumu henüz range içine kapanmadı; teyit LTF reclaim ile sınırlı, boyutu küçük tut." : undefined,
+    // Note only — a live raid whose reclaim holds is a valid setup basis; the mitigating
+    // candle does not have to close inside the range before dropping to the LTF for entry.
+    !raidClosed && manipulation ? "Raid mumu henüz kapanmadı; reclaim tutuyor, LTF onayına geçilebilir." : undefined,
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
     !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
     biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
@@ -591,7 +593,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     (htfNarrative !== "neutral" && direction === htfNarrative ? 15 : 0)
     + (locationTier === "weekly" ? 20 : locationTier === "daily" ? 15 : locationTier === "fvg" ? 10 : 0)
     + (turtleSoup ? 30 : 0)
-    + (raidClosed ? 15 : anchor.raid && anchor.raid.direction === direction ? 12 : manipulation ? 8 : 0)
+    + (anchor.raid && anchor.raid.direction === direction ? 15 : manipulation ? 8 : 0)
     + (poi ? 10 : 0)
     + (displacementStrength === "strong" ? 8 : displacementStrength === "medium" ? 5 : 0)
     + (choch ? 7 : turtleSoup ? 4 : 0)
