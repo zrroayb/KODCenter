@@ -548,7 +548,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // Turtle Soup is an OPTIONAL entry model, not a requirement — the choch-close model is the
     // profitable core. Its absence must not veto or cap a valid ChoCH/POI setup; the real
     // "no entry reference" and "no ChoCH" gates below already cover a setup with neither.
-    htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); anlatısız CRT aranmaz." : undefined,
     htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
     dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
@@ -565,8 +564,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !tp1Valid ? "Entry range EQ seviyesini geçmiş; TP1 hedefi girişin gerisinde, kovalama riski." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Retest uzak; fiyat entry alanını terk etmiş, kovalanmaz — yeni raid bekle." : undefined,
-    eqTooClose ? `EQ/TP1 mesafesi ${eqDistanceR.toFixed(2)}R; 0.5R altında partial yönetimi kayıpları taşıyamaz.` : undefined,
-    context.regime.tradeability === "blocked" ? `Rejim uygun değil: ${context.regime.summary}` : undefined,
+    // News-expansion (real spike) still vetoes; plain chop is a quality note, not a veto —
+    // CRT manipulation forms inside accumulation. eqTooClose is a management note, not a kill.
+    context.regime.type === "news-expansion" ? `Haber/spike expansion rejimi: ${context.regime.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
@@ -583,6 +583,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
     !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
     biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
+    htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); setup TF'ine güven ama boyutu küçük tut." : undefined,
+    context.regime.type === "chop" ? "Chop/low-energy rejim; fake MSS ve zayıf FVG riski, boyutu küçük tut." : undefined,
+    eqTooClose ? `EQ/TP1 mesafesi ${eqDistanceR.toFixed(2)}R (0.5R altı); partial'ı atla, tek hedef DOL/TP2 olsun.` : undefined,
     context.regime.tradeability === "caution" ? context.regime.summary : undefined,
     !smtAligned ? "SMT (correlated pair divergence) yok; en güçlü kurumsal teyit eksik." : undefined,
     !sessionTimedRaid && anchor.raid ? "Raid bir killzone dışında oluştu; session-sweep anlatısı zayıf." : undefined,
@@ -620,12 +623,15 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const readyEligible = plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
     && score >= minScoreForEntry
-    && htfNarrative !== "neutral" && direction === htfNarrative
+    // Narrative: only an against-the-narrative setup is vetoed; an unclear (2-2) narrative can
+    // still be READY, trusting the anchor's own structure (it costs score, not eligibility).
+    && !(htfNarrative !== "neutral" && direction !== htfNarrative)
     && !dealingPdViolation && pdAligned
     && Boolean(manipulation) && !continuationAgainst && reclaimHolds
     && hasRealTarget && tp1Valid && stopValid && !retestFar && !stopInNoise
     && (Boolean(turtleSoup) || displacementStrength !== "none")
-    && context.regime.tradeability !== "blocked"
+    // Only a real news/spike expansion blocks READY; plain chop is a quality note.
+    && context.regime.type !== "news-expansion"
     && !(context.regime.type === "trend" && biasConflict)
     && context.dataConfidence.score >= 35;
   // A setup with open blockers is never tradable-grade material.
