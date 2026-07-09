@@ -719,9 +719,16 @@ export default function App() {
           );
         })}
       </nav>
-      <button className="quick-action-fab" type="button" aria-label="Quick action" title="Quick action">
+      <button
+        className="quick-action-fab"
+        type="button"
+        aria-label="Veriyi yenile ve tara"
+        title="Veriyi yenile ve tara"
+        onClick={() => void refreshMarketData()}
+        disabled={dataLoading || dataRefreshing}
+      >
         <Plus size={20} />
-        <span>Quick</span>
+        <span>{dataLoading || dataRefreshing ? "…" : "Tara"}</span>
       </button>
       </div>
     </div>
