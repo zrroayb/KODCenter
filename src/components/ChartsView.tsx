@@ -145,13 +145,18 @@ export function ChartsView({
   // chart would sit on an unrelated candle.
   const markerSignals = useMemo(() => symbolSignals.filter((signal) => confirmTabFor(signal) === activeTab), [symbolSignals, activeTab]);
 
-  const pairRail = symbols.map((symbol) => ({ symbol, best: bestSignalForSymbol(signals, symbol) }));
+  const pairRail = symbols.map((symbol) => {
+    const anchors = signals
+      .filter((signal) => signal.symbol === symbol)
+      .sort((a, b) => (STAGE_RANK[b.stage] ?? 0) - (STAGE_RANK[a.stage] ?? 0) || b.score - a.score);
+    return { symbol, best: anchors[0], anchors };
+  });
 
   return (
     <section className={activeSelectedSignal ? "charts-workspace with-selection" : "charts-workspace single-chart-mode"}>
       <aside className="pair-rail" aria-label="Pariteler">
         <span className="pair-rail-title">Pariteler · en mantıklı CRT</span>
-        {pairRail.map(({ symbol, best }) => (
+        {pairRail.map(({ symbol, best, anchors }) => (
           <button
             key={symbol}
             type="button"
@@ -162,10 +167,22 @@ export function ChartsView({
             {best ? (
               <span className={`pair-signal ${best.stage}`}>
                 <span className="pair-stage">{STAGE_LABEL[best.stage] ?? best.stage.toUpperCase()}</span>
-                <span className="pair-meta">{best.direction === "long" ? "LONG" : "SHORT"} · {best.grade} · {best.crtAnchor?.rangeTf.toUpperCase() ?? ""}</span>
+                <span className="pair-meta">{best.direction === "long" ? "LONG" : "SHORT"} · {best.grade}</span>
               </span>
             ) : (
               <span className="pair-signal muted"><span className="pair-stage">—</span><span className="pair-meta">setup yok</span></span>
+            )}
+            {anchors.length > 0 && (
+              <span className="pair-anchors">
+                {(["4h", "1d", "1w"] as const).map((tf) => {
+                  const a = anchors.find((signal) => signal.crtAnchor?.rangeTf === tf);
+                  return (
+                    <span key={tf} className={`pair-anchor ${a ? a.stage : "none"}`} title={a ? `${tf.toUpperCase()} ${a.direction} ${STAGE_LABEL[a.stage] ?? a.stage}` : `${tf.toUpperCase()} setup yok`}>
+                      {tf.toUpperCase()}
+                    </span>
+                  );
+                })}
+              </span>
             )}
           </button>
         ))}

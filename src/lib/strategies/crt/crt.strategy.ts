@@ -809,9 +809,11 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
 function anchorSignal(context: MarketContext, settings: StrategyInput["settings"], spec: AnchorSpec): TradingSignal | undefined {
   const anchor = buildAnchorCtx(context, spec);
   if (!anchor) return undefined;
-  // Non-primary anchors only surface when a live raid exists — otherwise they are noise.
-  if (spec.rangeTf !== "4h" && !anchor.raid) return undefined;
   const setup = buildAnchorSetup(context, settings, anchor);
+  // Every anchor timeframe (4h/1d/1w) that produces a direction is surfaced — a directional
+  // bias with a defined range is a live "raid bekleniyor" read, not noise. directionForAnchor
+  // already returns undefined when no raid and no directional bias exist, so a pair with no
+  // read on a timeframe simply yields nothing there.
   if (!setup) return undefined;
   // A raided range candle that sits at no meaningful location is not a CRT candle at all —
   // it is an ordinary candle. Don't stage it, don't chart it, don't alert it: cancel.
