@@ -545,7 +545,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
 
   const blockers = [
-    !turtleSoup ? `${anchor.spec.confirmTf} 3 mum Turtle Soup yok: range mum + purge/reclaim + wick/body + %50 filtresi bekleniyor.` : undefined,
+    // Turtle Soup is an OPTIONAL entry model, not a requirement — the choch-close model is the
+    // profitable core. Its absence must not veto or cap a valid ChoCH/POI setup; the real
+    // "no entry reference" and "no ChoCH" gates below already cover a setup with neither.
     htfNarrative === "neutral" ? "HTF anlatı belirsiz (M/W/D/4H karışık); anlatısız CRT aranmaz." : undefined,
     htfNarrative !== "neutral" && direction !== htfNarrative ? "Setup HTF anlatıya karşı; anlatıya karşı CRT aranmaz." : undefined,
     dealingPdViolation ? (direction === "long" ? "Dealing range premium'da alım yapılmaz." : "Dealing range discount'ta satış yapılmaz.") : undefined,
