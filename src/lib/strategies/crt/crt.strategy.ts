@@ -88,6 +88,7 @@ type CrtSetup = {
   htfNarrative: TradeDirection | "neutral";
   displacementStrength: "none" | "medium" | "strong";
   locationTier: "weekly" | "daily" | "fvg" | "none";
+  readyEligible: boolean;
 };
 
 const NY_HOUR_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
@@ -602,6 +603,22 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (keyOpenRaid ? 3 : 0)
   ));
   if (score < 70) blockers.push(`CRT kalite skoru ${score} — 70 altı doktrin gereği reddedilir.`);
+  // READY = the setup is logically/geometrically valid AND at least tradable quality. Quality
+  // gaps (weak location, no SMT, no session raid, medium displacement, tight EQ) only cost
+  // score/grade — they no longer block READY, since scoring them twice (score + veto) is what
+  // starved the live system to zero signals. Real invalidators still veto.
+  const READY_MIN_SCORE = 66;
+  const readyEligible = plan.entryStatus === "confirmed"
+    && plan.rr >= minimumRR
+    && score >= READY_MIN_SCORE
+    && htfNarrative !== "neutral" && direction === htfNarrative
+    && !dealingPdViolation && pdAligned
+    && Boolean(manipulation) && !continuationAgainst && reclaimHolds
+    && hasRealTarget && tp1Valid && stopValid && !retestFar && !stopInNoise
+    && (Boolean(turtleSoup) || displacementStrength !== "none")
+    && context.regime.tradeability !== "blocked"
+    && !(context.regime.type === "trend" && biasConflict)
+    && context.dataConfidence.score >= 35;
   // A setup with open blockers is never tradable-grade material.
   const cappedScore = blockers.length ? Math.min(score, 69) : score;
   return {
@@ -620,7 +637,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     fvgConfluence,
     htfNarrative,
     displacementStrength,
-    locationTier
+    locationTier,
+    readyEligible
   };
 }
 
@@ -799,7 +817,7 @@ function anchorSignal(context: MarketContext, settings: StrategyInput["settings"
   // it is an ordinary candle. Don't stage it, don't chart it, don't alert it: cancel.
   if (anchor.raid && setup.locationTier === "none" && !setup.turtleSoup) return undefined;
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
-  const readyCandidate = setup.blockers.length === 0 && setup.plan.entryStatus === "confirmed" && setup.plan.rr >= minimumRR;
+  const readyCandidate = setup.readyEligible;
   const life = lifecycle(context, anchor, setup, readyCandidate);
   const grade = gradeFromScore(setup.score);
   const position = calculatePositionSize({
