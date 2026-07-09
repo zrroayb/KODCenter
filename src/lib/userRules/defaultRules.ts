@@ -16,5 +16,5 @@ export const defaultRules: UserRules = {
   usePremiumDiscountFilter: false,
   useJudasSwingFilter: false,
   useHtfAlignmentFilter: false,
-  maxSignalsPerScan: 8
+  maxSignalsPerScan: 18
 };
