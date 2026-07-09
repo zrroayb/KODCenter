@@ -10,3 +10,6 @@ dist
 vite.config.js
 vite.config.d.ts
 .tradebot_alerts.json
+
+# Local Claude Code settings (machine-specific)
+.claude/settings.local.json
