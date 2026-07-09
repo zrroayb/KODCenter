@@ -607,10 +607,15 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // gaps (weak location, no SMT, no session raid, medium displacement, tight EQ) only cost
   // score/grade — they no longer block READY, since scoring them twice (score + veto) is what
   // starved the live system to zero signals. Real invalidators still veto.
+  // Live-data measurement (30d, 12 symbols): choch-close entries are the edge (+0.47R), while
+  // standalone turtle-soup-open entries are negative (-0.17R, avoid). So a turtle-soup entry
+  // needs a higher score (74, B grade) to reach READY; the choch-close model stays at 60.
   const READY_MIN_SCORE = 60;
+  const TURTLE_MIN_SCORE = 74;
+  const minScoreForEntry = plan.entrySource === "turtle-soup-open" ? TURTLE_MIN_SCORE : READY_MIN_SCORE;
   const readyEligible = plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
-    && score >= READY_MIN_SCORE
+    && score >= minScoreForEntry
     && htfNarrative !== "neutral" && direction === htfNarrative
     && !dealingPdViolation && pdAligned
     && Boolean(manipulation) && !continuationAgainst && reclaimHolds
