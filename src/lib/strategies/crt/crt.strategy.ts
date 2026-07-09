@@ -609,7 +609,11 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (sessionTimedRaid ? 5 : 0)
     + (keyOpenRaid ? 3 : 0)
   ));
-  if (score < 70) blockers.push(`CRT kalite skoru ${score} — 70 altı doktrin gereği reddedilir.`);
+  // NO blanket score<70 veto here. It was a leftover from the old "70 or reject" doctrine and
+  // directly contradicted READY_MIN_SCORE=60 below: a 60-69 setup came out readyEligible=true
+  // yet carried a "reddedilir" blocker, so it read as READY and REJECTED at once — governance
+  // caution, grade forced to C, confidence -8. That double-count (score AND veto) is exactly
+  // what the note below warns starved the live system. Low score costs score/grade only.
   // READY = the setup is logically/geometrically valid AND at least tradable quality. Quality
   // gaps (weak location, no SMT, no session raid, medium displacement, tight EQ) only cost
   // score/grade — they no longer block READY, since scoring them twice (score + veto) is what
