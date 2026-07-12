@@ -46,7 +46,7 @@ describe("CRT Turtle Soup EA port", () => {
     expect(detectLatestTurtleSoup(candles, "15m")).toBeUndefined();
   });
 
-  it("builds READY from TS entry, wick stop, range midpoint and opposite range target", () => {
+  it("keeps Turtle Soup as evidence instead of promoting it to a standalone READY trade", () => {
     const start = Date.UTC(2026, 6, 1, 9, 0);
     const m15 = [
       ...flatCandles(28, start, 15 * 60 * 1000, 96, 0.45),
@@ -83,17 +83,12 @@ describe("CRT Turtle Soup EA port", () => {
       ]
     });
 
-    const signal = crtStrategy.scan({
+    const signals = crtStrategy.scan({
       context,
       settings: { ...crtStrategy.defaultSettings, minimumRR: 0.5, useExecutionCosts: false }
-    }).signals[0];
+    }).signals;
 
-    expect(signal.stage).toBe("ready");
-    expect(signal.direction).toBe("long");
-    expect(signal.plan.entrySource).toBe("turtle-soup-open");
-    expect(signal.plan.entry).toBe(95.2);
-    expect(signal.plan.stopLoss).toBeCloseTo(93.4, 5);
-    expect(signal.plan.targets).toEqual([98, 101]);
-    expect(signal.evidence.find((item) => item.id === "turtle-soup")?.status).toBe("pass");
+    expect(signals.some((signal) => signal.plan.entrySource === "turtle-soup-open")).toBe(false);
+    expect(signals.some((signal) => signal.stage === "ready")).toBe(false);
   });
 });

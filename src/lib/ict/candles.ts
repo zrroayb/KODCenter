@@ -22,8 +22,13 @@ export function averageTrueRange(candles: Candle[], period = 14): number {
   return sample.reduce((sum, value) => sum + value, 0) / Math.max(sample.length, 1);
 }
 
+export function completedCandles(candles: Candle[]): Candle[] {
+  return candles.filter((candle) => candle.closed !== false);
+}
+
 export function latestClosed(candles: Candle[]): Candle {
-  return candles[Math.max(0, candles.length - 1)];
+  const completed = completedCandles(candles);
+  return completed[Math.max(0, completed.length - 1)] ?? candles[Math.max(0, candles.length - 1)];
 }
 
 export function highestHigh(candles: Candle[]): number {

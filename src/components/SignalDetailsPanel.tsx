@@ -98,7 +98,7 @@ export function SignalDetailsPanel({
   const calculatedR = tradeRMultiple(signal, actualEntryNumber, actualExitNumber);
   const primaryWait = signal.stage === "ready"
     ? "Plan hazır: entry, stop ve DOL belli. Sadece kendi risk limitin uygunsa işlem alınır."
-    : waitItems[0] ?? "Yeni CRT Turtle Soup kapanışı bekle.";
+    : waitItems[0] ?? "Yeni CRT ChoCH/POI kapanışı bekle.";
   const secondaryWait = signal.stage === "ready"
     ? signal.decisionSummary.invalidation[0] ?? "Stop seviyesi görülürse plan iptal."
     : waitItems[1] ?? signal.decisionSummary.invalidation[0] ?? "Onay gelmezse işlem yok.";
@@ -167,7 +167,7 @@ export function SignalDetailsPanel({
           <span className="eyebrow">Sinyal</span>
           <h2>{signal.symbol} {signal.direction.toUpperCase()}</h2>
           {signal.crtAnchor && (
-            <p className="muted-note">CRT mumu: {signal.crtAnchor.rangeTf.toUpperCase()} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>
+            <p className="muted-note">{signal.crtAnchor.originLabel ?? `CRT mumu: ${signal.crtAnchor.rangeTf.toUpperCase()}`} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>
           )}
         </div>
         <button className="icon-btn" onClick={onClear} type="button" aria-label="Seçili sinyali temizle"><X size={16} /></button>

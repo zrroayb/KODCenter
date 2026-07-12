@@ -14,7 +14,7 @@ export type TelegramReadyAlertPayload = {
   grade: string;
   score: number;
   stage: "ready" | "watch";
-  alertKind?: "ready" | "raid";
+  alertKind?: "ready" | "raid" | "context";
   createdAt: number;
   entry: number;
   stopLoss: number;
@@ -99,13 +99,14 @@ function readyReasons(signal: TradingSignal): string[] {
     passed.has("CRT Bias / DOL") ? "CRT bias ve DOL net" : null,
     passed.has("Turtle Soup") ? "3 mum Turtle Soup teyidi var" : null,
     passed.has("Premium / Discount") ? "Doğru premium/discount bölgesi" : null,
-    passed.has("POI Touch") ? "POI teması var" : null,
+    passed.has("POI") ? "POI map edildi" : null,
     passed.has("Manipulation") ? "Manipulation sweep + reclaim var" : null,
     passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
+    passed.has("Entry Retest") ? "ChoCH sonrası entry retest var" : null,
     passed.has("SMT") ? "SMT kalite teyidi var" : null,
     `Net RR ${formatR(signal.plan.rr)}`
   ].filter((item): item is string => Boolean(item));
-  return Array.from(new Set(reasons)).slice(0, 5);
+  return Array.from(new Set(reasons)).slice(0, 6);
 }
 
 export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramReadyAlertPayload {
@@ -150,6 +151,22 @@ export function raidTelegramDedupeKey(signal: TradingSignal): string {
   ].join("|");
 }
 
+export function crtContextTelegramDedupeKey(signal: TradingSignal): string {
+  const anchor = signal.crtAnchor;
+  const bias = signal.evidence.find((item) => item.id === "crt-bias");
+  return [
+    "crt-context-alert-v1",
+    signal.strategyId,
+    signal.symbol,
+    signal.direction,
+    anchor?.rangeTf ?? "?",
+    priceBucket(anchor?.rangeHigh),
+    priceBucket(anchor?.rangeLow),
+    priceBucket(bias?.price),
+    bias?.time ?? bias?.candleIndex ?? "na"
+  ].join("|");
+}
+
 export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<TelegramAlertResponse> {
   const anchor = signal.crtAnchor;
   if (!anchor?.raidActive || signal.stage !== "watch") return { status: "disabled" };
@@ -167,7 +184,7 @@ export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<Teleg
       rangeLow: anchor.rangeLow,
       raidClosed: anchor.raidClosed,
       reasons: [
-        `${anchor.rangeTf.toUpperCase()} CRT range ${signal.direction === "short" ? "high" : "low"} raid edildi${anchor.raidClosed ? " ve mum içeri kapandı" : ""}`,
+        `${anchor.rangeTf.toUpperCase()} CRT range ${signal.direction === "short" ? "high" : "low"} raid edildi; reclaim tutuluyor${anchor.raidClosed ? " (aynı mum içeri kapandı)" : " (mum kapanışı şart değil)"}`,
         `${anchor.confirmTf} ChoCH/Just kapanışı + retest bekleniyor`,
         ...(signal.governance.blockers.slice(0, 2))
       ],
@@ -185,6 +202,53 @@ export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<Teleg
     return result;
   } catch (error) {
     return { status: "error", error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    pendingReadyAlerts.delete(dedupeKey);
+  }
+}
+
+export async function notifyCrtContextSignalOnce(signal: TradingSignal): Promise<TelegramAlertResponse> {
+  const anchor = signal.crtAnchor;
+  const bias = signal.evidence.find((item) => item.id === "crt-bias");
+  const highTimeframe = anchor?.rangeTf === "1d" || anchor?.rangeTf === "1w";
+  const fvgOriginContext = anchor?.origin === "fvg-origin";
+  if (!anchor || signal.stage !== "watch" || anchor.raidActive || (!highTimeframe && !fvgOriginContext) || signal.score < 50 || (!fvgOriginContext && bias?.status !== "pass")) {
+    return { status: "disabled" };
+  }
+  const contextLine = fvgOriginContext
+    ? `${anchor.originLabel ?? "4H FVG origin CRT"} aktif: FVG taplendi, origin candle CRT range olarak izleniyor.`
+    : `${anchor.rangeTf.toUpperCase()} CRT yön verdi: ${bias?.detail ?? "HTF bias aktif."}`;
+  const dedupeKey = crtContextTelegramDedupeKey(signal);
+  if (pendingReadyAlerts.has(dedupeKey) || wasReadyTelegramAlertSent(dedupeKey)) return { status: "disabled" };
+  pendingReadyAlerts.add(dedupeKey);
+  try {
+    const payload: TelegramReadyAlertPayload = {
+      ...buildTelegramReadyAlertPayload(signal),
+      stage: "watch",
+      alertKind: "context",
+      rangeTf: anchor.rangeTf,
+      confirmTf: anchor.confirmTf,
+      rangeHigh: anchor.rangeHigh,
+      rangeLow: anchor.rangeLow,
+      reasons: [
+        contextLine,
+        `Bu entry değil; ${anchor.confirmTf} ChoCH/Just + POI/retest bekleniyor.`,
+        ...(signal.governance.blockers.slice(0, 2))
+      ],
+      tradeContext: undefined
+    };
+    const response = await fetch("/api/telegram/ready-alert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({})) as TelegramAlertResponse;
+    if (response.ok && result.status === "sent") {
+      markReadyTelegramAlertSent(dedupeKey);
+    }
+    return result;
+  } catch (error) {
+    return { status: "error", error: error instanceof Error ? error.message : "Telegram context alert failed" };
   } finally {
     pendingReadyAlerts.delete(dedupeKey);
   }

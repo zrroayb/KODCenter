@@ -152,7 +152,7 @@ function setupKey(signal: TradingSignal): string {
     signal.plan.entrySource,
     signal.plan.stopSource,
     signal.plan.targetSource,
-    signal.context.premiumDiscount.zone,
+    signalAnchorZone(signal),
     signal.context.regime.type
   ].join("|");
 }
@@ -230,6 +230,13 @@ function expectedPd(signal: TradingSignal) {
   return signal.direction === "short" ? "premium" : "discount";
 }
 
+function signalAnchorZone(signal: TradingSignal): "premium" | "discount" {
+  const midpoint = signal.crtAnchor
+    ? (signal.crtAnchor.rangeHigh + signal.crtAnchor.rangeLow) / 2
+    : signal.context.premiumDiscount.midpoint;
+  return signal.plan.entry >= midpoint ? "premium" : "discount";
+}
+
 function tradeTags(signal: TradingSignal): string[] {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const expected = expectedBias(signal);
@@ -243,15 +250,16 @@ function tradeTags(signal: TradingSignal): string[] {
     `target:${signal.plan.targetSource}`,
     `crt:${signal.context.crt.selectedBias.kind}`,
     signal.context.crt.validPullback ? "pullback:valid" : "pullback:invalid",
-    signal.evidence.find((item) => item.id === "poi")?.status === "pass" ? "poi:touched" : "poi:missing",
+    signal.evidence.find((item) => item.id === "poi")?.status === "pass" ? "poi:mapped" : "poi:missing",
+    signal.plan.entryModel.retested ? "retest:yes" : "retest:no",
     signal.evidence.find((item) => item.id === "manipulation")?.status === "pass" ? "manipulation:yes" : "manipulation:no",
     signal.evidence.find((item) => item.id === "choch")?.status === "pass" ? "choch:yes" : "choch:no",
     `session:${activeSession}`,
-    `pd:${signal.context.premiumDiscount.zone}`,
+    `pd:${signalAnchorZone(signal)}`,
     `regime:${signal.context.regime.type}`,
     `event:${signal.context.eventRisk.level}`,
     signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? "smt:aligned" : "smt:none",
-    signal.context.premiumDiscount.zone === expectedPd(signal) ? "pd:aligned" : "pd:mismatch",
+    signalAnchorZone(signal) === expectedPd(signal) ? "pd:aligned" : "pd:mismatch",
     crtAligned || signal.context.bias.daily === expected || signal.context.bias.h4 === expected ? "htf:aligned" : "htf:conflict",
     signal.plan.rr >= 2 ? "rr:2plus" : signal.plan.rr >= 1.5 ? "rr:ok" : "rr:low",
     signal.governance.status === "allow" ? "governance:allow" : `governance:${signal.governance.status}`
@@ -268,7 +276,7 @@ function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"
     stopSource: signal.plan.stopSource,
     targetSource: signal.plan.targetSource,
     session: activeSession,
-    premiumDiscount: signal.context.premiumDiscount.zone,
+    premiumDiscount: signalAnchorZone(signal),
     dailyBias: signal.context.bias.daily,
     h4Bias: signal.context.bias.h4,
     h1Bias: signal.context.bias.h1,
@@ -681,17 +689,18 @@ function replayEntryRank(signal: TradingSignal): number {
 function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean {
   if (signal.stage === "ready") return true;
   if (signal.stage !== "watch") return false;
+  if (signal.crtAnchor?.setupPhase !== "model") return false;
   if (signal.governance.status === "block") return false;
   if (signal.context.eventRisk.level !== "clear") return false;
   if (signal.context.regime.tradeability === "blocked") return false;
   if (signal.context.dataConfidence.score < 68) return false;
   if (signal.score < REPLAY_READY_MIN_SCORE) return false;
   if (signal.plan.rr < Math.max(minimumRR, REPLAY_READY_MIN_RR)) return false;
-  if (signal.plan.entryStatus === "fallback") return false;
-  if (signal.plan.entrySource === "fallback-close") return false;
+  if (signal.plan.entryStatus !== "confirmed") return false;
+  if (!signal.plan.entryModel.retested || !signal.plan.entryModel.cisdConfirmed) return false;
+  if (signal.plan.entrySource !== "choch-close" && signal.plan.entrySource !== "poi-retest") return false;
   if (signal.plan.stopSource === "volatility-floor") return false;
-  if (signal.context.premiumDiscount.zone !== expectedPd(signal)) return false;
-  if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return false;
+  if (signalAnchorZone(signal) !== expectedPd(signal)) return false;
   if (!evidencePassed(signal, "manipulation") && !evidencePassed(signal, "sweep")) return false;
   if (!evidencePassed(signal, "choch") && !evidencePassed(signal, "mss")) return false;
   if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") return false;

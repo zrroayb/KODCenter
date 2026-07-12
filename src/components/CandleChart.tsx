@@ -126,7 +126,11 @@ function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirm
   if (signal.governance.status === "block") return compactDecisionText(`TEK KARAR: alma. ${signal.governance.blockers[0] ?? "Governance blok var."}`);
   if (closeRequirement) {
     const sideText = closeRequirement.side === "above" ? "üstünde" : "altında";
-    const refText = closeRequirement.reference === "last-closed-high" ? "son mum high" : "son mum low";
+    const refText = closeRequirement.reference === "internal-swing-high"
+      ? "internal swing high"
+      : closeRequirement.reference === "internal-swing-low"
+        ? "internal swing low"
+        : closeRequirement.reference === "last-closed-high" ? "son kapalı mum high" : "son kapalı mum low";
     return compactDecisionText(`TEK KARAR: ${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${sideText} kapanmalı (${refText}).`);
   }
   if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
@@ -134,7 +138,7 @@ function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirm
     const entryText = gap
       ? `${formatPrice(gap.low)}-${formatPrice(gap.high)} entry kutusuna`
       : `${formatPrice(signal.plan.entry)} entry seviyesine`;
-    return compactDecisionText(`TEK KARAR: fiyat ${entryText} gelsin, kapanışla onaylasın.`);
+    return compactDecisionText(`TEK KARAR: fiyat ${entryText} dokunsun. Mitigation kapanışı şart değil.`);
   }
   if (signal.stage === "ready") {
     return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`);
@@ -434,11 +438,12 @@ export function CandleChart({
     color: string,
     fill: string,
     markerX: number,
-    kind: "entry" | "stop" | "target"
+    kind: "entry" | "stop" | "target",
+    keySuffix: string
   ) => {
     const y = scaleY(price);
     return (
-      <g key={`${kind}-${price}-marker`}>
+      <g key={`${keySuffix}-marker`}>
         {kind === "entry" && <rect x={markerX - 7} y={y - 7} width="14" height="14" rx="2" fill={fill} stroke={color} strokeWidth="2.2" />}
         {kind === "stop" && (
           <g stroke={color} strokeWidth="2.4" strokeLinecap="round">
@@ -702,7 +707,13 @@ export function CandleChart({
               kapanış onayı · {closeRequirement.timeframe} {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}
             </text>
             <text x={waitLabelX + 108} y={waitLabelY + 11} fill="#fbbf24" fontSize="9" fontWeight="800" textAnchor="middle">
-              {closeRequirement.reference === "last-closed-high" ? "Son mum high kırılırsa onay" : "Son mum low kırılırsa onay"}
+              {closeRequirement.reference === "internal-swing-high"
+                ? "Internal swing high güçlü kapanışla kırılmalı"
+                : closeRequirement.reference === "internal-swing-low"
+                  ? "Internal swing low güçlü kapanışla kırılmalı"
+                  : closeRequirement.reference === "last-closed-high"
+                    ? "Son kapalı mum high güçlü kapanışla kırılmalı"
+                    : "Son kapalı mum low güçlü kapanışla kırılmalı"}
             </text>
           </g>
         )}
@@ -721,10 +732,10 @@ export function CandleChart({
         {levelLine(selectedSignal.plan.stopLoss, bear, selectedSignal.stage === "invalidated" ? "STOP HIT" : "STOP", false, 1, "#4c0519")}
         {selectedSignal.plan.targets.map((target, index) => levelLine(target, bull, index === 0 ? "EQ/TP1" : "DOL/TP2", index > 0, 1, "#064e3b"))}
         <g className="trade-execution-markers">
-          {planMarker(selectedSignal.plan.entry, "#38bdf8", "#0c4a6e", anchorX, "entry")}
-          {planMarker(selectedSignal.plan.stopLoss, bear, "#4c0519", anchorX, "stop")}
+          {planMarker(selectedSignal.plan.entry, "#38bdf8", "#0c4a6e", anchorX, "entry", `${selectedSignal.id}-entry`)}
+          {planMarker(selectedSignal.plan.stopLoss, bear, "#4c0519", anchorX, "stop", `${selectedSignal.id}-stop`)}
           {selectedSignal.plan.targets.slice(0, 2).map((target, index) =>
-            planMarker(target, index === 0 ? bull : "#14b8a6", "#064e3b", anchorX, "target")
+            planMarker(target, index === 0 ? bull : "#14b8a6", "#064e3b", anchorX, "target", `${selectedSignal.id}-target-${index}`)
           )}
         </g>
         {selectedSignal.stage !== "ready" && selectedSignal.stage !== "watch" && (
@@ -1040,7 +1051,7 @@ export function CandleChart({
               <line x1={plot.left} x2={plotRight} y1={yHigh} y2={yHigh} stroke="#9085e9" strokeWidth="1.4" opacity="0.8" />
               <line x1={plot.left} x2={plotRight} y1={yLow} y2={yLow} stroke="#9085e9" strokeWidth="1.4" opacity="0.8" />
               <line x1={plot.left} x2={plotRight} y1={yEq} y2={yEq} stroke="#9085e9" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
-              <text x={plot.left + 8} y={yHigh + 15} fill="#9085e9" fontSize="11" fontWeight="900" opacity="0.9">{`CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
+              <text x={plot.left + 8} y={yHigh + 15} fill="#9085e9" fontSize="11" fontWeight="900" opacity="0.9">{selectedSignal?.crtAnchor?.originLabel ?? `CRT RANGE${selectedSignal?.crtAnchor ? ` (${selectedSignal.crtAnchor.rangeTf.toUpperCase()} mum)` : " (4H mum)"}`}</text>
               {matched >= 0 && (
                 <>
                   <rect

@@ -1123,6 +1123,18 @@ textarea:hover {
   opacity: 0.85;
 }
 
+.scan-signal-card.low-quality {
+  border-left: 3px solid rgba(245, 158, 11, 0.7);
+  opacity: 0.82;
+}
+
+.scan-signal-card.low-quality:hover,
+.scan-signal-card.low-quality.selected {
+  opacity: 1;
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(245, 158, 11, 0.08);
+}
+
 /* trade now hero */
 
 .trade-now-panel {
@@ -3067,6 +3079,11 @@ button {
   border-left-color: #f59e0b;
 }
 
+.decision-signal-card.low-quality {
+  border-left-color: rgba(245, 158, 11, 0.82);
+  opacity: 0.92;
+}
+
 .decision-signal-card.rejected {
   border-left-color: var(--line-strong);
   opacity: 0.88;
@@ -3406,3 +3423,403 @@ button {
 .pair-anchor.watch { color: #d99b2f; border-color: rgba(217, 155, 47, 0.4); background: rgba(217, 155, 47, 0.1); }
 .pair-anchor.missed,
 .pair-anchor.invalidated { color: rgba(120, 130, 150, 0.7); border-color: rgba(120, 130, 150, 0.24); }
+
+/* Chart workspace final layout guard.
+   The pair rail and context/details panel used to make the whole page scroll, which pushed
+   the chart above the viewport. Keep the chart canvas fixed in the workspace and let only
+   the side rails scroll. */
+.view-charts .workspace {
+  height: calc(100vh - 70px);
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 18px;
+}
+
+.view-charts .safety-note {
+  display: none;
+}
+
+.view-charts .charts-workspace,
+.view-charts .charts-workspace.single-chart-mode,
+.view-charts .charts-workspace.with-selection {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr) minmax(210px, 260px);
+  gap: 12px;
+  align-items: stretch;
+  min-height: 0;
+  height: 100%;
+}
+
+.view-charts .pair-rail,
+.view-charts .selection-dock {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.view-charts .charts-main {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 10px;
+}
+
+.view-charts .chart-panel {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--chart-surface);
+}
+
+.view-charts .chart-panel figcaption {
+  min-height: 34px;
+  padding: 10px 14px 6px;
+}
+
+.view-charts .chart-panel svg {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.view-charts .pair-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name stage"
+    "anchors anchors";
+  gap: 5px 7px;
+  min-height: 54px;
+  padding: 8px 9px;
+  overflow: hidden;
+}
+
+.view-charts .pair-name {
+  grid-area: name;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 780;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-charts .pair-signal {
+  grid-area: stage;
+  min-width: 0;
+  align-items: flex-end;
+}
+
+.view-charts .pair-stage {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border: 1px solid rgba(151, 163, 189, 0.22);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.view-charts .pair-meta {
+  display: none;
+}
+
+.view-charts .pair-anchors {
+  grid-area: anchors;
+  min-width: 0;
+  overflow: hidden;
+  flex-wrap: nowrap;
+}
+
+.view-charts .pair-anchor {
+  padding: 1px 4px;
+  font-size: 9px;
+  line-height: 1.2;
+}
+
+@media (max-width: 1180px) {
+  .view-charts .workspace {
+    height: auto;
+    overflow: visible;
+  }
+
+  .view-charts .charts-workspace,
+  .view-charts .charts-workspace.single-chart-mode,
+  .view-charts .charts-workspace.with-selection {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .view-charts .pair-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-height: none;
+  }
+
+  .view-charts .selection-dock {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .view-charts .chart-panel svg {
+    min-height: 430px;
+  }
+}
+
+/* ==== Simple UI pass: less text, clearer decisions ==== */
+@media (min-width: 901px) {
+  .app-shell {
+    grid-template-columns: 194px minmax(0, 1fr);
+  }
+}
+
+.sidebar {
+  gap: 14px;
+  padding: 14px 10px;
+}
+
+.brand-block {
+  padding: 4px 8px 10px;
+}
+
+.brand-block span,
+.sidebar button small,
+.sidebar-note {
+  display: none;
+}
+
+.sidebar button {
+  min-height: 42px;
+  padding: 5px 10px;
+  border-radius: 12px;
+}
+
+.sidebar button strong {
+  font-size: 13px;
+}
+
+.workspace {
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.topbar {
+  align-items: center;
+  min-height: 44px;
+  padding: 0;
+}
+
+.topbar h1,
+.topbar.compact h1 {
+  font-size: clamp(26px, 2.4vw, 36px);
+  line-height: 1;
+}
+
+.topbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-meta {
+  margin-top: 0;
+}
+
+.topbar-meta span {
+  padding: 3px 8px;
+  font-size: 10.5px;
+}
+
+.topbar-actions {
+  align-items: center;
+  gap: 7px;
+}
+
+.session-clock,
+.auto-refresh-badge {
+  min-width: 0;
+  padding: 7px 10px;
+}
+
+.session-clock strong,
+.auto-refresh-badge strong {
+  font-size: 12.5px;
+}
+
+.session-clock small {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-refresh-badge {
+  min-width: 70px;
+  justify-items: center;
+}
+
+.data-source-badge {
+  padding: 7px 10px;
+}
+
+.topbar-actions .ghost-btn {
+  min-height: 38px;
+}
+
+.view-dashboard .finance-dashboard {
+  gap: 12px;
+}
+
+.view-dashboard .workspace {
+  padding-bottom: 12px;
+}
+
+.simple-hero {
+  min-height: 104px;
+  align-items: center;
+  padding: 20px 22px;
+}
+
+.decision-hero h2 {
+  margin-top: 5px;
+  font-size: clamp(27px, 2.6vw, 38px);
+}
+
+.decision-hero p {
+  max-width: 520px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hero-actions {
+  gap: 8px;
+}
+
+.hero-actions .primary-btn,
+.hero-actions .ghost-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.decision-board {
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 220px);
+  gap: 12px;
+}
+
+.decision-list-card {
+  padding: 16px;
+}
+
+.decision-list-card > header {
+  margin-bottom: 10px;
+}
+
+.decision-list-card h2 {
+  margin-top: 3px;
+  font-size: clamp(22px, 2vw, 28px);
+}
+
+.decision-signal-list {
+  gap: 7px;
+}
+
+.decision-signal-card {
+  min-height: 58px;
+  grid-template-columns: 30px minmax(110px, 170px) 66px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 12px;
+}
+
+.decision-rank {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+
+.decision-main strong {
+  font-size: 15px;
+}
+
+.decision-main small,
+.decision-meta small,
+.decision-reason {
+  font-size: 11.5px;
+}
+
+.decision-meta strong {
+  font-size: 19px;
+}
+
+.decision-reason {
+  max-width: none;
+  justify-self: stretch;
+  text-align: left;
+}
+
+.dashboard-brief {
+  gap: 8px;
+}
+
+.dashboard-brief .metric-card {
+  min-height: 78px;
+  padding: 12px;
+}
+
+.metric-card strong {
+  font-size: 18px;
+}
+
+.calm-card small,
+.metric-card small {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.safety-note {
+  display: none;
+}
+
+.view-dashboard .quick-action-fab {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .decision-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-brief {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar-title,
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .decision-signal-card {
+    grid-template-columns: 28px minmax(0, 1fr) 58px;
+  }
+
+  .decision-reason {
+    grid-column: 2 / -1;
+  }
+
+  .dashboard-brief {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

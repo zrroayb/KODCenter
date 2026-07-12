@@ -46,6 +46,14 @@ describe("user rule visibility policy", () => {
     expect(ruleAllowsSignal(signal, { ...defaultRules, minimumScore: signal.score + 1 })).toBe(false);
   });
 
+  it("keeps WATCH ideas visible even when RR is below the READY threshold", () => {
+    const { signal } = visibleSequenceSignal();
+    const lowRrPlan = { ...signal.plan, rr: defaultRules.minimumRR - 0.25 };
+
+    expect(ruleAllowsSignal({ ...signal, stage: "watch", plan: lowRrPlan }, defaultRules)).toBe(true);
+    expect(ruleAllowsSignal({ ...signal, stage: "ready", plan: lowRrPlan }, defaultRules)).toBe(false);
+  });
+
   it("hides invalidated and missed setups from visible signal candidates", () => {
     const { signal } = visibleSequenceSignal();
 

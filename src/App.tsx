@@ -11,7 +11,6 @@ import { runMonthlyRuntimeReplay } from "./lib/backtest/runtimeReplay";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
 import { buildDataHealthReport } from "./lib/data/dataHealth";
 import { loadYahooMarkets, type MarketDataLoadResult } from "./lib/data/yahooProvider";
-import { formatR } from "./lib/ict/format";
 import type { MarketContext, MarketSymbol, TradingSignal } from "./lib/ict/types";
 import { buildMarketContext } from "./lib/intelligence/marketContext";
 import { attachSmtDivergences } from "./lib/intelligence/smtEngine";
@@ -22,7 +21,7 @@ import { buildSessionClock, formatTurkeySessionTime } from "./lib/session/sessio
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
-import { notifyRaidSignalOnce, notifyReadySignalOnce } from "./lib/telegram/readyAlert";
+import { notifyCrtContextSignalOnce, notifyRaidSignalOnce, notifyReadySignalOnce } from "./lib/telegram/readyAlert";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { defaultRules } from "./lib/userRules/defaultRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
@@ -32,14 +31,21 @@ export type ViewId = "dashboard" | "charts" | "scanner" | "backtest" | "journal"
 
 const VIEW_TITLES: Record<ViewId, string> = {
   charts: "Chart",
-  dashboard: "Dashboard",
-  scanner: "Scanner",
-  backtest: "Backtest",
-  journal: "Journal",
+  dashboard: "Bugün",
+  scanner: "Tara",
+  backtest: "Replay",
+  journal: "Notlar",
   ai: "AI",
-  settings: "Settings"
+  settings: "Ayar"
 };
 const AUTO_REFRESH_MS = 60_000;
+const SIGNAL_STAGE_RANK: Record<TradingSignal["stage"], number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
+
+function compareSignalsByDecision(a: TradingSignal, b: TradingSignal) {
+  return (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0)
+    || b.score - a.score
+    || b.plan.rr - a.plan.rr;
+}
 
 function scanContexts(contexts: MarketContext[], strategyId: string, rules: UserRules) {
   const strategy = getStrategy(strategyId);
@@ -60,19 +66,30 @@ function scanContexts(contexts: MarketContext[], strategyId: string, rules: User
       }
     }));
   const rawSignals = results.flatMap((result) => result.signals);
-  // Rank across ALL symbols/anchors before the cap: the flatMap concatenates in symbol order
-  // (XAUUSD, NAS100, …), so an unsorted slice starves later symbols — GBP's daily CRT could be
-  // computed correctly yet chopped off because earlier symbols filled the quota. Cap by merit.
-  const stageRank = (signal: TradingSignal) =>
-    signal.stage === "ready" ? 3 : signal.stage === "watch" ? 2 : signal.stage === "missed" ? 1 : 0;
+  const activeSignals = rawSignals
+    .filter((signal) => signal.stage !== "invalidated" && signal.stage !== "missed")
+    .sort(compareSignalsByDecision);
+  const visibleCandidates = activeSignals.filter((signal) => ruleAllowsSignal(signal, rules));
+  const visibleSignals = visibleCandidates.slice(0, rules.maxSignalsPerScan);
+  const hiddenCandidates = [
+    ...activeSignals.filter((signal) => !ruleAllowsSignal(signal, rules)),
+    ...visibleCandidates.slice(rules.maxSignalsPerScan)
+  ];
+  const seenHiddenSignals = new Set<string>();
+  const hiddenSignals = hiddenCandidates
+    .filter((signal) => {
+      if (seenHiddenSignals.has(signal.id)) return false;
+      seenHiddenSignals.add(signal.id);
+      return true;
+    })
+    .slice(0, 24);
+  const inactiveSignals = rawSignals
+    .filter((signal) => signal.stage === "invalidated" || signal.stage === "missed")
+    .sort(compareSignalsByDecision);
   return {
-    signals: rawSignals
-      .filter((signal) => ruleAllowsSignal(signal, rules))
-      .sort((a, b) => stageRank(b) - stageRank(a) || b.score - a.score || b.plan.rr - a.plan.rr)
-      .slice(0, rules.maxSignalsPerScan),
-    inactiveSignals: rawSignals
-      .filter((signal) => signal.stage === "invalidated" || signal.stage === "missed")
-      .slice(0, 24),
+    signals: visibleSignals,
+    hiddenSignals,
+    inactiveSignals: inactiveSignals.slice(0, 24),
     rejected: results.flatMap((result) => result.rejectedSetups)
   };
 }
@@ -80,17 +97,14 @@ function scanContexts(contexts: MarketContext[], strategyId: string, rules: User
 function bestScanSignal(signals: TradingSignal[]): TradingSignal | undefined {
   return [...signals]
     .filter((signal) => signal.stage === "ready" || signal.stage === "watch")
-    .sort((a, b) => {
-      const stageScore = (b.stage === "ready" ? 1000 : 0) - (a.stage === "ready" ? 1000 : 0);
-      return stageScore || b.score - a.score;
-    })[0];
+    .sort(compareSignalsByDecision)[0];
 }
 
 function decisionText(signal: TradingSignal | undefined) {
-  if (!signal) return "Şu an temiz trade yok.";
-  if (signal.stage === "ready") return `${signal.symbol} ${signal.direction.toUpperCase()} hazır. Önce buna bak.`;
-  if (signal.stage === "watch") return `${signal.symbol} ${signal.direction.toUpperCase()} izleniyor. Onay gelmeden işlem yok.`;
-  return `${signal.symbol} artık işlem değil. Yeni setup bekle.`;
+  if (!signal) return "Temiz trade yok.";
+  if (signal.stage === "ready") return `${signal.symbol} hazır.`;
+  if (signal.stage === "watch") return `${signal.symbol} bekle.`;
+  return `${signal.symbol} geçersiz.`;
 }
 
 function stageText(signal: TradingSignal) {
@@ -101,28 +115,51 @@ function stageText(signal: TradingSignal) {
 }
 
 function aiCardHint(signal: TradingSignal, rank: number) {
-  if (signal.stage === "ready" && rank === 0) return "AI: ilk bakılacak aday.";
-  if (signal.stage === "ready") return "AI: plan var, risk/entry kontrol et.";
-  if (signal.score >= 75) return "AI: kaliteli izleme, onay bekle.";
-  if (signal.score >= 55) return "AI: sadece radar; acele etme.";
-  return "AI: zayıf, chart açmadan önce seçici ol.";
+  if (signal.stage === "ready" && rank === 0) return "Öncelik";
+  if (signal.stage === "ready") return "Plan var";
+  if (signal.score >= 75) return "Onay bekle";
+  if (signal.score >= 55) return "Radar";
+  return "Zayıf";
+}
+
+function shortReason(text: string | undefined, fallback = "Bekle"): string {
+  const clean = (text ?? fallback)
+    .replace(/^AI:\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = clean.toLocaleLowerCase("tr-TR");
+  if (lower.includes("turtle soup") || lower.includes("purge") || lower.includes("sweep")) return "Likidite alındı, onay bekle.";
+  if (lower.includes("raid")) return "Raid var, onay bekle.";
+  if (lower.includes("dealing range") || lower.includes("premium") || lower.includes("discount")) return "Bölge uygun değil.";
+  if (lower.includes("htf") || lower.includes("anlatı")) return "Üst zaman ters.";
+  if (lower.includes("killzone") || lower.includes("session")) return "Saat zayıf.";
+  if (lower.includes("choch") || lower.includes("mss") || lower.includes("kapan")) return "Kapanış onayı yok.";
+  if (lower.includes("rr") || lower.includes("risk")) return "RR yetmiyor.";
+  if (lower.includes("anchor") || lower.includes("key seviye")) return "Key seviye yok.";
+  if (lower.includes("poi") || lower.includes("entry") || lower.includes("giriş")) return "Giriş alanı bekle.";
+  return clean.length > 46 ? `${clean.slice(0, 43)}...` : clean;
+}
+
+function signalReason(signal: TradingSignal): string {
+  return shortReason(
+    signal.stage === "ready"
+      ? signal.decisionSummary.shortSummary
+      : signal.plan.planWarnings[0] ?? signal.governance.blockers[0] ?? signal.decisionSummary.shortSummary,
+    signal.stage === "ready" ? "Plan hazır" : "Onay bekle"
+  );
 }
 
 function rankedDecisionSignals(signals: TradingSignal[]) {
   return [...signals]
     .filter((signal) => signal.stage === "ready" || signal.stage === "watch")
-    .sort((a, b) => {
-      const stageScore = (b.stage === "ready" ? 1000 : 0) - (a.stage === "ready" ? 1000 : 0);
-      return stageScore || b.score - a.score || b.plan.rr - a.plan.rr;
-    });
+    .sort(compareSignalsByDecision);
 }
 
 function FinanceDashboard({
   signals,
-  inactiveSignals,
+  hiddenSignals,
   rejectedSetups,
   backtestResult,
-  memory,
   journalEntries,
   dataHealth,
   sessionName,
@@ -131,10 +168,9 @@ function FinanceDashboard({
   onRunBacktest
 }: {
   signals: TradingSignal[];
-  inactiveSignals: TradingSignal[];
+  hiddenSignals: TradingSignal[];
   rejectedSetups: RejectedSetup[];
   backtestResult: ReturnType<typeof runDemoBacktest>;
-  memory: ReturnType<typeof createSessionRuntimeMemory>;
   journalEntries: JournalEntry[];
   dataHealth: ReturnType<typeof buildDataHealthReport>;
   sessionName: string;
@@ -145,22 +181,23 @@ function FinanceDashboard({
   const best = bestScanSignal(signals);
   const ready = signals.filter((signal) => signal.stage === "ready").length;
   const watch = signals.filter((signal) => signal.stage === "watch").length;
-  const ranked = rankedDecisionSignals(signals).slice(0, 6);
+  const ranked = rankedDecisionSignals(signals).slice(0, 5);
+  const lowQualitySignals = rankedDecisionSignals(hiddenSignals).slice(0, 5);
   const nearMisses = [...rejectedSetups].sort((a, b) => b.score - a.score).slice(0, 5);
-  const totalActive = ready + watch;
+  const displayedCount = ranked.length || lowQualitySignals.length || nearMisses.length;
   return (
     <section className="finance-dashboard simple-dashboard">
       <article className={`panel decision-hero simple-hero ${best?.stage ?? "empty"}`}>
         <div>
-          <span className="eyebrow">Bugünün Kararı</span>
+          <span className="eyebrow">Karar</span>
           <h2>{decisionText(best)}</h2>
-          <p>{best ? best.decisionSummary.shortSummary : "Açılışta araman gereken şey burada tek liste olarak düşer: sembol, puan, durum ve AI kısa notu."}</p>
+          <p>{best ? signalReason(best) : "Zorlamıyoruz. Net setup gelince burada çıkar."}</p>
         </div>
         <div className="hero-actions">
           <button className="primary-btn" onClick={best ? () => onOpenChart(best) : onRunScan} type="button">
-            <Sparkles size={16} /> {best ? "Chartta aç" : "Tümünü tara"}
+            <Sparkles size={16} /> {best ? "Aç" : "Tara"}
           </button>
-          <button className="ghost-btn" onClick={onRunBacktest} type="button">1 ay replay</button>
+          <button className="ghost-btn" onClick={onRunBacktest} type="button">Replay</button>
         </div>
       </article>
 
@@ -168,44 +205,57 @@ function FinanceDashboard({
         <article className="panel decision-list-card">
           <header>
             <div>
-              <span className="eyebrow">Setup Listesi</span>
-              <h2>{totalActive ? `${totalActive} aday var` : nearMisses.length ? `${nearMisses.length} yakın aday` : "Aday yok"}</h2>
+              <span className="eyebrow">Radar</span>
+              <h2>{ranked.length ? `En iyi ${displayedCount}` : displayedCount ? `${displayedCount} yakın aday` : "Aday yok"}</h2>
             </div>
-            <button className="ghost-btn" type="button" onClick={onRunScan}>Yenile</button>
+            <button className="ghost-btn" type="button" onClick={onRunScan}>Tara</button>
           </header>
           <div className="decision-signal-list">
             {ranked.map((signal, index) => (
               <button className={`decision-signal-card ${signal.stage}`} key={signal.id} type="button" onClick={() => onOpenChart(signal)}>
                 <span className="decision-rank">{index + 1}</span>
                 <span className="decision-main">
-                  <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
-                  <small>{aiCardHint(signal, index)}</small>
+                  <strong>{signal.symbol}</strong>
+                  <small>{signal.direction.toUpperCase()} · {aiCardHint(signal, index)}</small>
                 </span>
                 <span className="decision-meta">
                   <strong>{signal.score}</strong>
                   <small>{signal.grade} · {stageText(signal)}</small>
                 </span>
-                <span className="decision-rr">{formatR(signal.plan.rr)}</span>
+                <span className="decision-reason">{signalReason(signal)}</span>
               </button>
             ))}
             {!ranked.length && (
-              nearMisses.length ? nearMisses.map((setup, index) => (
+              lowQualitySignals.length ? lowQualitySignals.map((signal, index) => (
+                <button className={`decision-signal-card low-quality ${signal.stage}`} key={signal.id} type="button" onClick={() => onOpenChart(signal)}>
+                  <span className="decision-rank">{index + 1}</span>
+                  <span className="decision-main">
+                    <strong>{signal.symbol}</strong>
+                    <small>{signal.direction.toUpperCase()} · Düşük ihtimal</small>
+                  </span>
+                  <span className="decision-meta">
+                    <strong>{signal.score}</strong>
+                    <small>{signal.grade} · Açılabilir</small>
+                  </span>
+                  <span className="decision-reason">{signalReason(signal)}</span>
+                </button>
+              )) : nearMisses.length ? nearMisses.map((setup, index) => (
                 <div className="decision-signal-card rejected" key={`${setup.symbol}-${setup.reason}-${index}`}>
                   <span className="decision-rank">{index + 1}</span>
                   <span className="decision-main">
                     <strong>{setup.symbol}</strong>
-                    <small>AI: işlem değil, sebebi oku.</small>
+                    <small>Bekle</small>
                   </span>
                   <span className="decision-meta">
                     <strong>{setup.score}</strong>
-                    <small>Yakın aday</small>
+                    <small>Aday</small>
                   </span>
-                  <span className="decision-reason">{setup.reason}</span>
+                  <span className="decision-reason">{shortReason(setup.reason)}</span>
                 </div>
               )) : (
                 <div className="empty-decision-state">
                   <strong>Bekle.</strong>
-                  <span>Scanner temiz CRT Turtle Soup adayı bulunca burada sembol + puan olarak direkt görünecek.</span>
+                  <span>Net CRT setup gelince burada görünür.</span>
                 </div>
               )
             )}
@@ -214,24 +264,24 @@ function FinanceDashboard({
 
         <aside className="dashboard-brief">
           <article className="metric-card calm-card">
-            <span>Ready / Watch</span>
+            <span>Sinyal</span>
             <strong>{ready} / {watch}</strong>
-            <small>{rejectedSetups.length} elendi</small>
+            <small>ready / watch</small>
           </article>
           <article className="metric-card calm-card">
-            <span>Data</span>
+            <span>Veri</span>
             <strong>{dataHealth.status}</strong>
-            <small>{sessionName} · aktif {memory.activeSymbol}</small>
+            <small>{sessionName}</small>
           </article>
           <article className="metric-card calm-card">
             <span>Replay</span>
             <strong>{backtestResult.profitFactor.toFixed(2)} PF</strong>
-            <small>{backtestResult.totalTrades} işlem · {backtestResult.maxDrawdown.toFixed(1)}R DD</small>
+            <small>{backtestResult.totalTrades} işlem</small>
           </article>
           <article className="metric-card calm-card">
-            <span>Journal</span>
+            <span>Not</span>
             <strong>{journalEntries.length}</strong>
-            <small>lokal not</small>
+            <small>lokal</small>
           </article>
         </aside>
       </div>
@@ -311,8 +361,6 @@ function AiWorkspace({ signal, signals, journalEntries }: { signal: TradingSigna
   );
 }
 
-const STAGE_RANK_CHART: Record<string, number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
-
 export default function App() {
   const demoMarkets = useMemo(() => createDemoMarkets(), []);
   const [markets, setMarkets] = useState(demoMarkets);
@@ -341,6 +389,7 @@ export default function App() {
   const [showSignalMarkers, setShowSignalMarkers] = useState(true);
   const initial = useMemo(() => scanContexts(contexts, strategyId, rules), [contexts, strategyId, rules]);
   const [signals, setSignals] = useState<TradingSignal[]>(initial.signals);
+  const [hiddenSignals, setHiddenSignals] = useState<TradingSignal[]>(initial.hiddenSignals);
   const [inactiveSignals, setInactiveSignals] = useState<TradingSignal[]>(initial.inactiveSignals);
   const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>(initial.rejected);
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => loadJournalEntries());
@@ -353,7 +402,8 @@ export default function App() {
   const activeMarket = markets.find((market) => market.symbol === activeSymbol) ?? markets[0];
   const dataHealth = useMemo(() => buildDataHealthReport(markets, dataState), [dataState, markets]);
   const visibleSignals = useMemo(() => signals.filter((signal) => ruleAllowsSignal(signal, rules)), [rules, signals]);
-  const selectableSignals = useMemo(() => [...visibleSignals, ...inactiveSignals], [inactiveSignals, visibleSignals]);
+  const chartSignals = useMemo(() => [...visibleSignals, ...hiddenSignals], [hiddenSignals, visibleSignals]);
+  const selectableSignals = useMemo(() => [...chartSignals, ...inactiveSignals], [chartSignals, inactiveSignals]);
   const selectedSignal = selectableSignals.find((signal) => signal.id === selectedSignalState.selectedSignalId) ?? null;
   const readyCount = visibleSignals.filter((signal) => signal.stage === "ready").length;
   const watchCount = visibleSignals.filter((signal) => signal.stage === "watch").length;
@@ -363,11 +413,6 @@ export default function App() {
     [sessionClock.nextStartsAt]
   );
   const secondsToAutoRefresh = Math.max(0, Math.ceil((dataState.loadedAt + AUTO_REFRESH_MS - clockNow) / 1000));
-  const lastDataRefreshLabel = useMemo(
-    () => new Date(dataState.loadedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-    [dataState.loadedAt]
-  );
-
   useEffect(() => {
     setRules((current) => current.minimumScore < MIN_VISIBLE_SIGNAL_SCORE
       ? { ...current, minimumScore: MIN_VISIBLE_SIGNAL_SCORE }
@@ -448,6 +493,7 @@ export default function App() {
     const held = mergeReadyHoldSignals(result.signals, readyHoldRef.current, scanTime);
     readyHoldRef.current = held.records;
     setSignals(held.signals);
+    setHiddenSignals(result.hiddenSignals);
     setInactiveSignals(result.inactiveSignals);
     setRejectedSetups(result.rejected);
     setLastScanTime(scanTime);
@@ -473,6 +519,13 @@ export default function App() {
         }
       });
     }
+    for (const signal of visibleSignals.filter((item) => item.stage === "watch" && !item.crtAnchor?.raidActive)) {
+      void notifyCrtContextSignalOnce(signal).then((result) => {
+        if (result.status === "error") {
+          console.warn("Telegram CRT context alert failed", result.error);
+        }
+      });
+    }
   }, [dataLoading, visibleSignals, lastScanTime]);
 
   useEffect(() => {
@@ -490,6 +543,7 @@ export default function App() {
     const held = mergeReadyHoldSignals(result.signals, readyHoldRef.current, scanTime);
     readyHoldRef.current = held.records;
     setSignals(held.signals);
+    setHiddenSignals(result.hiddenSignals);
     setInactiveSignals(result.inactiveSignals);
     setRejectedSetups(result.rejected);
     setLastScanTime(scanTime);
@@ -517,6 +571,11 @@ export default function App() {
     } else {
       clearSelection();
     }
+  };
+
+  const refreshAndScan = async () => {
+    await refreshMarketData({ background: hasLoadedDataRef.current });
+    runScan();
   };
 
   const runBacktest = () => {
@@ -559,9 +618,9 @@ export default function App() {
   // (live READY beats watch, higher score breaks ties) so the "en mantıklı CRT" shows at once.
   const selectSymbolBest = (symbol: MarketSymbol) => {
     setActiveSymbol(symbol);
-    const best = visibleSignals
+    const best = chartSignals
       .filter((signal) => signal.symbol === symbol)
-      .sort((a, b) => (STAGE_RANK_CHART[b.stage] ?? 0) - (STAGE_RANK_CHART[a.stage] ?? 0) || b.score - a.score)[0];
+      .sort(compareSignalsByDecision)[0];
     if (best) {
       setSelectedSignalState((current) => ({
         selectedSignalId: best.id,
@@ -578,10 +637,10 @@ export default function App() {
   };
 
   const selectAdjacentSignal = (step: 1 | -1) => {
-    if (!visibleSignals.length) return;
-    const currentIndex = selectedSignal ? visibleSignals.findIndex((signal) => signal.id === selectedSignal.id) : -1;
-    const nextIndex = (currentIndex + step + visibleSignals.length) % visibleSignals.length;
-    selectSignal(visibleSignals[nextIndex]);
+    if (!chartSignals.length) return;
+    const currentIndex = selectedSignal ? chartSignals.findIndex((signal) => signal.id === selectedSignal.id) : -1;
+    const nextIndex = (currentIndex + step + chartSignals.length) % chartSignals.length;
+    selectSignal(chartSignals[nextIndex]);
   };
 
   useEffect(() => {
@@ -613,44 +672,36 @@ export default function App() {
         <main className="workspace">
           <header className={activeView === "charts" ? "topbar compact" : "topbar"}>
             <div className="topbar-title">
-              <span className="eyebrow">Finance AI</span>
               <h1>{VIEW_TITLES[activeView]}</h1>
               {activeView !== "charts" && (
                 <div className="topbar-meta" aria-label="Piyasa özeti">
                   <span>{activeSymbol}</span>
-                  <span>{readyCount} ready</span>
-                  <span>{watchCount} watch</span>
-                  <span>{selectedSignal ? `${selectedSignal.symbol} ${selectedSignal.direction.toUpperCase()}` : "No active selection"}</span>
+                  <span>{readyCount}R / {watchCount}W</span>
                 </div>
               )}
             </div>
             <div className="topbar-actions">
             <div className={`session-clock ${sessionClock.activeSession === "Outside" ? "outside" : "active"}`} aria-label="Session durumu">
-              <span>Session</span>
               <strong>{sessionClock.activeSession}</strong>
-              <small>Sıradaki {sessionClock.display} · TR {nextSessionStart}</small>
+              <small>→ {sessionClock.display} · {nextSessionStart}</small>
             </div>
             <span className={`data-source-badge ${dataState.source}`}>
-              {dataLoading ? "Veri yükleniyor" : dataRefreshing ? "Veri güncelleniyor" : dataState.source === "yahoo-live" ? "Yahoo live" : dataState.source === "mixed" ? "Yahoo + demo" : "Demo fallback"}
+              {dataLoading ? "Yükleniyor" : dataRefreshing ? "Güncelleniyor" : dataState.source === "yahoo-live" ? "Yahoo" : dataState.source === "mixed" ? "Karma" : "Demo"}
             </span>
             <span className={`auto-refresh-badge ${dataRefreshing ? "refreshing" : ""}`} title="Sayfa açıkken canlı veri otomatik yenilenir.">
-              <span>Oto veri</span>
               <strong>{dataRefreshing ? "şimdi" : `${secondsToAutoRefresh}s`}</strong>
-              <small>son {lastDataRefreshLabel}</small>
             </span>
             <button className="ghost-btn" onClick={() => void refreshMarketData()} type="button" disabled={dataLoading || dataRefreshing}>
-              Veriyi yenile
+              Yenile
             </button>
-            {activeView !== "charts" && <span className="market-universe">{markets.length} market izleniyor</span>}
           </div>
         </header>
         {activeView === "dashboard" && (
           <FinanceDashboard
             signals={visibleSignals}
-            inactiveSignals={inactiveSignals}
+            hiddenSignals={hiddenSignals}
             rejectedSetups={rejectedSetups}
             backtestResult={backtestResult}
-            memory={memory}
             journalEntries={journalEntries}
             dataHealth={dataHealth}
             sessionName={sessionClock.activeSession}
@@ -663,6 +714,7 @@ export default function App() {
           <ScannerView
             marketCount={contexts.length}
             signals={visibleSignals}
+            lowQualitySignals={hiddenSignals}
             inactiveSignals={inactiveSignals}
             rejectedSetups={rejectedSetups}
             selectedSignalId={selectedSignalState.selectedSignalId}
@@ -680,7 +732,7 @@ export default function App() {
           <ChartsView
             market={activeMarket}
             context={activeContext}
-            signals={visibleSignals}
+            signals={chartSignals}
             selectedSignal={selectedSignal}
             journalEntry={selectedSignal ? journalEntries.find((entry) => entry.tradeId === selectedSignal.id) : undefined}
             focusedTimeRange={selectedSignalState.focusedTimeRange}
@@ -704,7 +756,7 @@ export default function App() {
         {activeView === "journal" && (
           <JournalView
             entries={journalEntries}
-            signals={[...visibleSignals, ...inactiveSignals]}
+            signals={[...chartSignals, ...inactiveSignals]}
             onSelectSignal={selectSignal}
           />
         )}
@@ -730,7 +782,7 @@ export default function App() {
         type="button"
         aria-label="Veriyi yenile ve tara"
         title="Veriyi yenile ve tara"
-        onClick={() => void refreshMarketData()}
+        onClick={() => void refreshAndScan()}
         disabled={dataLoading || dataRefreshing}
       >
         <Plus size={20} />

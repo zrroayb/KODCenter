@@ -17,15 +17,23 @@ function shortSignal(globalZone: PremiumDiscountContext["zone"]) {
           ? { ...candle, open: 96.2, high: 96.5, low: 95.5, close: 95.9 }
           : candle
   );
-  const m15 = base.timeframes.m15.map((candle, index) =>
+  const mappedM15 = base.timeframes.m15.map((candle, index) =>
     index === 18
       ? { ...candle, low: 99.4 }
+      : index === 21
+        ? { ...candle, open: 100.4, high: 100.8, low: 99.9, close: 100.6 }
       : index === 22
-        ? { ...candle, open: 96, high: 101, low: 96, close: 100.2 }
+        ? { ...candle, open: 100.8, high: 101.15, low: 100, close: 100.2 }
         : index === 23
-          ? { ...candle, open: 101, high: 102.1, low: 99.6, close: 100.7 }
+          ? { ...candle, open: 100.4, high: 100.45, low: 99.1, close: 99.3 }
           : candle
   );
+  const lastM15 = mappedM15[mappedM15.length - 1];
+  const m15 = [
+    ...mappedM15,
+    { ...lastM15, time: lastM15.time + 15 * 60 * 1000, open: 100.5, high: 100.7, low: 100.4, close: 100.5 },
+    { ...lastM15, time: lastM15.time + 30 * 60 * 1000, open: 100.5, high: 100.65, low: 100.45, close: 100.5 }
+  ];
   const context = createStructureContext({
     timeframes: { ...base.timeframes, m15, m5: m15, h4 },
     dealingRange: { high: 105, low: 90, midpoint: 97.5, source: "fixture" },

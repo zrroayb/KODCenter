@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Candle } from "../lib/ict/types";
 import { aggregateCandles } from "../lib/data/candleAggregation";
+import { latestClosed } from "../lib/ict/candles";
 
 function candle(time: number, open: number, high: number, low: number, close: number): Candle {
   return { time, open, high, low, close, volume: 10 };
@@ -35,5 +36,17 @@ describe("candle aggregation", () => {
       close: 99,
       volume: 10
     });
+  });
+
+  it("keeps forming state through aggregation and skips it for closed-candle decisions", () => {
+    const start = Date.UTC(2026, 6, 12, 17, 0);
+    const source = [
+      { ...candle(start, 100, 102, 99, 101), closed: true },
+      { ...candle(start + 60 * 60 * 1000, 101, 103, 100, 102), closed: false }
+    ];
+    const aggregated = aggregateCandles(source, "4h");
+
+    expect(aggregated[0].closed).toBe(false);
+    expect(latestClosed(source).time).toBe(start);
   });
 });

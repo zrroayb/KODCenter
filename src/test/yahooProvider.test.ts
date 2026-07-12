@@ -45,4 +45,21 @@ describe("Yahoo data provider", () => {
       })
     ).toThrow("No data found");
   });
+
+  it("marks the live Yahoo bucket as forming instead of treating its quote as a closed candle", () => {
+    const now = Date.UTC(2026, 6, 12, 17, 39);
+    const candles = parseYahooChartResponse({
+      chart: {
+        result: [{
+          timestamp: [
+            Date.UTC(2026, 6, 12, 17, 15) / 1000,
+            Date.UTC(2026, 6, 12, 17, 28, 21) / 1000
+          ],
+          indicators: { quote: [{ open: [100, 101], high: [102, 103], low: [99, 100], close: [101, 102], volume: [10, 5] }] }
+        }]
+      }
+    }, "15m", now);
+
+    expect(candles.map((candle) => candle.closed)).toEqual([true, false]);
+  });
 });

@@ -17,6 +17,13 @@ export type MarketDataLoadResult = {
 type YahooInterval = "5m" | "15m" | "1h" | "1d";
 type YahooRange = "5d" | "60d" | "1y";
 
+const YAHOO_INTERVAL_MS: Record<YahooInterval, number> = {
+  "5m": 5 * 60 * 1000,
+  "15m": 15 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000
+};
+
 type YahooChartResponse = {
   chart?: {
     error?: { code?: string; description?: string } | null;
@@ -66,7 +73,7 @@ function createTimeoutSignal(parentSignal?: AbortSignal, timeoutMs = 7_000) {
   };
 }
 
-export function parseYahooChartResponse(payload: YahooChartResponse): Candle[] {
+export function parseYahooChartResponse(payload: YahooChartResponse, interval?: YahooInterval, now = Date.now()): Candle[] {
   const error = payload.chart?.error;
   if (error) {
     throw new Error(error.description || error.code || "Yahoo chart error");
@@ -85,13 +92,15 @@ export function parseYahooChartResponse(payload: YahooChartResponse): Candle[] {
     const close = quote.close?.[index];
     if (open == null || high == null || low == null || close == null) return;
 
+    const time = timestamp * 1000;
     candles.push({
-      time: timestamp * 1000,
+      time,
       open,
       high,
       low,
       close,
-      volume: quote.volume?.[index] ?? 0
+      volume: quote.volume?.[index] ?? 0,
+      ...(interval ? { closed: time + YAHOO_INTERVAL_MS[interval] <= now } : {})
     });
   });
 
@@ -112,7 +121,7 @@ async function fetchYahooCandles(
       const detail = (await response.text()).slice(0, 140).replace(/\s+/g, " ");
       throw new Error(`${yahooSymbol} ${interval}: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`);
     }
-    return parseYahooChartResponse((await response.json()) as YahooChartResponse);
+    return parseYahooChartResponse((await response.json()) as YahooChartResponse, interval);
   } catch (error) {
     if (requestSignal.signal.aborted && !signal?.aborted) {
       throw new Error(`${yahooSymbol} ${interval}: provider timeout`);

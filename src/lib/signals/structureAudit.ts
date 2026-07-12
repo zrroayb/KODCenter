@@ -81,7 +81,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
       status: signal.plan.entryStatus === "confirmed" ? "pass" : "wait",
       detail: signal.plan.entryStatus === "confirmed"
         ? `Entry onaylı: ${formatPrice(signal.plan.entry)} (${signal.plan.entrySource}).`
-        : retestRequirement ?? `Fiyat ${formatPrice(signal.plan.entry)} giriş alanına gelip kapanış onayı vermeli.`
+        : retestRequirement ?? `Fiyat ${formatPrice(signal.plan.entry)} giriş alanına dokunsun; mitigation kapanışı şart değil.`
     },
     {
       label: "POI",

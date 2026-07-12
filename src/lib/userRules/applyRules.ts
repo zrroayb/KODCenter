@@ -33,7 +33,7 @@ export function ruleAllowsContext(context: MarketContext, rules: UserRules): boo
 export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boolean {
   if (signal.stage === "invalidated" || signal.stage === "missed") return false;
   if (signal.score < effectiveMinimumScore(rules.minimumScore)) return false;
-  if (signal.plan.rr < rules.minimumRR) return false;
+  if (signal.stage === "ready" && signal.plan.rr < rules.minimumRR) return false;
   if (rules.usePremiumDiscountFilter && !hasValidPremiumDiscount(signal)) return false;
   if (rules.useJudasSwingFilter && !hasJudasSwing(signal)) return false;
   if (rules.useHtfAlignmentFilter && !hasAlignedHtf(signal)) return false;

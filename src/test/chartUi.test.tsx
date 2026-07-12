@@ -156,7 +156,7 @@ describe("chart trade plan overlay", () => {
     expect(markup).toContain("referans mum");
     expect(markup).toContain("kapanış onayı");
     expect(markup).toContain("TEK KARAR");
-    expect(markup).toContain("Son mum low kırılırsa onay");
+    expect(markup).toContain("Son kapalı mum low güçlü kapanışla kırılmalı");
     expect(markup).toContain("liq alımı");
     expect(markup).toContain("NYAM.H");
     expect(markup).toContain("NYAM.L");

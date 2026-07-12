@@ -13,7 +13,8 @@ function mergeBucket(bucket: Candle[], bucketTime: number): Candle {
     high: Math.max(...bucket.map((candle) => candle.high)),
     low: Math.min(...bucket.map((candle) => candle.low)),
     close: last.close,
-    volume: bucket.reduce((sum, candle) => sum + candle.volume, 0)
+    volume: bucket.reduce((sum, candle) => sum + candle.volume, 0),
+    closed: bucket.every((candle) => candle.closed !== false)
   };
 }
 

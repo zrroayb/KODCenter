@@ -31,6 +31,9 @@ export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass 
 export function signalDecisionLabel(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "ALINABİLİR";
+  if (signal.crtAnchor?.setupPhase === "context") return "BAĞLAM";
+  if (signal.crtAnchor?.setupPhase === "raid") return "RAID";
+  if (signal.crtAnchor?.setupPhase === "model") return "MODEL";
   if (decision === "watch") return "İZLE";
   if (decision === "wait") return "BEKLE";
   return "GEÇMİŞ";
@@ -39,6 +42,9 @@ export function signalDecisionLabel(signal: TradingSignal): string {
 export function signalDecisionReason(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "READY: entry, stop ve TP planı aktif.";
+  if (signal.crtAnchor?.setupPhase === "context") return "Sadece CRT bağlamı var; raid/manipulation gelmeden trade yok.";
+  if (signal.crtAnchor?.setupPhase === "raid") return "Likidite alınmış; POI ve ChoCH/Just kapanışı bekleniyor.";
+  if (signal.crtAnchor?.setupPhase === "model") return "Model oluşuyor; entry/retest, RR veya kalite filtresi bekleniyor.";
   if (signal.governance.blockers.length) return signal.governance.blockers[0];
   if (signal.governance.warnings.length) return signal.governance.warnings[0];
   if (decision === "inactive") {
@@ -110,6 +116,22 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
   }
 
   if (!signal.plan.entryModel.cisdConfirmed) {
+    if (signal.crtAnchor?.setupPhase === "context") {
+      return {
+        status: "watch",
+        label: "BAĞLAM",
+        nextAction: "CRT yön/range var. Önce raid/manipulation, sonra ChoCH/Just bekle.",
+        severity: "watch"
+      };
+    }
+    if (signal.crtAnchor?.setupPhase === "raid") {
+      return {
+        status: "close-wait",
+        label: "RAID VAR",
+        nextAction: "Likidite alındı. POI/retest ve ChoCH/Just kapanışı gelmeden entry yok.",
+        severity: "watch"
+      };
+    }
     return {
       status: "close-wait",
       label: "KAPANIŞ BEKLE",
@@ -122,7 +144,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
     return {
       status: "entry-wait",
       label: "ENTRY BEKLE",
-      nextAction: "Fiyat entry kutusuna/retest seviyesine gelsin, sonra kapanışla onaylasın.",
+      nextAction: "Fiyat entry kutusuna/retest seviyesine dokunsun. Mitigation mum kapanışı şart değil; ChoCH/Just ayrı teyit.",
       severity: "watch"
     };
   }

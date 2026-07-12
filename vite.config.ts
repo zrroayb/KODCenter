@@ -271,6 +271,16 @@ function telegramCaption(payload: ReadyTelegramPayload) {
       reasons || "- Raid + reclaim aktif"
     ].join("\n");
   }
+  if (payload.alertKind === "context") {
+    return [
+      `<b>CRT CONTEXT</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")})`,
+      `Range: <b>${formatTelegramPrice(payload.rangeLow)}</b> - <b>${formatTelegramPrice(payload.rangeHigh)}</b>`,
+      "",
+      `${escapeHtml(payload.confirmTf ?? "LTF")} ChoCH/Just + POI/retest bekleniyor. Bu bir entry sinyali DEĞİL, takip uyarısıdır.`,
+      "",
+      reasons || "- HTF CRT yön verdi"
+    ].join("\n");
+  }
   const eqTarget = payload.targets?.[0];
   const dolTarget = payload.targets?.[1] ?? payload.targets?.[0];
   const aiCommentary = payload.aiCommentary?.trim()
@@ -853,7 +863,8 @@ async function sendTelegramReadyAlert(payload: ReadyTelegramPayload, env: Telegr
     return { status: "disabled" as const, reason: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing" };
   }
 
-  const aiResult = payload.aiCommentary
+  const shouldUseAiCommentary = payload.alertKind !== "raid" && payload.alertKind !== "context";
+  const aiResult = payload.aiCommentary || !shouldUseAiCommentary
     ? undefined
     : await generateGeminiTradeCommentary(payload.tradeContext ?? payload, env);
   const caption = telegramCaption({
@@ -924,8 +935,9 @@ async function handleTelegramReadyAlert(request: JsonRequest, response: YahooPro
   }
   try {
     const payload = await readJsonBody(request) as ReadyTelegramPayload;
-    if (payload.stage !== "ready") {
-      jsonResponse(response, 400, { status: "error", error: "Only ready alerts are accepted" });
+    const acceptedWatchAlert = payload.stage === "watch" && (payload.alertKind === "raid" || payload.alertKind === "context");
+    if (payload.stage !== "ready" && !acceptedWatchAlert) {
+      jsonResponse(response, 400, { status: "error", error: "Only READY, CRT raid or CRT context alerts are accepted" });
       return;
     }
     const result = await sendTelegramReadyAlert(payload, env);

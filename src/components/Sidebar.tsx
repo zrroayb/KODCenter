@@ -3,13 +3,13 @@ import type { ComponentType } from "react";
 import type { ViewId } from "../App";
 
 export const NAV_ITEMS: Array<{ id: ViewId; label: string; caption: string; icon: ComponentType<{ size?: number }>; mobile?: boolean }> = [
-  { id: "dashboard", label: "Dashboard", caption: "Today", icon: Gauge, mobile: true },
-  { id: "charts", label: "Chart", caption: "Workspace", icon: CandlestickChart, mobile: true },
-  { id: "scanner", label: "Scanner", caption: "Radar", icon: ScanSearch, mobile: true },
-  { id: "backtest", label: "Backtest", caption: "Replay", icon: History },
-  { id: "journal", label: "Journal", caption: "Trades", icon: ScrollText, mobile: true },
-  { id: "ai", label: "AI", caption: "Coach", icon: Bot, mobile: true },
-  { id: "settings", label: "Settings", caption: "Rules", icon: Settings }
+  { id: "dashboard", label: "Bugün", caption: "Karar", icon: Gauge, mobile: true },
+  { id: "charts", label: "Chart", caption: "Plan", icon: CandlestickChart, mobile: true },
+  { id: "scanner", label: "Tara", caption: "Radar", icon: ScanSearch, mobile: true },
+  { id: "backtest", label: "Replay", caption: "Test", icon: History },
+  { id: "journal", label: "Notlar", caption: "Kayıt", icon: ScrollText, mobile: true },
+  { id: "ai", label: "AI", caption: "Koç", icon: Bot, mobile: true },
+  { id: "settings", label: "Ayar", caption: "Kural", icon: Settings }
 ];
 
 export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange: (view: ViewId) => void }) {
@@ -18,8 +18,8 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
       <div className="brand-block">
         <span className="brand-mark"><BarChart3 size={22} /></span>
         <div>
-          <strong>Finance AI</strong>
-          <span>Trading workspace</span>
+          <strong>Tradebot</strong>
+          <span>CRT</span>
         </div>
       </div>
       <nav>
@@ -43,8 +43,8 @@ export function Sidebar({ activeView, onChange }: { activeView: ViewId; onChange
         })}
       </nav>
       <div className="sidebar-note">
-        <span>Status</span>
-        <strong>Decision first</strong>
+        <span>Mod</span>
+        <strong>Basit</strong>
       </div>
     </aside>
   );

@@ -88,7 +88,7 @@ export function selectedSignalAnnotations(signal: TradingSignal): SelectedSignal
     && typeof manipulationEvidence.price === "number" && typeof manipulationEvidence.candleIndex === "number"
     ? { side: sweepSide, level: manipulationEvidence.price, candleIndex: manipulationEvidence.candleIndex, reclaimed: true }
     : undefined;
-  const turtleSoupEvidence = crt ? evidenceOf("turtle-soup") : undefined;
+  const turtleSoupEvidence = crt && signal.plan.entrySource === "turtle-soup-open" ? evidenceOf("turtle-soup") : undefined;
   const turtleSoupMeta = turtleSoupEvidence?.metadata;
   const turtleSoup = turtleSoupMeta
     && typeof turtleSoupMeta.rangeCandleIndex === "number"

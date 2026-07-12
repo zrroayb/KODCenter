@@ -32,6 +32,7 @@ export type Candle = {
   low: number;
   close: number;
   volume: number;
+  closed?: boolean;
   mid?: Ohlc;
   bid?: Ohlc;
   ask?: Ohlc;
@@ -409,4 +410,7 @@ export type CrtAnchorInfo = {
   raidClosed: boolean;
   rangeHigh: number;
   rangeLow: number;
+  origin?: "standard" | "fvg-origin" | "active-crt";
+  originLabel?: string;
+  setupPhase?: "context" | "raid" | "model" | "ready";
 };

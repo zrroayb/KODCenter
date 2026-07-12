@@ -98,7 +98,7 @@ export function buildIctSequence(context: MarketContext, direction: TradeDirecti
   if (deliveryGap && !deliveryFits) {
     hardBlockers.push("FVG/iFVG mevcut setup sırasına ait değil; eski/alakasız delivery kullanılmaz.");
   }
-  if (plan && plan.entryStatus !== "confirmed") warnings.push("Entry retest + mum kapanışı henüz tamamlanmadı.");
+  if (plan && plan.entryStatus !== "confirmed") warnings.push("Entry retest/mitigation teması ve ChoCH teyidi henüz tamamlanmadı.");
   if (!htfAligned) warnings.push("HTF draw/bias yönü setup ile tam hizalı değil.");
 
   const steps = [
@@ -160,7 +160,7 @@ export function buildIctSequence(context: MarketContext, direction: TradeDirecti
       id: "entry",
       label: "Entry close",
       status: entryConfirmed ? "pass" : plan ? "pending" : "fail",
-      detail: entryConfirmed ? "MSS/CISD kapanışıyla entry onaylandı." : "Entry için mum kapanışı bekleniyor.",
+      detail: entryConfirmed ? "MSS/CISD kapanışıyla entry onaylandı." : "Entry teması ve ChoCH/CISD teyidi bekleniyor.",
       price: plan?.entry
     })
   ];

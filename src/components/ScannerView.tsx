@@ -62,13 +62,13 @@ function simpleChecklistText(label: string, signal: TradingSignal): string | nul
     case "4H+ Range":
       return `CRT aralığı ${(signal.crtAnchor?.rangeTf ?? "4h").toUpperCase()} mumdan gelmeli.`;
     case "Turtle Soup":
-      return "Önce temiz 3 mum modeli gelsin: range mum, stop avı, içeri kapanış, uzun wick, %50'yi geçmeden dönüş.";
+      return null;
     case "Valid Pullback":
       return "Yeni range kabulü için extreme mum ihlal edilmeden valid pullback oluşmalı.";
     case "Dealing Range":
       return "CRT aralığı net olmalı.";
     case "Entry Model":
-      return "Giriş alanı netleşsin ve mum kapanışıyla onay gelsin.";
+      return "Giriş alanına temas yeterli; kapanış teyidi ChoCH/Just tarafında aranır.";
     case "Premium / Discount":
       return simplePdText(signal);
     case "Killzone":
@@ -192,9 +192,6 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
       needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
     }
   }
-  if (signal.stage === "watch" && !passedLabels.has("Turtle Soup") && !needs.some((item) => item.includes("3 mum"))) {
-    needs.push("Temiz 3 mum Turtle Soup gelsin: range mum -> stop avı -> içeri kapanış.");
-  }
   if (signal.stage === "watch" && !needs.some((item) => item.includes("mum " + simpleDirection))) {
     needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
@@ -284,6 +281,7 @@ function DataHealthPanel({ report }: { report: DataHealthReport }) {
 export function ScannerView({
   marketCount,
   signals,
+  lowQualitySignals,
   inactiveSignals,
   rejectedSetups,
   selectedSignalId,
@@ -298,6 +296,7 @@ export function ScannerView({
 }: {
   marketCount: number;
   signals: TradingSignal[];
+  lowQualitySignals: TradingSignal[];
   inactiveSignals: TradingSignal[];
   rejectedSetups: RejectedSetup[];
   selectedSignalId: string | null;
@@ -311,6 +310,7 @@ export function ScannerView({
   onSelectSignal: (signal: TradingSignal) => void;
 }) {
   const sortedSignals = dataLoading ? [] : sortForAction(signals);
+  const sortedLowQualitySignals = dataLoading ? [] : sortForAction(lowQualitySignals).slice(0, 8);
   const best = sortedSignals.find((signal) => signal.stage === "ready" || signal.stage === "watch");
   // Desk view: the moment the scan lands, the AI reads the whole board and names ONE pick
   // ("bence şunu al, şu daha zayıf çünkü ...") — re-generated only when the board changes.
@@ -534,15 +534,32 @@ export function ScannerView({
       </article>
       <DataHealthPanel report={dataHealth} />
       <article className="panel wide">
-        <header className="panel-head"><h2>Elendi / düşük kalite</h2><span className="badge">{rejectedSetups.length}</span></header>
-        <div className="list-stack">
-          {rejectedSetups.slice(0, 8).map((item) => (
+        <header className="panel-head"><h2>Elendi / düşük kalite</h2><span className="badge">{sortedLowQualitySignals.length + rejectedSetups.length}</span></header>
+        <div className="scan-signal-list">
+          {sortedLowQualitySignals.map((signal) => (
+            <button
+              className={selectedSignalId === signal.id ? "scan-signal-card low-quality selected" : "scan-signal-card low-quality"}
+              key={signal.id}
+              onClick={() => onSelectSignal(signal)}
+              type="button"
+            >
+              <span className={`status-dot ${signal.stage}`} />
+              <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
+              <b>{signal.grade} · {signal.score}</b>
+              <small>Düşük ihtimal · {signalDecisionLabel(signal)} · Net RR {formatR(signal.plan.rr)}</small>
+              <em>{signalDecisionReason(signal)}</em>
+            </button>
+          ))}
+        </div>
+        <div className="list-stack compact-list">
+          {rejectedSetups.slice(0, Math.max(0, 8 - sortedLowQualitySignals.length)).map((item) => (
             <div className="row-item" key={`${item.symbol}-${item.reason}`}>
               <strong>{item.symbol}</strong>
               <span>{item.reason}</span>
               <b>{item.score}</b>
             </div>
           ))}
+          {!sortedLowQualitySignals.length && !rejectedSetups.length && <p className="muted-note">Düşük kalite setup yok.</p>}
         </div>
       </article>
     </section>

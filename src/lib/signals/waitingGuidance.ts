@@ -1,5 +1,6 @@
 import type { Candle, TradingSignal } from "../ict/types";
 import { formatPrice } from "../ict/format";
+import { latestClosed } from "../ict/candles";
 
 function executionCandles(signal: TradingSignal): Candle[] {
   return signal.context.timeframes.m15.length ? signal.context.timeframes.m15 : signal.context.timeframes.m5;
@@ -11,7 +12,7 @@ export type CloseConfirmationRequirement = {
   side: "above" | "below";
   candleIndex: number;
   candleTime: number;
-  reference: "last-closed-high" | "last-closed-low";
+  reference: "internal-swing-high" | "internal-swing-low" | "last-closed-high" | "last-closed-low";
   label: string;
   reason: string;
 };
@@ -29,14 +30,24 @@ export function closeConfirmationRequirement(signal: TradingSignal): CloseConfir
         ? signal.context.timeframes.daily
         : executionCandles(signal);
   if (candles.length < 1) return null;
-  const candleIndex = candles.length - 1;
-  const referenceCandle = candles[candleIndex];
+  const chochEvidence = signal.evidence.find((item) => item.id === "choch");
+  const evidenceReferenceIndex = typeof chochEvidence?.metadata?.referenceCandleIndex === "number"
+    ? chochEvidence.metadata.referenceCandleIndex
+    : undefined;
+  const evidenceReferencePrice = typeof chochEvidence?.price === "number" ? chochEvidence.price : undefined;
+  const hasInternalReference = typeof evidenceReferencePrice === "number" && typeof evidenceReferenceIndex === "number";
+  const fallbackCandle = latestClosed(candles);
+  const fallbackIndex = Math.max(0, candles.indexOf(fallbackCandle));
+  const candleIndex = evidenceReferenceIndex ?? fallbackIndex;
+  const referenceCandle = candles[candleIndex] ?? fallbackCandle;
   const timeframe: CloseConfirmationRequirement["timeframe"] = confirmTf === "4h" || confirmTf === "1h" || confirmTf === "1d"
     ? confirmTf
     : signal.context.timeframes.m15.length ? "15m" : "5m";
   const side = signal.direction === "long" ? "above" : "below";
-  const level = signal.direction === "long" ? referenceCandle.high : referenceCandle.low;
-  const reference = signal.direction === "long" ? "last-closed-high" : "last-closed-low";
+  const level = evidenceReferencePrice ?? (signal.direction === "long" ? referenceCandle.high : referenceCandle.low);
+  const reference = hasInternalReference
+    ? signal.direction === "long" ? "internal-swing-high" : "internal-swing-low"
+    : signal.direction === "long" ? "last-closed-high" : "last-closed-low";
   return {
     timeframe,
     level,
@@ -46,8 +57,8 @@ export function closeConfirmationRequirement(signal: TradingSignal): CloseConfir
     reference,
     label: `${timeframe} mum ${formatPrice(level)} ${side === "above" ? "üstünde" : "altında"}`,
     reason: signal.direction === "long"
-      ? "ChoCH/Just için referans high. Üstünde kapanış gelirse alıcı karakter değişimi onaylanır."
-      : "ChoCH/Just için referans low. Altında kapanış gelirse satıcı karakter değişimi onaylanır."
+      ? `${hasInternalReference ? "Raid öncesinde doğrulanmış internal swing high" : "Son kapalı mum high"}. Güçlü displacement kapanışı üstüne gelirse alıcı karakter değişimi onaylanır.`
+      : `${hasInternalReference ? "Raid öncesinde doğrulanmış internal swing low" : "Son kapalı mum low"}. Güçlü displacement kapanışı altına gelirse satıcı karakter değişimi onaylanır.`
   };
 }
 
