@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Plus, Sparkles } from "lucide-react";
+import { Bot, Plus, Sparkles, Trash2 } from "lucide-react";
 import { BacktestView } from "./components/BacktestView";
+import { BrandLogo } from "./components/BrandLogo";
 import { ChartsView } from "./components/ChartsView";
 import { ScannerView } from "./components/ScannerView";
 import { SettingsView } from "./components/SettingsView";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
 import { createDemoMarkets } from "./data/demoData";
 import { runDemoBacktest } from "./lib/backtest/backtestEngine";
-import { runMonthlyRuntimeReplay } from "./lib/backtest/runtimeReplay";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
 import { buildDataHealthReport } from "./lib/data/dataHealth";
 import { loadYahooMarkets, type MarketDataLoadResult } from "./lib/data/yahooProvider";
@@ -15,15 +15,18 @@ import type { MarketContext, MarketSymbol, TradingSignal } from "./lib/ict/types
 import { buildMarketContext } from "./lib/intelligence/marketContext";
 import { attachSmtDivergences } from "./lib/intelligence/smtEngine";
 import { loadJournalEntries, saveJournalEntries, upsertJournalEntry } from "./lib/journal/localJournal";
+import { journalSetupKey } from "./lib/journal/journalEntry";
+import { journalInsights } from "./lib/journal/journalAnalyzer";
+import { journalLearningInsights } from "./lib/journal/strategyLearning";
 import type { JournalEntry } from "./lib/journal/types";
 import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
 import { buildSessionClock, formatTurkeySessionTime } from "./lib/session/sessionClock";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
-import { notifyCrtContextSignalOnce, notifyRaidSignalOnce, notifyReadySignalOnce } from "./lib/telegram/readyAlert";
+import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
-import { defaultRules } from "./lib/userRules/defaultRules";
+import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
@@ -289,40 +292,78 @@ function FinanceDashboard({
   );
 }
 
-function JournalView({ entries, signals, onSelectSignal }: { entries: JournalEntry[]; signals: TradingSignal[]; onSelectSignal: (signal: TradingSignal) => void }) {
+function JournalView({ entries, signals, onSelectSignal, onDelete }: { entries: JournalEntry[]; signals: TradingSignal[]; onSelectSignal: (signal: TradingSignal) => void; onDelete: (tradeId: string) => void }) {
+  const insights = journalInsights(entries);
+  const learning = journalLearningInsights(entries, signals);
+  const actionText = (entry: JournalEntry) => {
+    if (entry.result === "loss") return "STOP OLDU";
+    if (entry.tradeAction === "taken") return "ALDIM";
+    if (entry.tradeAction === "skipped") return "ALMADIM";
+    if (entry.tradeAction === "missed") return "KAÇTI";
+    return "İZLİYORUM";
+  };
   return (
     <section className="journal-page">
       <article className="panel decision-hero compact-hero">
         <div>
-          <span className="eyebrow">Journal</span>
-          <h2>{entries.length ? `${entries.length} local trade notes` : "Approved trades will live here."}</h2>
-          <p>Each card keeps the decision, execution note and outcome together for later review.</p>
+          <span className="eyebrow">Notlar</span>
+          <h2>{entries.length ? `${entries.length} işlem notu` : "Henüz işlem notu yok."}</h2>
+          <p>Karar, uygulama ve sonucu aynı yerde tut.</p>
         </div>
       </article>
+      {entries.length > 0 && (
+        <article className="panel journal-memory-panel">
+          <header className="panel-head">
+            <div><span className="eyebrow">Strateji hafızası</span><h2>Gerçek kararların</h2></div>
+            <span className="badge">lokal</span>
+          </header>
+          <div className="journal-memory-grid">
+            {insights.slice(0, 4).map((insight) => (
+              <div key={insight.label}><span>{insight.label}</span><strong>{insight.value}</strong><small>{insight.detail}</small></div>
+            ))}
+          </div>
+          <details className="compact-details">
+            <summary>Genel özeleştiri için biriken bulgular</summary>
+            <div className="strategy-learning-list">
+              {learning.map((insight) => <div key={`${insight.label}-${insight.value}`}><span>{insight.label}</span><b>{insight.value}</b><small>{insight.detail}</small></div>)}
+            </div>
+          </details>
+        </article>
+      )}
       <div className="journal-card-grid">
         {entries.map((entry) => {
-          const signal = signals.find((item) => item.id === entry.tradeId);
+          const signal = signals.find((item) => item.id === entry.tradeId)
+            ?? signals.find((item) => entry.setupKey && journalSetupKey(item) === entry.setupKey);
+          const snapshot = entry.latestSignalSnapshot ?? entry.signalSnapshot;
           return (
             <article className="panel journal-trade-card" key={entry.tradeId}>
               <div className="journal-thumb">{entry.symbol.slice(0, 3)}</div>
               <div>
-                <span className="eyebrow">{entry.tradeAction ?? "watch"}</span>
+                <span className={`eyebrow journal-action ${entry.result ?? "open"}`}>{actionText(entry)}</span>
                 <h2>{entry.symbol} {entry.direction.toUpperCase()}</h2>
-                <p>{entry.notes || entry.outcomeNote || entry.mistake || "No note yet."}</p>
+                <p>{entry.notes || entry.outcomeNote || entry.mistake || "Not eklenmedi."}</p>
               </div>
               <div className="journal-stat-row">
-                <span>RR <strong>{entry.rMultiple?.toFixed(2) ?? "open"}</strong></span>
-                <span>Result <strong>{entry.result ?? "open"}</strong></span>
-                <span>Emotion <strong>{entry.emotion ?? "—"}</strong></span>
+                <span>Sonuç <strong>{entry.result === "loss" ? "Stop" : entry.result ?? "açık"}</strong></span>
+                <span>R <strong>{entry.rMultiple?.toFixed(2) ?? "—"}</strong></span>
+                <span>Kalite <strong>{snapshot ? `${snapshot.grade} · ${snapshot.score}` : "—"}</strong></span>
               </div>
-              {signal && <button className="ghost-btn" onClick={() => onSelectSignal(signal)} type="button">Open chart</button>}
+              <small className="journal-plan-line">
+                Plan {entry.entry ?? "—"} / SL {entry.stopLoss ?? "—"} / DOL {entry.target ?? "—"}
+                {snapshot ? ` · ${snapshot.rangeTf?.toUpperCase() ?? "CRT"} → ${snapshot.confirmTf.toUpperCase()} · ${snapshot.premiumDiscount}` : ""}
+                {entry.history?.length ? ` · ${entry.history.length} kayıt adımı` : ""}
+              </small>
+              <div className="journal-card-actions">
+                {signal && <button className="ghost-btn" onClick={() => onSelectSignal(signal)} type="button">Chartı aç</button>}
+                <button className="icon-btn" aria-label={`${entry.symbol} journal kaydını sil`} title="Kaydı sil" onClick={() => onDelete(entry.tradeId)} type="button"><Trash2 size={15} /></button>
+              </div>
             </article>
           );
         })}
         {!entries.length && (
           <article className="panel empty-state-card">
-            <h2>No journal cards yet</h2>
-            <p>Approve or note a setup from the chart detail panel and it will appear here.</p>
+            <h2>Not yok</h2>
+            <p>Charttaki işlem panelinden bir karar kaydet.</p>
           </article>
         )}
       </div>
@@ -332,7 +373,15 @@ function JournalView({ entries, signals, onSelectSignal }: { entries: JournalEnt
 
 function AiWorkspace({ signal, signals, journalEntries }: { signal: TradingSignal | null; signals: TradingSignal[]; journalEntries: JournalEntry[] }) {
   const best = signal ?? bestScanSignal(signals) ?? null;
-  const prompts = ["What deserves attention?", "Review my last trade", "Summarize scanner", "Improve this setup"];
+  const prompts = ["Neye bakmalıyım?", "Son işlemimi incele", "Taramayı özetle", "Setupı geliştir"];
+  const [selectedPrompt, setSelectedPrompt] = useState(prompts[0]);
+  const promptAnswer = selectedPrompt === "Son işlemimi incele"
+    ? journalEntries.length ? `Son ${journalEntries.length} not kayıtlı. En son kararda plan ile gerçek giriş/çıkışı kıyasla.` : "İncelenecek işlem notu yok."
+    : selectedPrompt === "Taramayı özetle"
+      ? signals.length ? `${signals.length} aktif aday var. Öncelik ${best?.symbol ?? "yok"}; ${best ? signalReason(best) : "bekle"}` : "Aktif aday yok."
+      : selectedPrompt === "Setupı geliştir"
+        ? best ? `Önce mevcut eksiği tamamla: ${signalReason(best)} Stop ve DOL değişmeden yeni entry üretme.` : "Geliştirilecek aktif setup yok."
+        : best ? `${best.symbol} ${best.direction.toUpperCase()}: ${signalReason(best)}` : "Şu an zorlanacak bir setup yok.";
   return (
     <section className="ai-workspace">
       <article className="ai-chat-shell">
@@ -340,21 +389,21 @@ function AiWorkspace({ signal, signals, journalEntries }: { signal: TradingSigna
           <span className="brand-mark soft"><Bot size={20} /></span>
           <div>
             <span className="eyebrow">Finance AI</span>
-            <h2>Decision coach</h2>
+            <h2>CRT karar koçu</h2>
           </div>
         </header>
         <div className="message-stack">
           <div className="message assistant">
-            <strong>Market read</strong>
-            <p>{best ? best.decisionSummary.fullReasoning : "No active setup is demanding action right now."}</p>
+            <strong>Piyasa okuması</strong>
+            <p>{best ? best.decisionSummary.fullReasoning : "Şu an işlem gerektiren aktif setup yok."}</p>
           </div>
           <div className="message assistant">
-            <strong>Journal memory</strong>
-            <p>{journalEntries.length ? `${journalEntries.length} local notes are available for review.` : "No approved trade notes yet."}</p>
+            <strong>{selectedPrompt}</strong>
+            <p>{promptAnswer}</p>
           </div>
         </div>
         <div className="suggested-prompts">
-          {prompts.map((prompt) => <button key={prompt} type="button">{prompt}</button>)}
+          {prompts.map((prompt) => <button className={selectedPrompt === prompt ? "active" : ""} key={prompt} onClick={() => setSelectedPrompt(prompt)} type="button">{prompt}</button>)}
         </div>
       </article>
     </section>
@@ -381,7 +430,7 @@ export default function App() {
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
   const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("XAUUSD");
   const [strategyId] = useState(strategyRegistry[0].id);
-  const [rules, setRules] = useState<UserRules>(defaultRules);
+  const [rules, setRules] = useState<UserRules>(() => loadUserRules());
   const [selectedSignalState, setSelectedSignalState] = useState<SelectedSignalState>({
     selectedSignalId: null,
     showSelectedSignalOnly: true
@@ -396,6 +445,8 @@ export default function App() {
   const [lastScanTime, setLastScanTime] = useState(Date.now());
   const [clockNow, setClockNow] = useState(Date.now());
   const [backtestResult, setBacktestResult] = useState(runDemoBacktest(contexts));
+  const [backtestLoading, setBacktestLoading] = useState(false);
+  const replayWorkerRef = useRef<Worker | null>(null);
   const [memory, setMemory] = useState(() => createSessionRuntimeMemory(activeSymbol));
   const readyHoldRef = useRef<Record<string, ReadyHoldRecord>>({});
   const activeContext = contexts.find((context) => context.symbol === activeSymbol) ?? contexts[0];
@@ -418,6 +469,12 @@ export default function App() {
       ? { ...current, minimumScore: MIN_VISIBLE_SIGNAL_SCORE }
       : current);
   }, []);
+
+  useEffect(() => {
+    saveUserRules(rules);
+  }, [rules]);
+
+  useEffect(() => () => replayWorkerRef.current?.terminate(), []);
 
   const refreshMarketData = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
     if (refreshInFlightRef.current) return;
@@ -512,20 +569,6 @@ export default function App() {
         }
       });
     }
-    for (const signal of visibleSignals.filter((item) => item.stage === "watch" && item.crtAnchor?.raidActive)) {
-      void notifyRaidSignalOnce(signal).then((result) => {
-        if (result.status === "error") {
-          console.warn("Telegram raid alert failed", result.error);
-        }
-      });
-    }
-    for (const signal of visibleSignals.filter((item) => item.stage === "watch" && !item.crtAnchor?.raidActive)) {
-      void notifyCrtContextSignalOnce(signal).then((result) => {
-        if (result.status === "error") {
-          console.warn("Telegram CRT context alert failed", result.error);
-        }
-      });
-    }
   }, [dataLoading, visibleSignals, lastScanTime]);
 
   useEffect(() => {
@@ -580,9 +623,25 @@ export default function App() {
 
   const runBacktest = () => {
     const strategy = getStrategy(strategyId);
-    setBacktestResult(runMonthlyRuntimeReplay({
+    replayWorkerRef.current?.terminate();
+    const worker = new Worker(new URL("./workers/replay.worker.ts", import.meta.url), { type: "module" });
+    replayWorkerRef.current = worker;
+    setBacktestLoading(true);
+    worker.onmessage = (event: MessageEvent<{ ok: boolean; result?: typeof backtestResult; error?: string }>) => {
+      if (event.data.ok && event.data.result) setBacktestResult(event.data.result);
+      else console.warn("Replay worker failed", event.data.error);
+      setBacktestLoading(false);
+      worker.terminate();
+      if (replayWorkerRef.current === worker) replayWorkerRef.current = null;
+    };
+    worker.onerror = (event) => {
+      console.warn("Replay worker failed", event.message);
+      setBacktestLoading(false);
+      worker.terminate();
+      if (replayWorkerRef.current === worker) replayWorkerRef.current = null;
+    };
+    worker.postMessage({
       markets,
-      strategy,
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
@@ -594,7 +653,7 @@ export default function App() {
         maxDailyRiskPct: rules.maxDailyRiskPct,
         avoidNews: rules.avoidNews
       }
-    }));
+    });
   };
 
   const clearSelection = () => {
@@ -636,6 +695,10 @@ export default function App() {
     setJournalEntries((current) => upsertJournalEntry(current, signal, patch));
   };
 
+  const deleteJournalEntry = (tradeId: string) => {
+    setJournalEntries((current) => current.filter((entry) => entry.tradeId !== tradeId));
+  };
+
   const selectAdjacentSignal = (step: 1 | -1) => {
     if (!chartSignals.length) return;
     const currentIndex = selectedSignal ? chartSignals.findIndex((signal) => signal.id === selectedSignal.id) : -1;
@@ -662,11 +725,7 @@ export default function App() {
       <div className="app-main">
         <header className="finance-topnav">
           <div className="topnav-brand">
-            <span className="brand-mark"><Sparkles size={20} /></span>
-            <div>
-              <strong>Finance AI</strong>
-              <span>Decision workspace</span>
-            </div>
+            <BrandLogo />
           </div>
         </header>
         <main className="workspace">
@@ -750,7 +809,7 @@ export default function App() {
         )}
         {activeView === "backtest" && (
           <section className="analytics-page">
-            <BacktestView result={backtestResult} onRun={runBacktest} />
+            <BacktestView result={backtestResult} onRun={runBacktest} loading={backtestLoading} />
           </section>
         )}
         {activeView === "journal" && (
@@ -758,6 +817,7 @@ export default function App() {
             entries={journalEntries}
             signals={[...chartSignals, ...inactiveSignals]}
             onSelectSignal={selectSignal}
+            onDelete={deleteJournalEntry}
           />
         )}
         {activeView === "ai" && <AiWorkspace signal={selectedSignal} signals={visibleSignals} journalEntries={journalEntries} />}

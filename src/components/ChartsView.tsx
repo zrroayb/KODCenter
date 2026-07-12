@@ -191,6 +191,7 @@ export function ChartsView({
         <header className="chart-toolbar">
           <div>
             <h2>{market.symbol}</h2>
+            {(market.symbol === "XAUUSD" || market.symbol === "NAS100") && <small className="instrument-note">{market.name} · spot/CFD fiyatı değildir</small>}
           </div>
           <div className="chart-actions">
             <label className="marker-toggle"><input type="checkbox" checked={showSignalMarkers} onChange={(event) => onToggleSignalMarkers(event.target.checked)} /> Marker</label>

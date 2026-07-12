@@ -72,6 +72,7 @@ type AnchorOrigin = {
   originIndex: number;
   label: string;
   bias: CrtBiasContext;
+  closed: boolean;
 };
 
 type AnchorCtx = {
@@ -372,6 +373,7 @@ function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
     const liveConfirmCandles = liveConfirmCandlesFor(context, spec);
     if (rangeCandles.length < 4 || confirmCandles.length < 20) return [];
     const latestIndex = rangeCandles.length - 1;
+    const hasExplicitState = rangeCandles.some((candle) => typeof candle.closed === "boolean");
     const lookback = ACTIVE_CRT_LOOKBACK[spec.rangeTf];
     const firstIndex = Math.max(1, latestIndex - lookback);
     const htfFvgs = detectFairValueGaps(rangeCandles);
@@ -385,7 +387,9 @@ function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
       const candle = rangeCandles[originIndex];
       const bias = crtBiasAtIndex(rangeCandles, originIndex, spec);
       if (!candle || !bias || bias.direction === "neutral") continue;
-      const range = rangeFromActiveCrt(candle, spec, originIndex === latestIndex ? `Forming ${spec.rangeTf.toUpperCase()} CRT` : `Active ${spec.rangeTf.toUpperCase()} CRT`);
+      const originClosed = candle.closed === true || (!hasExplicitState && originIndex < latestIndex);
+      const originLabel = originClosed ? `Active ${spec.rangeTf.toUpperCase()} CRT` : `Forming ${spec.rangeTf.toUpperCase()} CRT`;
+      const range = rangeFromActiveCrt(candle, spec, originLabel);
       const rangeHeight = range.high - range.low;
       if (anchorAverageRange > 0 && rangeHeight < anchorAverageRange * 0.45) continue;
       if (!activeCrtStillValid(rangeCandles, originIndex, bias.direction, range)) continue;
@@ -407,8 +411,9 @@ function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
           kind: "active-crt" as const,
           direction: bias.direction,
           originIndex,
-          label: originIndex === latestIndex ? `Forming ${spec.rangeTf.toUpperCase()} CRT` : `Active ${spec.rangeTf.toUpperCase()} CRT`,
-          bias
+          label: originLabel,
+          bias,
+          closed: originClosed
         }
       });
     }
@@ -416,8 +421,9 @@ function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
   });
 }
 
-function symbolBuffer(anchor: AnchorCtx, symbol: MarketSymbol): number {
-  return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_MIN_BUFFER[symbol]);
+function symbolBuffer(anchor: AnchorCtx, symbol: MarketSymbol, profile: StrategyInput["settings"]["stopProfile"] = "normal"): number {
+  const multiplier = profile === "aggressive" ? 0.85 : profile === "conservative" ? 1.25 : 1;
+  return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_MIN_BUFFER[symbol]) * multiplier;
 }
 
 function confirmIndexAtTime(candles: Candle[], time: number): number {
@@ -445,11 +451,21 @@ function directionForAnchor(_context: MarketContext, anchor: AnchorCtx): { direc
 
 function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtSetup["manipulation"] {
   if (anchor.origin?.kind === "fvg-origin" && anchor.origin.direction === direction) {
-    const tapCandle = anchor.rangeCandles[anchor.origin.tapIndex];
+    const origin = anchor.origin;
+    const tapCandle = anchor.rangeCandles[origin.tapIndex];
+    const nextRangeCandle = anchor.rangeCandles[origin.tapIndex + 1];
+    const tapWindowEnd = nextRangeCandle?.time ?? (tapCandle?.time ?? 0) + 4 * 60 * 60 * 1000;
+    const tapConfirmIndex = anchor.confirmCandles.findIndex((candle) =>
+      candle.time >= (tapCandle?.time ?? 0)
+      && candle.time < tapWindowEnd
+      && candle.low <= origin.fvg.high
+      && candle.high >= origin.fvg.low
+    );
+    if (tapConfirmIndex < 0) return undefined;
     return {
       side: expectedSweepSide(direction),
-      level: direction === "long" ? anchor.origin.fvg.low : anchor.origin.fvg.high,
-      candleIndex: confirmIndexAtTime(anchor.confirmCandles, tapCandle?.time ?? anchor.confirmCandles.at(-1)?.time ?? 0),
+      level: direction === "long" ? origin.fvg.low : origin.fvg.high,
+      candleIndex: tapConfirmIndex,
       reclaimed: true
     };
   }
@@ -647,9 +663,8 @@ function entryLevelForAnchor(anchor: AnchorCtx, direction: TradeDirection, choch
     : choch.level;
 }
 
-function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, turtleSoup: TurtleSoupPattern | undefined, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, retestIndex: number | undefined, minimumRR: number, stress: ExecutionCostStress): TradePlan {
+function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, turtleSoup: TurtleSoupPattern | undefined, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, retestIndex: number | undefined, minimumRR: number, buffer: number, stress: ExecutionCostStress): TradePlan {
   const candles = anchor.confirmCandles;
-  const buffer = symbolBuffer(anchor, context.symbol);
   // Entry is the actual post-ChoCH retest level, never the displaced break close.
   const entry = entryLevelForAnchor(anchor, direction, choch, poi);
   // Stop must sit on the loss side of the entry.
@@ -743,7 +758,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const picked = directionForAnchor(context, anchor);
   if (!picked) return undefined;
   const { direction, source: directionSource } = picked;
-  const buffer = symbolBuffer(anchor, context.symbol);
+  const buffer = symbolBuffer(anchor, context.symbol, settings.stopProfile);
   const turtleSoup = anchor.turtleSoup?.direction === direction ? anchor.turtleSoup : undefined;
   const manipulation: CrtSetup["manipulation"] = turtleSoup
     ? { side: expectedSweepSide(direction), level: turtleSoup.sweepLevel, candleIndex: turtleSoup.turtleCandleIndex, reclaimed: true }
@@ -756,7 +771,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const retestIndex = typeof retestKnownIndex === "number"
     ? findCrtEntryRetestIndex(anchor.liveConfirmCandles, plannedEntry, retestKnownIndex)
     : undefined;
-  const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, retestIndex, minimumRR, executionCostStress(settings));
+  const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, retestIndex, minimumRR, buffer, executionCostStress(settings));
   const bias = anchorBias(anchor);
   const biasConflict = directionSource === "raid" && bias.direction !== "neutral" && bias.direction !== direction;
   const continuationAgainst = (bias.kind === "bullish-continuation" && direction === "short")
@@ -832,6 +847,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const blockers = [
     // Turtle Soup is optional manipulation evidence, not an entry model. READY must come from
     // the actual sequence: raid/manipulation -> POI/retest -> ChoCH/Just -> DOL plan.
+    anchor.origin?.kind === "active-crt" && !anchor.origin.closed ? `${anchor.spec.rangeTf.toUpperCase()} CRT origin mumu henüz kapanmadı; gelişen bağlam READY olamaz.` : undefined,
     !pdAligned ? `${direction.toUpperCase()} için CRT range ${expectedPd(direction)} gerekir; şu an ${crtZone}.` : undefined,
     !poi && !choch ? "Entry referansı yok: raid displacement'ı FVG/OB bırakmadı ve ChoCH kapanışı yok." : undefined,
     !anchorAtKeyLevel && !fvgConfluence ? "Raid/entry HTF haritada bir POI'ye denk gelmiyor (key level / HTF FVG yok)." : undefined,
@@ -850,6 +866,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // News-expansion (real spike) still vetoes; plain chop is a quality note, not a veto —
     // CRT manipulation forms inside accumulation. eqTooClose is a management note, not a kill.
     context.regime.type === "news-expansion" ? `Haber/spike expansion rejimi: ${context.regime.summary}` : undefined,
+    settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
     context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias reversal alınmaz; sweep devam hareketine dönüşür." : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
@@ -859,7 +876,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     choch && !poi ? "Displacement POI yok; entry ChoCH/MSS seviyesinin retest'i." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
-    context.eventRisk.noTrade && settings.avoidNews === true ? `${context.eventRisk.summary} (hard gate değil; spread/slippage riski notu.)` : undefined,
+    context.eventRisk.noTrade && settings.avoidNews !== true ? `${context.eventRisk.summary} (haber filtresi kapalı; manuel risk notu.)` : undefined,
     // Note only — a live raid whose reclaim holds is a valid setup basis; the mitigating
     // candle does not have to close inside the range before dropping to the LTF for entry.
     !raidClosed && manipulation ? "Raid mumu henüz kapanmadı; reclaim tutuyor, LTF onayına geçilebilir." : undefined,
@@ -925,8 +942,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     : manipulation
     ? "raid"
     : "context";
-  // Blockers gate READY above; the visible score cap keeps blocked setups clearly below B.
-  const cappedScore = blockers.length ? Math.min(score, 69) : score;
+  // Blockers gate READY; score remains a quality measure and must retain variation so the
+  // radar can distinguish a 61-point early idea from an 89-point setup with one hard issue.
+  const visibleScore = Math.max(0, score - Math.min(24, blockers.length * 4));
   return {
     direction,
     directionSource,
@@ -940,7 +958,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     plan: { ...plan, planWarnings: Array.from(new Set(warnings)) },
     warnings,
     blockers,
-    score: cappedScore,
+    score: visibleScore,
     raidClosed,
     anchorAtKeyLevel,
     fvgConfluence,
@@ -1194,6 +1212,7 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       rangeLow: anchor.range.low,
       origin: anchor.origin?.kind ?? "standard",
       originLabel: anchor.origin?.kind === "fvg-origin" ? "4H FVG origin CRT" : anchor.origin?.kind === "active-crt" ? anchor.origin.label : undefined,
+      originClosed: anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true,
       setupPhase: setup.setupPhase
     }
   };

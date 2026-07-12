@@ -184,15 +184,16 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   const neutralChecklist = signal.decisionSummary.checklist.filter((item) => item.status === "neutral");
   const passedLabels = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
   if (signal.plan.entryStatus !== "confirmed") {
-    if (retestRequirement) needs.push(retestRequirement);
     if (closeRequirement) {
       needs.push(`${closeRequirement.label} kapanmalı. ${closeRequirement.reason}`);
+    } else if (retestRequirement) {
+      needs.push(retestRequirement);
     }
     if (!retestRequirement && !closeRequirement) {
       needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
     }
   }
-  if (signal.stage === "watch" && !needs.some((item) => item.includes("mum " + simpleDirection))) {
+  if (signal.stage === "watch" && !closeRequirement && !needs.some((item) => item.includes("mum " + simpleDirection))) {
     needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
   }
   for (const item of [...failedChecklist, ...neutralChecklist].filter((item) => item.label !== "Entry Model" && item.label !== "MSS" && item.label !== "ChoCH / Just").slice(0, 3)) {
@@ -517,6 +518,9 @@ export function ScannerView({
           {!signals.length && <p className="muted-note">Mevcut runtime kurallarına uyan görünür sinyal yok.</p>}
         </div>
       </article>
+      <details className="scanner-more">
+        <summary>Geçmiş, veri ve düşük kalite</summary>
+        <div className="scanner-more-body">
       <article className="panel">
         <header className="panel-head"><h2>Geçmiş / bozulmuş setup</h2><span className="badge">{inactiveSignals.length}</span></header>
         <div className="scan-signal-list">
@@ -562,6 +566,8 @@ export function ScannerView({
           {!sortedLowQualitySignals.length && !rejectedSetups.length && <p className="muted-note">Düşük kalite setup yok.</p>}
         </div>
       </article>
+        </div>
+      </details>
     </section>
   );
 }

@@ -27,6 +27,37 @@ function averageR(entries: JournalEntry[]): number | undefined {
   return average(closedR(entries).map((entry) => entry.rMultiple ?? 0));
 }
 
+function snapshotBucketInsights(entries: JournalEntry[]): JournalInsight[] {
+  const dimensions: Array<{ label: string; value: (entry: JournalEntry) => string | undefined }> = [
+    { label: "Range TF", value: (entry) => entry.latestSignalSnapshot?.rangeTf },
+    { label: "Session", value: (entry) => entry.latestSignalSnapshot?.session },
+    { label: "PD bölgesi", value: (entry) => entry.latestSignalSnapshot?.premiumDiscount },
+    { label: "Rejim", value: (entry) => entry.latestSignalSnapshot?.regime },
+    { label: "Grade", value: (entry) => entry.latestSignalSnapshot?.grade },
+    { label: "Origin", value: (entry) => entry.latestSignalSnapshot?.origin }
+  ];
+  const insights: JournalInsight[] = [];
+  for (const dimension of dimensions) {
+    const values = Array.from(new Set(entries.map(dimension.value).filter((value): value is string => Boolean(value))));
+    const buckets = values
+      .map((value) => {
+        const matches = entries.filter((entry) => dimension.value(entry) === value);
+        return { value, count: matches.length, avgR: averageR(matches) };
+      })
+      .filter((bucket) => bucket.count >= 2 && typeof bucket.avgR === "number")
+      .sort((a, b) => (a.avgR ?? 0) - (b.avgR ?? 0));
+    const worst = buckets[0];
+    if (worst && typeof worst.avgR === "number" && worst.avgR < 0) {
+      insights.push({
+        label: `${dimension.label} zayıf bucket`,
+        value: `${worst.value} · ${worst.avgR.toFixed(2)}R`,
+        detail: `${worst.count} alınmış/kapanmış işlem. Kuralı değiştirmeden önce örneklemi büyüt; tekrar ederse READY kalitesini düşür.`
+      });
+    }
+  }
+  return insights;
+}
+
 export function journalLearningInsights(entries: JournalEntry[], signals: TradingSignal[]): JournalInsight[] {
   const closed = closedR(entries);
   const taken = entries.filter((entry) => entry.tradeAction === "taken" || Boolean(entry.takenAt));
@@ -79,6 +110,22 @@ export function journalLearningInsights(entries: JournalEntry[], signals: Tradin
       label: "Kural ihlali",
       value: `${topRuleViolation.count}x`,
       detail: `${topRuleViolation.key} tekrar ediyor. Bu rule fail ise aktif sinyal otomatik düşük öncelik olmalı.`
+    });
+  }
+
+  const takenClosed = taken.filter((entry) => typeof entry.rMultiple === "number" && entry.result !== "open");
+  insights.push(...snapshotBucketInsights(takenClosed));
+
+  const losingBlockers = countBy(
+    takenClosed
+      .filter((entry) => (entry.rMultiple ?? 0) < 0)
+      .flatMap((entry) => entry.latestSignalSnapshot?.blockers ?? [])
+  )[0];
+  if (losingBlockers && losingBlockers.count >= 2) {
+    insights.push({
+      label: "Kayıpta tekrar eden blocker",
+      value: `${losingBlockers.count}x`,
+      detail: losingBlockers.key
     });
   }
 

@@ -40,7 +40,7 @@ function managementVerdictText(item: { id: string; verdict: string; deltaR: numb
   return "Benzer";
 }
 
-export function BacktestView({ result, onRun }: { result: BacktestResult; onRun: () => void }) {
+export function BacktestView({ result, onRun, loading = false }: { result: BacktestResult; onRun: () => void; loading?: boolean }) {
   const [aiReview, setAiReview] = useState<GeminiReplayReviewResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
   const [aiLoading, setAiLoading] = useState(false);
   const replay = result.replay;
@@ -80,7 +80,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
         </div>
         <div className="panel-actions">
           {replay && <button className="ghost-btn" onClick={runAiReview} type="button" disabled={aiLoading}>{aiLoading ? "Gemini okuyor" : "AI replay yorumu"}</button>}
-          <button className="ghost-btn" onClick={onRun} type="button"><RefreshCcw size={15} /> Son 1 ayı replay et</button>
+          <button className="ghost-btn" onClick={onRun} type="button" disabled={loading}><RefreshCcw className={loading ? "spin" : ""} size={15} /> {loading ? "Replay çalışıyor" : "Son 1 ayı replay et"}</button>
         </div>
       </header>
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
@@ -91,7 +91,7 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
           </div>
           {replay.liveReadyEntries === 0 && replay.watchPromotedEntries > 0 && (
             <p className="provider-warning" style={{ borderColor: "var(--border-warning, #ba7517)" }}>
-              ⚠ Canlı-READY girişi: 0. Yukarıdaki Profit Factor, Total R ve Win Rate <b>canlı performans değil</b> — hepsi WATCH-promoted counterfactual ("READY'yi beklemeyip eligible-watch'ta girseydin"). Canlı sistem bu pencerede hiç trade almadı; doktrin sıkı, READY nadir.
+              Canlı READY girişi yok. Bu sonuçlar WATCH adaylarının geçmişte nasıl davranacağını ölçer; canlı performans değildir.
             </p>
           )}
           {replay.sampleWarning && <p className="provider-warning">{replay.sampleWarning}</p>}
@@ -101,6 +101,9 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
               ? <p>{aiReview.commentary}</p>
               : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
           </div>
+          <details className="replay-deep-dive">
+            <summary>Detaylı replay analizi</summary>
+            <div className="replay-deep-dive-body">
           <div className="strategy-learning-list replay-diagnosis-list">
             <strong>Replay teşhisi</strong>
             {replay.replayDiagnosis.map((item) => (
@@ -218,6 +221,8 @@ export function BacktestView({ result, onRun }: { result: BacktestResult; onRun:
             ))}
             {!replay.candidates.length && <p className="muted-note">Replay scan çalıştı ama aday kaydı yok. Bu durumda veri warmup veya rule filtreleri çok sıkı olabilir.</p>}
           </div>
+            </div>
+          </details>
         </>
       )}
       <div className="equity-curve">

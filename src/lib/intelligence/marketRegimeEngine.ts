@@ -63,7 +63,7 @@ export function classifyMarketRegime(candles: Candle[]): MarketRegimeContext {
       efficiency,
       volatilityRatio,
       rangePosition,
-      summary: "Trend rejimi: reversal KOD için daha seçici olmak gerekir.",
+      summary: "Trend rejimi: CRT reversal için daha seçici olmak gerekir.",
       warnings: ["Trend gününde counter-sweep setup devam hareketine dönüşebilir."]
     };
   }

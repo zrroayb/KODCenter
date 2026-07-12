@@ -43,8 +43,8 @@ type YahooChartResponse = {
 };
 
 const YAHOO_SYMBOLS: Array<{ symbol: MarketSymbol; name: string; yahoo: string }> = [
-  { symbol: "XAUUSD", name: "Gold Futures", yahoo: "GC=F" },
-  { symbol: "NAS100", name: "Nasdaq 100 Futures", yahoo: "NQ=F" },
+  { symbol: "XAUUSD", name: "Gold futures proxy · GC=F", yahoo: "GC=F" },
+  { symbol: "NAS100", name: "Nasdaq futures proxy · NQ=F", yahoo: "NQ=F" },
   { symbol: "EURUSD", name: "Euro Dollar", yahoo: "EURUSD=X" },
   { symbol: "GBPUSD", name: "Pound Dollar", yahoo: "GBPUSD=X" },
   // Yahoo's canonical ticker for USD-base pairs drops the USD prefix ("JPY=X" is USD/JPY).

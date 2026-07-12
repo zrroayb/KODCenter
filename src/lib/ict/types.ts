@@ -412,5 +412,6 @@ export type CrtAnchorInfo = {
   rangeLow: number;
   origin?: "standard" | "fvg-origin" | "active-crt";
   originLabel?: string;
+  originClosed?: boolean;
   setupPhase?: "context" | "raid" | "model" | "ready";
 };

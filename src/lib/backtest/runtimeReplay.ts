@@ -13,8 +13,8 @@ import {
   type RuntimeReplayTrade
 } from "../analytics/performance";
 import { aggregateCandles, trimCandles } from "../data/candleAggregation";
-import { executableHigh, executableLow } from "../data/bidAsk";
-import type { Candle, MarketContext, MarketSymbol, TradingSignal } from "../ict/types";
+import { executableClose, executableHigh, executableLow } from "../data/bidAsk";
+import type { Candle, MarketContext, MarketSymbol, Timeframe, TradingSignal } from "../ict/types";
 import { isCryptoSymbol } from "../ict/symbols";
 import { buildMarketContext, type MarketTimeframes } from "../intelligence/marketContext";
 import { attachSmtDivergences } from "../intelligence/smtEngine";
@@ -79,26 +79,44 @@ function executionCandles(market: DemoMarket): Candle[] {
 }
 
 function latestReplayTime(markets: DemoMarket[]): number {
-  return Math.max(...markets.flatMap((market) => executionCandles(market).slice(-1).map((candle) => candle.time)), 0);
+  return Math.max(...markets.flatMap((market) => executionCandles(market).slice(-1).map((candle) => candle.time + 15 * 60 * 1000)), 0);
 }
 
 function earliestReplayTime(markets: DemoMarket[]): number {
-  const firstTimes = markets.flatMap((market) => executionCandles(market).slice(0, 1).map((candle) => candle.time));
+  const firstTimes = markets.flatMap((market) => executionCandles(market).slice(0, 1).map((candle) => candle.time + 15 * 60 * 1000));
   return firstTimes.length ? Math.min(...firstTimes) : 0;
 }
 
-function sliceByTime(candles: Candle[], time: number, count: number): Candle[] {
-  return trimCandles(candles.filter((candle) => candle.time <= time), count);
+function candleCloseTime(time: number, timeframe: Timeframe): number {
+  if (timeframe === "1M") {
+    const date = new Date(time);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  }
+  if (timeframe === "1w") return time + 7 * DAY_MS;
+  if (timeframe === "1d") return time + DAY_MS;
+  if (timeframe === "4h") return time + 4 * 60 * 60 * 1000;
+  if (timeframe === "1h") return time + 60 * 60 * 1000;
+  if (timeframe === "15m") return time + 15 * 60 * 1000;
+  return time + 5 * 60 * 1000;
+}
+
+function sliceByTime(candles: Candle[], time: number, count: number, timeframe: Timeframe): Candle[] {
+  return trimCandles(
+    candles
+      .filter((candle) => candleCloseTime(candle.time, timeframe) <= time)
+      .map((candle) => ({ ...candle, closed: true })),
+    count
+  );
 }
 
 function timeframesAt(market: DemoMarket, time: number): MarketTimeframes {
-  const m15 = sliceByTime(market.timeframes.m15, time, 220);
-  const h1 = sliceByTime(market.timeframes.h1, time, 180);
-  const h4 = sliceByTime(market.timeframes.h4, time, 140);
-  const daily = sliceByTime(market.timeframes.daily, time, 220);
-  const weekly = sliceByTime(market.timeframes.weekly, time, 80);
-  const monthly = sliceByTime(market.timeframes.monthly, time, 24);
-  const m5 = sliceByTime(market.timeframes.m5, time, 220);
+  const m15 = sliceByTime(market.timeframes.m15, time, 220, "15m");
+  const h1 = sliceByTime(market.timeframes.h1, time, 180, "1h");
+  const h4 = sliceByTime(market.timeframes.h4, time, 140, "4h");
+  const daily = sliceByTime(market.timeframes.daily, time, 220, "1d");
+  const weekly = sliceByTime(market.timeframes.weekly, time, 80, "1w");
+  const monthly = sliceByTime(market.timeframes.monthly, time, 24, "1M");
+  const m5 = sliceByTime(market.timeframes.m5, time, 220, "5m");
   return {
     monthly: monthly.length ? monthly : trimCandles(aggregateCandles(daily, "1M"), 24),
     weekly: weekly.length ? weekly : trimCandles(aggregateCandles(daily, "1w"), 80),
@@ -123,7 +141,7 @@ function replayTimes(markets: DemoMarket[], startedAt: number, endedAt: number, 
     markets.flatMap((market) =>
       executionCandles(market)
         .filter((candle) => candle.time >= startedAt && candle.time <= endedAt)
-        .map((candle) => candle.time)
+        .map((candle) => candle.time + 15 * 60 * 1000)
     )
   )).sort((a, b) => a - b);
   const step = Math.max(1, Math.floor(scanEveryCandles));
@@ -182,7 +200,7 @@ function applyReplayRisk(state: DayRiskState, signal: TradingSignal, outcome: Re
 
 function futureCandlesForSignal(market: DemoMarket, signalTime: number, maxHoldCandles: number): Candle[] {
   return executionCandles(market)
-    .filter((candle) => candle.time > signalTime)
+    .filter((candle) => candle.time >= signalTime)
     .slice(0, maxHoldCandles);
 }
 
@@ -195,6 +213,13 @@ function rAtPrice(signal: TradingSignal, price: number): number {
   return signal.direction === "short"
     ? (signal.plan.entry - price) / risk
     : (price - signal.plan.entry) / risk;
+}
+
+function expiryCloseR(signal: TradingSignal, candles: Candle[]): number {
+  const last = candles[candles.length - 1];
+  if (!last) return 0;
+  const exitSide = signal.direction === "short" ? "buy" : "sell";
+  return Number(Math.max(-1, rAtPrice(signal, executableClose(last, exitSide))).toFixed(2));
 }
 
 function targetR(signal: TradingSignal, targetIndex: 0 | 1): number {
@@ -331,7 +356,7 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
     if (maxFavorableR >= 1) armed = true;
   }
   const before = (a: number, b: number) => a >= 0 && (b < 0 || a <= b);
-  const expiredR = Number(Math.max(-1, Math.min(maxFavorableR, 0.25)).toFixed(2));
+  const expiredR = expiryCloseR(signal, afterEntry);
 
   // BE yok: EQ'da %50 realize, kalan yarım orijinal stopla DOL'u bekler.
   const noBe = before(firstStop, firstEq)
@@ -363,20 +388,23 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
   return { noBe, fullDol, eqFull };
 }
 
-function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[]): ReplayOutcome {
+function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[], settings: StrategySettings = {}): ReplayOutcome {
   return {
-    ...evaluateCrtForwardOutcomeCore(signal, afterEntry, tags),
+    ...evaluateCrtForwardOutcomeCore(signal, afterEntry, tags, settings),
     managementVariants: crtManagementVariants(signal, afterEntry)
   };
 }
 
-function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle[], tags: string[]): ReplayOutcome {
+function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle[], tags: string[], settings: StrategySettings): ReplayOutcome {
   let maxFavorableR = 0;
   let maxAdverseR = 0;
   let eqHitIndex = -1;
   let breakevenArmed = false;
   const eqR = targetR(signal, 0);
   const dolR = targetR(signal, 1);
+  const partialTpEnabled = settings.partialTpEnabled !== false;
+  const configuredBe = typeof settings.moveToBreakevenAtR === "number" ? settings.moveToBreakevenAtR : 1;
+  const breakevenTriggerR = configuredBe > 0 ? configuredBe : Number.POSITIVE_INFINITY;
 
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
@@ -398,7 +426,7 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
     const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
     maxFavorableR = Math.max(maxFavorableR, highR, lowR);
     maxAdverseR = Math.min(maxAdverseR, highR, lowR);
-    if (maxFavorableR >= 1) breakevenArmed = true;
+    if (maxFavorableR >= breakevenTriggerR) breakevenArmed = true;
 
     if (eqHitIndex < 0) {
       if (stopHit(signal, candle)) {
@@ -416,7 +444,7 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
       if (targetHit(signal, candle, 1)) {
         return {
           status: "tp2",
-          rMultiple: Number((0.5 * eqR + 0.5 * dolR).toFixed(2)),
+          rMultiple: Number((partialTpEnabled ? 0.5 * eqR + 0.5 * dolR : dolR).toFixed(2)),
           maxFavorableR,
           maxAdverseR,
           candlesHeld: index + 1,
@@ -426,7 +454,7 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
         };
       }
       if (targetHit(signal, candle, 0)) {
-        eqHitIndex = index;
+        if (partialTpEnabled) eqHitIndex = index;
         continue;
       }
       continue;
@@ -473,17 +501,17 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
 
   return {
     status: "open",
-    rMultiple: Math.max(-1, Math.min(maxFavorableR, 0.25)),
+    rMultiple: expiryCloseR(signal, afterEntry),
     maxFavorableR,
     maxAdverseR,
     candlesHeld: afterEntry.length,
     outcomeReason: "expired",
     tags,
-    note: `CRT süre doldu; EQ/DOL görülmedi. Max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
+    note: `CRT süre doldu; EQ/DOL görülmedi. Pozisyon pencere sonu executable close ile değerlendi. Max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
   };
 }
 
-function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], tagsExtra: string[] = []): ReplayOutcome {
+function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], tagsExtra: string[] = [], settings: StrategySettings = {}): ReplayOutcome {
   const tags = Array.from(new Set([...tradeTags(signal), ...tagsExtra]));
   if (!futureCandles.length) {
     return { status: "open", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "expired", tags, note: "İleri mum yok; sonuç açık kaldı." };
@@ -523,7 +551,7 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
   let maxFavorableR = 0;
   let maxAdverseR = 0;
   const afterEntry = futureCandles.slice(entryIndex);
-  if (signal.strategyId === "crt") return evaluateCrtForwardOutcome(signal, afterEntry, tags);
+  if (signal.strategyId === "crt") return evaluateCrtForwardOutcome(signal, afterEntry, tags, settings);
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
     const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
@@ -576,13 +604,13 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
 
   return {
     status: "open",
-    rMultiple: Math.max(-1, Math.min(maxFavorableR, 0.5)),
+    rMultiple: expiryCloseR(signal, afterEntry),
     maxFavorableR,
     maxAdverseR,
     candlesHeld: afterEntry.length,
     outcomeReason: "expired",
     tags,
-    note: `Süre doldu; max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
+    note: `Süre doldu; pencere sonu executable close ile değerlendi. Max ${maxFavorableR.toFixed(2)}R, adverse ${maxAdverseR.toFixed(2)}R.`
   };
 }
 
@@ -1256,7 +1284,8 @@ export function runMonthlyRuntimeReplay({
       const outcome = evaluateForwardOutcome(
         candidate.signal,
         adjustedFuture.candles,
-        [...baseTags, ...adjustedFuture.tags]
+        [...baseTags, ...adjustedFuture.tags],
+        settings
       );
       const measuredOutcome = adjustedFuture.missingNote
         ? noTriggerOutcome(candidate.signal, [...baseTags, ...adjustedFuture.tags], adjustedFuture.missingNote)
@@ -1359,5 +1388,6 @@ export function runMonthlyRuntimeReplay({
 }
 
 export const __runtimeReplayInternals = {
-  evaluateForwardOutcome
+  evaluateForwardOutcome,
+  timeframesAt
 };

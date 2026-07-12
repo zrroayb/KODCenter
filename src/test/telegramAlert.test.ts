@@ -193,12 +193,12 @@ describe("Telegram READY alert payload", () => {
     expect(readyTelegramDedupeKey(signal)).not.toBe(signal.id);
   });
 
-  it("posts a Daily CRT context alert for high-score WATCH bias before entry is ready", async () => {
+  it("does not post a low-quality Daily CRT context before entry is ready", async () => {
     const signal = dailyContextSignal();
     if (!signal) throw new Error("Daily context signal missing");
     expect(signal.stage).toBe("watch");
     expect(signal.direction).toBe("long");
-    expect(signal.score).toBeGreaterThanOrEqual(50);
+    expect(signal.score).toBeLessThan(50);
     expect(signal.crtAnchor?.raidActive).toBe(false);
     expect(signal.evidence.find((item) => item.id === "crt-bias")?.status).toBe("pass");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
@@ -208,22 +208,17 @@ describe("Telegram READY alert payload", () => {
 
     const result = await notifyCrtContextSignalOnce(signal);
 
-    expect(result.status).toBe("sent");
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.alertKind).toBe("context");
-    expect(body.stage).toBe("watch");
-    expect(body.rangeTf).toBe("1d");
-    expect(body.reasons.join(" ")).toContain("1D CRT yön verdi");
+    expect(result.status).toBe("disabled");
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
-  it("posts a 4H FVG origin CRT context alert after the FVG tap holds", async () => {
+  it("does not post a low-quality 4H FVG origin context alert", async () => {
     const signal = fvgOriginContextSignal();
     if (!signal) throw new Error("FVG origin signal missing");
     expect(signal.stage).toBe("watch");
     expect(signal.crtAnchor?.origin).toBe("fvg-origin");
-    expect(signal.score).toBeGreaterThanOrEqual(65);
+    expect(signal.score).toBeLessThan(50);
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => ({ status: "sent" })
@@ -231,11 +226,8 @@ describe("Telegram READY alert payload", () => {
 
     const result = await notifyCrtContextSignalOnce(signal);
 
-    expect(result.status).toBe("sent");
-    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.alertKind).toBe("context");
-    expect(body.rangeTf).toBe("4h");
-    expect(body.reasons.join(" ")).toContain("4H FVG origin CRT");
+    expect(result.status).toBe("disabled");
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 });

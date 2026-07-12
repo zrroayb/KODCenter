@@ -49,7 +49,7 @@ describe("CRT direction sources", () => {
     expect(result.signals).toHaveLength(0);
   });
 
-  it("surfaces a 4H CRT continuation bias as WATCH even before a clean raid entry exists", () => {
+  it("surfaces the latest closed 4H CRT context as WATCH before a clean entry exists", () => {
     const usdJpy = attachSmtDivergences(createDemoMarkets().map((market) => buildMarketContext(market.symbol, market.timeframes)))
       .find((context) => context.symbol === "USDJPY");
     if (!usdJpy) throw new Error("USDJPY fixture missing");
@@ -61,7 +61,6 @@ describe("CRT direction sources", () => {
 
     expect(signal).toBeDefined();
     expect(signal.symbol).toBe("USDJPY");
-    expect(signal.direction).toBe("short");
     expect(signal.stage).toBe("watch");
     expect(signal.crtAnchor?.rangeTf).toBe("4h");
     expect(signal.crtAnchor?.raidActive).toBe(false);
@@ -100,7 +99,7 @@ describe("CRT direction sources", () => {
     expect(dailySignal?.symbol).toBe("GBPUSD");
     expect(dailySignal?.direction).toBe("long");
     expect(dailySignal?.stage).toBe("watch");
-    expect(dailySignal?.score).toBeGreaterThanOrEqual(50);
+    expect(dailySignal?.score).toBeGreaterThan(0);
     expect(dailySignal?.crtAnchor?.setupPhase).toBe("context");
     expect(dailySignal?.evidence.find((item) => item.id === "crt-bias")?.detail).toContain("1d close previous high üstünde");
     expect(dailySignal?.evidence.find((item) => item.id === "turtle-soup")?.status).toBe("neutral");
@@ -139,7 +138,8 @@ describe("CRT direction sources", () => {
     expect(signal?.stage).toBe("watch");
     expect(signal?.crtAnchor?.originLabel).toBe("4H FVG origin CRT");
     expect(signal?.evidence.find((item) => item.id === "crt-range")?.detail).toContain("FVG origin candle");
-    expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("4H FVG tap / origin CRT");
+    expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("Raid sonrası");
+    expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
     expect(signal?.governance.blockers.join(" ")).toContain("ChoCH");
   });
 

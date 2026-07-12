@@ -8,6 +8,23 @@ function candle(time: number, open: number, high: number, low: number, close: nu
 }
 
 describe("candle aggregation", () => {
+  it("keeps the latest higher-timeframe bucket forming until its real end", () => {
+    const start = Date.UTC(2026, 6, 10, 8, 0);
+    const source = Array.from({ length: 6 }, (_, index) => ({
+      time: start + index * 5 * 60 * 1000,
+      open: 100,
+      high: 101,
+      low: 99,
+      close: 100,
+      volume: 1,
+      closed: true
+    }));
+
+    const h1 = aggregateCandles(source, "1h");
+
+    expect(h1.at(-1)?.closed).toBe(false);
+  });
+
   it("aggregates lower timeframe candles into OHLCV buckets", () => {
     const start = Date.UTC(2026, 5, 30, 8, 0);
     const candles = [

@@ -1,5 +1,5 @@
 /* ============================================================
-   KOD Center — CRT trading terminal
+   CRT trading terminal
    Dark, flat, precise. One surface system, hairline borders,
    validated mark colors (bull #089981 / bear #f23645 / accent
    #3987e5 — CVD ΔE 20.3, all ≥3:1 on the dark surface).
@@ -2285,6 +2285,66 @@ textarea:hover {
   }
 }
 
+/* Final audit pass: one decision first, details on demand. */
+.scanner-more,
+.replay-deep-dive {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.scanner-more > summary,
+.replay-deep-dive > summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.scanner-more-body,
+.replay-deep-dive-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.view-scanner .hero-panel {
+  display: none;
+}
+
+.instrument-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.suggested-prompts button.active {
+  border-color: var(--blue);
+  color: var(--ink);
+  background: var(--blue-soft);
+}
+
+.spin {
+  animation: replay-spin 0.9s linear infinite;
+}
+
+@keyframes replay-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .mobile-tabbar {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .mobile-tabbar button {
+    min-width: 0;
+    padding-inline: 1px;
+  }
+}
+
 @media (max-width: 640px) {
   .sidebar {
     padding: 8px 10px;
@@ -3822,4 +3882,231 @@ button {
   .dashboard-brief {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* Must remain last: legacy chart rules above share selectors with this layout. */
+@media (min-width: 1181px) {
+  .view-charts .charts-workspace,
+  .view-charts .charts-workspace.single-chart-mode,
+  .view-charts .charts-workspace.with-selection {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .view-charts .pair-rail {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    flex-direction: row;
+    gap: 6px;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .view-charts .pair-rail-title { display: none; }
+  .view-charts .pair-row { flex: 0 0 105px; min-height: 46px; padding: 7px 8px; }
+  .view-charts .charts-main { grid-column: 1; grid-row: 2; }
+  .view-charts .selection-dock { grid-column: 2; grid-row: 2; }
+}
+
+@media (max-width: 900px) {
+  .mobile-tabbar { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+}
+
+.journal-quick-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.journal-quick-card > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.journal-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.journal-quick-actions button {
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 760;
+}
+
+.journal-quick-actions button.active {
+  border-color: var(--blue);
+  color: var(--ink);
+  background: var(--blue-soft);
+}
+
+.journal-quick-actions button.loss {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.journal-memory-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.journal-memory-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.journal-memory-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.journal-memory-grid span,
+.journal-memory-grid small,
+.journal-plan-line {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.journal-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* CRT brand: range boundaries plus the delivery candle. */
+.brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topnav-brand .brand-logo {
+  display: inline-flex;
+}
+
+.crt-logo-mark {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(69, 179, 216, 0.42);
+  border-radius: 10px;
+  background: #101822;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025), 0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+.crt-logo-mark::before,
+.crt-logo-mark::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  height: 1px;
+  background: var(--cyan);
+  opacity: 0.72;
+}
+
+.crt-logo-mark::before { top: 9px; }
+.crt-logo-mark::after { bottom: 9px; }
+
+.crt-logo-candle {
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 15px;
+  display: block;
+  border: 1px solid #f5f7fb;
+  background: #f5f7fb;
+  box-shadow: 9px 5px 0 -1px var(--green), -9px -4px 0 -1px rgba(242, 54, 69, 0.9);
+}
+
+.crt-logo-candle::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -7px;
+  width: 1px;
+  height: 27px;
+  background: #f5f7fb;
+}
+
+.brand-logo-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  line-height: 1.05;
+}
+
+.brand-logo-copy strong,
+.brand-logo-copy small {
+  display: block;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.brand-logo-copy strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 820;
+}
+
+.brand-logo-copy strong b {
+  color: var(--green-ink);
+  font-weight: inherit;
+}
+
+.brand-logo-copy small {
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.brand-block .brand-logo span,
+.brand-block .crt-logo-candle {
+  display: grid;
+}
+
+.brand-block .brand-logo-copy {
+  display: grid;
+}
+
+@media (prefers-color-scheme: light) {
+  .crt-logo-mark {
+    background: #191d24;
+    box-shadow: 0 6px 18px rgba(23, 27, 34, 0.14);
+  }
+}
+
+.journal-action.loss {
+  color: var(--red);
+}
+
+.journal-plan-line {
+  grid-column: 1 / -1;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .journal-memory-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journal-quick-actions { grid-template-columns: minmax(0, 1fr); }
 }

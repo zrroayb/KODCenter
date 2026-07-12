@@ -53,4 +53,23 @@ describe("scanner waiting requirements", () => {
 
     expect(waitingRequirements(cryptoWatch).join(" ")).not.toContain("Doğru saat");
   });
+
+  it("asks for the confirmation close before an entry retest", () => {
+    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+    const watchSignal = {
+      ...signal,
+      stage: "watch" as const,
+      plan: {
+        ...signal.plan,
+        entryStatus: "pending" as const,
+        entryModel: { ...signal.plan.entryModel, cisdConfirmed: false }
+      }
+    };
+    const requirements = waitingRequirements(watchSignal);
+    const closeIndex = requirements.findIndex((item) => item.toLowerCase().includes("kapan"));
+    const retestIndex = requirements.findIndex((item) => item.toLowerCase().includes("dokun") || item.toLowerCase().includes("retest"));
+
+    expect(closeIndex).toBeGreaterThanOrEqual(0);
+    if (retestIndex >= 0) expect(closeIndex).toBeLessThan(retestIndex);
+  });
 });

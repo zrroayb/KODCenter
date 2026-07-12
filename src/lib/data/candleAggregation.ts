@@ -4,7 +4,24 @@ import { tzOffsetHours } from "../session/sessionClock";
 
 const HOUR_MS = 60 * 60 * 1000;
 
-function mergeBucket(bucket: Candle[], bucketTime: number): Candle {
+function bucketEnd(bucketTime: number, targetTimeframe: Timeframe): number {
+  if (targetTimeframe === "1M") {
+    const date = new Date(bucketTime);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  }
+  return bucketTime + timeframeToMs(targetTimeframe);
+}
+
+function sourceStep(candles: Candle[]): number {
+  const diffs = candles
+    .slice(1)
+    .map((candle, index) => candle.time - candles[index].time)
+    .filter((value) => value > 0)
+    .sort((a, b) => a - b);
+  return diffs[Math.floor(diffs.length / 2)] ?? 0;
+}
+
+function mergeBucket(bucket: Candle[], bucketTime: number, targetTimeframe: Timeframe, latestSourceClose: number): Candle {
   const first = bucket[0];
   const last = bucket[bucket.length - 1];
   return {
@@ -14,7 +31,7 @@ function mergeBucket(bucket: Candle[], bucketTime: number): Candle {
     low: Math.min(...bucket.map((candle) => candle.low)),
     close: last.close,
     volume: bucket.reduce((sum, candle) => sum + candle.volume, 0),
-    closed: bucket.every((candle) => candle.closed !== false)
+    closed: bucket.every((candle) => candle.closed !== false) && bucketEnd(bucketTime, targetTimeframe) <= latestSourceClose
   };
 }
 
@@ -47,6 +64,9 @@ function bucketStart(time: number, targetTimeframe: Timeframe): number {
 export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe): Candle[] {
   if (candles.length === 0) return [];
   const sorted = [...candles].sort((a, b) => a.time - b.time);
+  const step = sourceStep(sorted);
+  const latest = sorted.at(-1)!;
+  const latestSourceClose = latest.closed === false ? latest.time : latest.time + step;
   const buckets = new Map<number, Candle[]>();
 
   for (const candle of sorted) {
@@ -58,7 +78,7 @@ export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe):
 
   return [...buckets.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([bucketTime, bucket]) => mergeBucket(bucket, bucketTime));
+    .map(([bucketTime, bucket]) => mergeBucket(bucket, bucketTime, targetTimeframe, latestSourceClose));
 }
 
 export function trimCandles(candles: Candle[], count: number): Candle[] {

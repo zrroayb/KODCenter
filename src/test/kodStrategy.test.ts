@@ -7,10 +7,11 @@ import { getStrategy, strategyRegistry } from "../lib/strategies/registry";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("KOD strategy module", () => {
-  it("keeps CRT as the active default while KOD remains resolvable as legacy", () => {
+  it("keeps CRT as the only active registry strategy while KOD remains a direct legacy module", () => {
     expect(strategyRegistry[0].id).toBe("crt");
+    expect(strategyRegistry).toHaveLength(1);
     expect(getStrategy("missing-strategy").id).toBe(crtStrategy.id);
-    expect(getStrategy(kodStrategy.id).id).toBe(kodStrategy.id);
+    expect(getStrategy(kodStrategy.id).id).toBe(crtStrategy.id);
   });
 
   it("emits visible watch or ready signals with decision summaries", () => {

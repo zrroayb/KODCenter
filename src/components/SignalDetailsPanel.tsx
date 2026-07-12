@@ -132,12 +132,14 @@ export function SignalDetailsPanel({
   const saveJournal = (
     nextResult = result,
     nextAction: TradeAction = tradeAction,
-    options: { usePlanEntry?: boolean } = {}
+    options: { usePlanEntry?: boolean; useStopExit?: boolean } = {}
   ) => {
     const now = Date.now();
-    const entryForSave = optionalNumber(actualEntry) ?? (options.usePlanEntry || nextAction === "taken" ? signal.plan.entry : undefined);
-    const exitForSave = optionalNumber(actualExit);
-    const nextR = tradeRMultiple(signal, entryForSave, exitForSave);
+    const isTaken = nextAction === "taken";
+    const normalizedResult = isTaken ? nextResult : "open";
+    const entryForSave = isTaken ? optionalNumber(actualEntry) ?? signal.plan.entry : undefined;
+    const exitForSave = isTaken ? options.useStopExit ? signal.plan.stopLoss : optionalNumber(actualExit) : undefined;
+    const nextR = isTaken ? tradeRMultiple(signal, entryForSave, exitForSave) : undefined;
     onSaveJournal(signal, {
       notes,
       mistake,
@@ -150,14 +152,20 @@ export function SignalDetailsPanel({
       riskPct: optionalNumber(riskPct),
       rMultiple: nextR,
       outcomeNote,
-      takenAt: nextAction === "taken" ? journalEntry?.takenAt ?? now : journalEntry?.takenAt,
-      closedAt: nextResult && nextResult !== "open" ? journalEntry?.closedAt ?? now : journalEntry?.closedAt,
-      result: nextResult,
+      takenAt: isTaken ? journalEntry?.takenAt ?? now : undefined,
+      closedAt: normalizedResult !== "open" ? journalEntry?.closedAt ?? now : undefined,
+      result: normalizedResult,
       ruleViolations: signal.decisionSummary.checklist.filter((item) => item.status === "fail").map((item) => item.label)
     });
-    setResult(nextResult);
+    setResult(normalizedResult);
     setTradeAction(nextAction);
-    if (!actualEntry && entryForSave) setActualEntry(String(entryForSave));
+    if (!isTaken) {
+      setActualEntry("");
+      setActualExit("");
+    } else {
+      if (!actualEntry && entryForSave) setActualEntry(String(entryForSave));
+      if (options.useStopExit) setActualExit(String(signal.plan.stopLoss));
+    }
   };
 
   return (
@@ -187,9 +195,17 @@ export function SignalDetailsPanel({
         <div><span>RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
       </div>
       <section className="simple-next-card">
-        <span>{signal.stage === "ready" ? "Ne yapacağım?" : "Tek beklenen şey"}</span>
+        <span>{signal.stage === "ready" ? "Ne yapacağım?" : "Şimdi beklenen"}</span>
         <strong>{primaryWait}</strong>
-        <small>{secondaryWait}</small>
+        {signal.stage === "ready" && <small>{secondaryWait}</small>}
+      </section>
+      <section className="journal-quick-card" aria-label="Hızlı işlem kaydı">
+        <span>Bu setup için</span>
+        <div className="journal-quick-actions">
+          <button className={tradeAction === "taken" && result === "open" ? "active" : ""} type="button" onClick={() => saveJournal("open", "taken", { usePlanEntry: true })}>Aldım</button>
+          <button className={tradeAction === "skipped" ? "active" : ""} type="button" onClick={() => saveJournal("open", "skipped")}>Almadım</button>
+          <button className={result === "loss" ? "active loss" : ""} type="button" onClick={() => saveJournal("loss", "taken", { usePlanEntry: true, useStopExit: true })}>Stop oldu</button>
+        </div>
       </section>
       <section className={`ai-commentary simple-ai-commentary ${aiCommentary.status}`}>
         <h3>AI mentor</h3>
@@ -243,7 +259,7 @@ export function SignalDetailsPanel({
         </div>
       </details>
       <details className="details-section compact-details">
-        <summary>Journal</summary>
+        <summary>Not ve sonuç detayı</summary>
         <div className="journal-form">
           <div className="journal-trade-actions" aria-label="Trade aksiyonu">
             <button className={tradeAction === "taken" ? "active" : ""} type="button" onClick={() => saveJournal("open", "taken", { usePlanEntry: true })}>İşlemi aldım</button>
@@ -302,7 +318,7 @@ export function SignalDetailsPanel({
           <div className="journal-actions">
             <button className="ghost-btn" type="button" onClick={() => saveJournal("open")}>Notu kaydet</button>
             <button className="ghost-btn" type="button" onClick={() => saveJournal("win", "taken", { usePlanEntry: true })}>Win kapat</button>
-            <button className="ghost-btn" type="button" onClick={() => saveJournal("loss", "taken", { usePlanEntry: true })}>Loss kapat</button>
+            <button className="ghost-btn" type="button" onClick={() => saveJournal("loss", "taken", { usePlanEntry: true, useStopExit: true })}>Stop kapat</button>
             <button className="ghost-btn" type="button" onClick={() => saveJournal("breakeven", "taken", { usePlanEntry: true })}>BE kapat</button>
           </div>
         </div>

@@ -26,9 +26,9 @@ export function journalInsights(entries: JournalEntry[]): JournalInsight[] {
   const qualities = countBy(entries.map((entry) => entry.executionQuality ?? ""));
   const symbols = countBy(entries.map((entry) => entry.symbol));
   const violations = countBy(entries.flatMap((entry) => entry.ruleViolations));
-  const wins = entries.filter((entry) => entry.result === "win").length;
-  const losses = entries.filter((entry) => entry.result === "loss").length;
-  const rEntries = entries.filter((entry) => typeof entry.rMultiple === "number" && Number.isFinite(entry.rMultiple));
+  const wins = taken.filter((entry) => entry.result === "win").length;
+  const losses = taken.filter((entry) => entry.result === "loss").length;
+  const rEntries = taken.filter((entry) => typeof entry.rMultiple === "number" && Number.isFinite(entry.rMultiple));
   const averageR = rEntries.length
     ? rEntries.reduce((sum, entry) => sum + (entry.rMultiple ?? 0), 0) / rEntries.length
     : undefined;
@@ -42,7 +42,7 @@ export function journalInsights(entries: JournalEntry[]): JournalInsight[] {
     {
       label: "Alınan işlem",
       value: String(taken.length),
-      detail: `${wins} win · ${losses} loss · ${entries.filter((entry) => entry.result === "breakeven").length} BE · ${entries.filter((entry) => entry.result === "open").length} açık/izleme.`
+      detail: `${wins} win · ${losses} loss · ${taken.filter((entry) => entry.result === "breakeven").length} BE · ${taken.filter((entry) => entry.result === "open").length} açık.`
     },
     {
       label: "Ortalama R",

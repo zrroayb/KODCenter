@@ -1,5 +1,5 @@
 import type { TradingSignal } from "../ict/types";
-import { journalEntryFromSignal } from "./journalEntry";
+import { journalEntryFromSignal, journalSetupKey, journalSignalSnapshot } from "./journalEntry";
 import type { JournalEntry } from "./types";
 
 const JOURNAL_STORAGE_KEY = "tradebot.localJournal.v1";
@@ -35,15 +35,28 @@ export function upsertJournalEntry(
   patch: Partial<JournalEntry>
 ): JournalEntry[] {
   const now = Date.now();
-  const existing = entries.find((entry) => entry.tradeId === signal.id);
+  const setupKey = journalSetupKey(signal);
+  const existing = entries.find((entry) => entry.tradeId === signal.id)
+    ?? entries.find((entry) => entry.setupKey === setupKey && (entry.result ?? "open") === "open");
+  const action = patch.tradeAction ?? existing?.tradeAction ?? "watch";
+  const result = patch.result ?? existing?.result ?? "open";
+  const snapshot = journalSignalSnapshot(signal);
+  const previousEvent = existing?.history?.at(-1);
+  const actionChanged = !previousEvent || previousEvent.action !== action || previousEvent.result !== result;
+  const history = actionChanged
+    ? [...(existing?.history ?? []), { at: now, action, result, stage: signal.stage, score: signal.score }].slice(-40)
+    : existing?.history ?? [];
   const next: JournalEntry = {
     ...(existing ?? journalEntryFromSignal(signal)),
     ...patch,
-    tradeId: signal.id,
+    tradeId: existing?.tradeId ?? signal.id,
+    setupKey,
     updatedAt: now,
     createdAt: existing?.createdAt ?? now,
-    ruleViolations: patch.ruleViolations ?? existing?.ruleViolations ?? []
+    ruleViolations: patch.ruleViolations ?? existing?.ruleViolations ?? [],
+    signalSnapshot: existing?.signalSnapshot ?? snapshot,
+    latestSignalSnapshot: snapshot,
+    history
   };
-  return [next, ...entries.filter((entry) => entry.tradeId !== signal.id)].sort((a, b) => b.updatedAt - a.updatedAt);
+  return [next, ...entries.filter((entry) => entry.tradeId !== next.tradeId)].sort((a, b) => b.updatedAt - a.updatedAt);
 }
-
