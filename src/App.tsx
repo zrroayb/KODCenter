@@ -43,10 +43,20 @@ const VIEW_TITLES: Record<ViewId, string> = {
 };
 const AUTO_REFRESH_MS = 60_000;
 const SIGNAL_STAGE_RANK: Record<TradingSignal["stage"], number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
+const SETUP_PHASE_RANK: Record<string, number> = { ready: 3, model: 2, raid: 1, context: 0 };
 
 function compareSignalsByDecision(a: TradingSignal, b: TradingSignal) {
-  return (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0)
-    || b.score - a.score
+  const stageDifference = (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0);
+  if (stageDifference) return stageDifference;
+  if (a.stage === "watch" && b.stage === "watch") {
+    const blockerDifference = a.governance.blockers.length - b.governance.blockers.length;
+    if (blockerDifference) return blockerDifference;
+    const rrReadyDifference = Number(b.plan.rr >= 1.5) - Number(a.plan.rr >= 1.5);
+    if (rrReadyDifference) return rrReadyDifference;
+    const phaseDifference = (SETUP_PHASE_RANK[String(b.crtAnchor?.setupPhase)] ?? 0) - (SETUP_PHASE_RANK[String(a.crtAnchor?.setupPhase)] ?? 0);
+    if (phaseDifference) return phaseDifference;
+  }
+  return b.score - a.score
     || b.plan.rr - a.plan.rr;
 }
 
@@ -120,6 +130,7 @@ function stageText(signal: TradingSignal) {
 function aiCardHint(signal: TradingSignal, rank: number) {
   if (signal.stage === "ready" && rank === 0) return "Öncelik";
   if (signal.stage === "ready") return "Plan var";
+  if (signal.governance.blockers.length === 1 && signal.plan.rr >= 1.5) return "1 adım kaldı";
   if (signal.score >= 75) return "Onay bekle";
   if (signal.score >= 55) return "Radar";
   return "Zayıf";
@@ -131,6 +142,9 @@ function shortReason(text: string | undefined, fallback = "Bekle"): string {
     .replace(/\s+/g, " ")
     .trim();
   const lower = clean.toLocaleLowerCase("tr-TR");
+  if (lower.includes("retest")) return "Giriş seviyesine dönüş bekleniyor.";
+  if (lower.includes("minimumun altında")) return "RR yetersiz.";
+  if (lower.includes("origin mumu henüz kapanmadı")) return "CRT mumu kapanmadı.";
   if (lower.includes("turtle soup") || lower.includes("purge") || lower.includes("sweep")) return "Likidite alındı, onay bekle.";
   if (lower.includes("raid")) return "Raid var, onay bekle.";
   if (lower.includes("dealing range") || lower.includes("premium") || lower.includes("discount")) return "Bölge uygun değil.";
@@ -144,12 +158,13 @@ function shortReason(text: string | undefined, fallback = "Bekle"): string {
 }
 
 function signalReason(signal: TradingSignal): string {
-  return shortReason(
-    signal.stage === "ready"
-      ? signal.decisionSummary.shortSummary
-      : signal.plan.planWarnings[0] ?? signal.governance.blockers[0] ?? signal.decisionSummary.shortSummary,
-    signal.stage === "ready" ? "Plan hazır" : "Onay bekle"
-  );
+  if (signal.stage === "ready") return "Giriş, stop ve DOL hazır.";
+  const blocker = signal.governance.blockers[0];
+  const lower = blocker?.toLocaleLowerCase("tr-TR") ?? "";
+  if (lower.includes("retest")) return `Giriş ${signal.plan.entry.toLocaleString("tr-TR", { maximumFractionDigits: 5 })} retesti bekleniyor.`;
+  if (lower.includes("minimumun altında")) return `RR ${signal.plan.rr.toFixed(2)}; işlem için yetersiz.`;
+  if (lower.includes("choch")) return `${signal.timeframe} ChoCH kapanışı bekleniyor.`;
+  return shortReason(blocker ?? signal.plan.planWarnings[0] ?? signal.decisionSummary.shortSummary, "Onay bekle");
 }
 
 function rankedDecisionSignals(signals: TradingSignal[]) {

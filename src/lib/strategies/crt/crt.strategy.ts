@@ -561,6 +561,9 @@ export function detectCrtChoch(input: {
     const candleRange = Math.max(candle.high - candle.low, 0.000001);
     const bodyRatio = Math.abs(candle.close - candle.open) / candleRange;
     const rangeAtr = candleRange / Math.max(averageRange, 0.000001);
+    // A close-through without delivery is often just a wick/body drift around the swing.
+    // Keep ChoCH tied to a meaningful displacement candle; weaker structural breaks remain
+    // visible through the reference level but do not open a READY action window.
     if (!directionalBody || closeThrough < minimumCloseThrough || bodyRatio < 0.5 || rangeAtr < 0.8) continue;
     if (index < candles.length - CHOCH_FRESHNESS_CANDLES) continue;
     return {
@@ -663,10 +666,40 @@ function entryLevelForAnchor(anchor: AnchorCtx, direction: TradeDirection, choch
     : choch.level;
 }
 
+export function selectCrtEntry(input: {
+  choch: CrtSetup["choch"];
+  poi?: CrtPoi;
+  plannedRetestEntry: number;
+  retestIndex?: number;
+}): {
+  entry: number;
+  entrySource: TradePlan["entrySource"];
+  entryStatus: TradePlan["entryStatus"];
+  retested: boolean;
+} {
+  const { choch, poi, plannedRetestEntry, retestIndex } = input;
+  if (choch && typeof retestIndex === "number") {
+    return {
+      entry: plannedRetestEntry,
+      entrySource: poi ? "poi-retest" : "choch-close",
+      entryStatus: "confirmed",
+      retested: true
+    };
+  }
+
+  return {
+    entry: plannedRetestEntry,
+    entrySource: choch || poi ? (poi ? "poi-retest" : "choch-close") : "fallback-close",
+    entryStatus: choch || poi ? "pending" : "fallback",
+    retested: false
+  };
+}
+
 function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: TradeDirection, turtleSoup: TurtleSoupPattern | undefined, manipulation: CrtSetup["manipulation"], choch: CrtSetup["choch"], poi: CrtPoi | undefined, retestIndex: number | undefined, minimumRR: number, buffer: number, stress: ExecutionCostStress): TradePlan {
   const candles = anchor.confirmCandles;
-  // Entry is the actual post-ChoCH retest level, never the displaced break close.
-  const entry = entryLevelForAnchor(anchor, direction, choch, poi);
+  const plannedRetestEntry = entryLevelForAnchor(anchor, direction, choch, poi);
+  const entryDecision = selectCrtEntry({ choch, poi, plannedRetestEntry, retestIndex });
+  const { entry, entrySource, entryStatus } = entryDecision;
   // Stop must sit on the loss side of the entry.
   const manipulationStop = manipulation
     ? direction === "short" ? manipulation.level + buffer : manipulation.level - buffer
@@ -684,9 +717,6 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
   const realTarget = targetDol(anchor, direction, entry);
   const tp2 = realTarget ?? tp1;
   const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
-  const entryRetested = Boolean(choch) && typeof retestIndex === "number";
-  const entryStatus = entryRetested ? "confirmed" : choch || poi ? "pending" : "fallback";
-  const entrySource = poi ? "poi-retest" : choch ? "choch-close" : "fallback-close";
   const planWarnings = [
     ...(turtleSoup ? [
       `${anchor.spec.confirmTf} Turtle Soup var: manipulation kanıtı olarak okunur, tek başına entry değildir.`,
@@ -697,7 +727,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
-    ...(choch && !entryRetested ? [`ChoCH onaylı; ${formatPrice(entry)} seviyesine gerçek retest/mitigation teması bekleniyor.`] : [])
+    ...(choch && entryStatus !== "confirmed" ? [`ChoCH onaylı; ${formatPrice(entry)} seviyesine gerçek retest/mitigation teması bekleniyor.`] : [])
   ];
 
   return {
@@ -708,7 +738,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
       source: entrySource,
       status: entryStatus,
       level: entry,
-      retested: entryRetested,
+      retested: entryDecision.retested,
       cisdConfirmed: Boolean(choch),
       fairValueGap: poi?.type === "fvg" || poi?.type === "breaker"
         ? { direction: poi.direction, low: poi.low, high: poi.high, midpoint: poi.midpoint, candleIndex: poi.candleIndex ?? 0, mitigated: poi.mitigated }
@@ -855,7 +885,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     continuationAgainst ? "HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz." : undefined,
     !reclaimHolds ? "Fiyat hâlâ range extreminin ötesinde; reclaim tutmuyor, bu manipulation değil breakout." : undefined,
     !choch ? `${anchor.spec.confirmTf} ChoCH/Just mum kapanışı yok.` : undefined,
-    choch && typeof retestIndex !== "number" ? `ChoCH var ama ${formatPrice(plannedEntry)} entry seviyesine sonraki retest henüz gelmedi.` : undefined,
+    choch && plan.entryStatus !== "confirmed" ? `ChoCH var ama ${formatPrice(plannedEntry)} entry seviyesine sonraki retest henüz gelmedi.` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range gürültüdür, trade edilmez.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; RR görünüşte iyi ama stop korunmasız.` : undefined,
@@ -922,7 +952,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // starved the live system to zero signals. Real invalidators still veto.
   const READY_MIN_SCORE = 60;
   const modelFormed = Boolean(manipulation) && Boolean(choch) && (Boolean(poi) || displacementStrength !== "none");
-  const modelReady = modelFormed && typeof retestIndex === "number";
+  const modelReady = modelFormed && plan.entryStatus === "confirmed";
   const readyEligible = plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
     && score >= READY_MIN_SCORE
@@ -1066,16 +1096,43 @@ function governanceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetu
   };
 }
 
+export function findCrtTrackingStartIndex(input: {
+  executionCandles: Candle[];
+  confirmCandles: Candle[];
+  liveConfirmCandles: Candle[];
+  confirmTf: AnchorSpec["confirmTf"];
+  entrySource: TradePlan["entrySource"];
+  chochIndex?: number;
+  retestIndex?: number;
+  manipulationIndex?: number;
+}): number {
+  const { executionCandles, confirmCandles, liveConfirmCandles, confirmTf, entrySource, chochIndex, retestIndex, manipulationIndex } = input;
+  const confirmDuration = confirmTf === "4h" ? 4 * 60 * 60 * 1000 : confirmTf === "1h" ? 60 * 60 * 1000 : 15 * 60 * 1000;
+  const startTime = typeof retestIndex === "number"
+    ? liveConfirmCandles[retestIndex]?.time
+    : entrySource === "choch-close" && typeof chochIndex === "number"
+      ? (confirmCandles[chochIndex]?.time ?? 0) + confirmDuration
+      : typeof chochIndex === "number"
+        ? confirmCandles[chochIndex]?.time
+        : typeof manipulationIndex === "number"
+          ? confirmCandles[manipulationIndex]?.time
+          : undefined;
+  if (typeof startTime !== "number") return Math.max(0, executionCandles.length - 1);
+  const index = executionCandles.findIndex((candle) => candle.time >= startTime);
+  return index >= 0 ? index : Math.max(0, executionCandles.length - 1);
+}
+
 function m15StartIndex(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): number {
-  const m15 = context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
-  const startTime = typeof setup.choch?.candleIndex === "number"
-    ? anchor.confirmCandles[setup.choch.candleIndex]?.time
-    : typeof setup.manipulation?.candleIndex === "number"
-    ? anchor.confirmCandles[setup.manipulation.candleIndex]?.time
-    : undefined;
-  if (typeof startTime !== "number") return Math.max(0, m15.length - 1);
-  const index = m15.findIndex((candle) => candle.time >= startTime);
-  return index >= 0 ? index : Math.max(0, m15.length - 1);
+  return findCrtTrackingStartIndex({
+    executionCandles: context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5,
+    confirmCandles: anchor.confirmCandles,
+    liveConfirmCandles: anchor.liveConfirmCandles,
+    confirmTf: anchor.spec.confirmTf,
+    entrySource: setup.plan.entrySource,
+    chochIndex: setup.choch?.candleIndex,
+    retestIndex: setup.retestIndex,
+    manipulationIndex: setup.manipulation?.candleIndex
+  });
 }
 
 function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
