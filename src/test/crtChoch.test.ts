@@ -38,6 +38,52 @@ describe("CRT ChoCH truth model", () => {
     expect(read.confirmation?.bodyRatio).toBeGreaterThanOrEqual(0.5);
   });
 
+  it("rejects a fresh re-close when the FIRST break of the swing is stale (BOS, not ChoCH)", () => {
+    // 70 candles. Manipulation at 8, first strong close through the swing at 12 — but with 70
+    // candles that break is far outside the freshness window. A fresh re-close at 68 exists;
+    // stamping it as ChoCH is the BNB bug: the character changed long ago, 68 is the new
+    // trend's continuation. detectCrtChoch must return no confirmation at all.
+    const data = candles(70);
+    data[12] = { ...data[12], open: 100.2, high: 101.6, low: 100.1, close: 101.4 };
+    data[68] = { ...data[68], open: 100.2, high: 101.6, low: 100.1, close: 101.4 };
+    const swings: SwingPoint[] = [{ side: "high", level: 101, candleIndex: 4, strength: "minor" }];
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings,
+      range,
+      direction: "long",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.confirmation).toBeUndefined();
+    expect(read.structuralBreak).toBeUndefined();
+  });
+
+  it("rejects a break that comes too long after the manipulation (sweep->shift window)", () => {
+    // Manipulation at 8, the only close through the swing at 40 — fresh relative to the end of
+    // the series, but 32 candles after the sweep. Sweep and shift are one delivery sequence;
+    // a break this late belongs to a different move.
+    const data = candles(60);
+    data[40] = { ...data[40], open: 100.2, high: 101.6, low: 100.1, close: 101.4 };
+    const swings: SwingPoint[] = [{ side: "high", level: 101, candleIndex: 4, strength: "minor" }];
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings,
+      range,
+      direction: "long",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.confirmation).toBeUndefined();
+    expect(read.structuralBreak).toBeUndefined();
+  });
+
   it("does not promote a weak close-through as tradeable ChoCH", () => {
     const data = candles();
     data[10] = { ...data[10], open: 100.98, high: 101.3, low: 100.75, close: 101.08 };

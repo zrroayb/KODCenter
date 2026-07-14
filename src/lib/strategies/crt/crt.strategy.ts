@@ -25,6 +25,10 @@ const SWEEP_FRESHNESS_CANDLES = 24;
 const CHOCH_FRESHNESS_CANDLES = 48;
 const CHOCH_SWING_WING = 3;
 const CHOCH_REFERENCE_LOOKBACK = 24;
+// Sweep -> shift is ONE delivery sequence (SMC: "sweep + ChoCH handshake"). The first close
+// through the protecting swing must land within this many confirmation candles of the
+// manipulation; a break that comes later belongs to a new trend leg (BOS), not the raid.
+const CHOCH_MAX_DELAY_CANDLES = 24;
 // How many closed range candles back an accepted raid can keep being the anchor's reference.
 const RAID_PERSISTENCE_LOOKBACK = 6;
 // A tapped 4H FVG can create an origin-CRT read, but only while the tap is fresh. Old gaps
@@ -658,8 +662,12 @@ export function detectCrtChoch(input: {
   const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
   const referenceWing = confirmedSwing ? CHOCH_SWING_WING : 1;
   const firstBreakIndex = Math.max(manipulationIndex + 1, swing.candleIndex + referenceWing + 1);
+  // Sweep -> shift must be one delivery sequence: the break search ends CHOCH_MAX_DELAY_CANDLES
+  // after the manipulation. A close through the swing beyond that window is a move the raid no
+  // longer owns (the recovery's own BOS), so it cannot be this setup's character change.
+  const lastBreakIndex = Math.min(candles.length - 1, manipulationIndex + CHOCH_MAX_DELAY_CANDLES);
   let structuralBreak: CrtChochRead["structuralBreak"];
-  for (let index = firstBreakIndex; index < candles.length; index += 1) {
+  for (let index = firstBreakIndex; index <= lastBreakIndex; index += 1) {
     const candle = candles[index];
     if (candle.closed === false) continue;
     const directionalBody = direction === "short" ? candle.close < candle.open : candle.close > candle.open;
@@ -668,7 +676,10 @@ export function detectCrtChoch(input: {
     const bodyRatio = Math.abs(candle.close - candle.open) / candleRange;
     const rangeAtr = candleRange / Math.max(averageRange, 0.000001);
     if (!directionalBody || closeThrough < minimumCloseThrough) continue;
-    if (index < candles.length - CHOCH_FRESHNESS_CANDLES) continue;
+    // Only the FIRST close through the protecting swing can be the character change. If that
+    // first break is already stale, the character changed long ago — a fresher re-close of the
+    // same level is the new trend's continuation, never this raid's ChoCH. Stop, don't skip.
+    if (index < candles.length - CHOCH_FRESHNESS_CANDLES) break;
     structuralBreak ??= {
       level: swing.level,
       candleIndex: index,
