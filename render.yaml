@@ -10,3 +10,14 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 22
+      # Secrets: values are set in the Render dashboard (sync: false), never in git.
+      # Without TELEGRAM_* the deployed app cannot send alerts (endpoint answers
+      # "disabled: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing").
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
