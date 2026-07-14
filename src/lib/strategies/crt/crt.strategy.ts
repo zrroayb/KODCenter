@@ -276,7 +276,19 @@ function raidStillActive(rangeCandles: Candle[], raidIndex: number, range: Deali
 // active, a poke at a newer candle's extreme is that raid's distribution leg (or noise), not
 // a fresh setup — so scan oldest-first and keep the waiting setup's direction instead of
 // flipping it on every new candle.
-function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { range: DealingRange; raid?: AnchorRaid } {
+// The manipulation does NOT have to be the candle immediately after the range candle. For a
+// given closed range candle, the raid is the FIRST later candle that takes its high or low —
+// the candles in between simply traded inside the range (accumulation). We scan candidate range
+// candles oldest-first within the persistence window so an already-accepted raid keeps its
+// direction instead of flipping every time a new candle closes.
+function firstSweepIndex(closed: Candle[], rangeIndex: number, range: DealingRange): number {
+  for (let index = rangeIndex + 1; index < closed.length; index += 1) {
+    if (closed[index].high > range.high || closed[index].low < range.low) return index;
+  }
+  return -1;
+}
+
+export function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { range: DealingRange; raid?: AnchorRaid } {
   const hasExplicitState = rangeCandles.some((candle) => typeof candle.closed === "boolean");
   const last = rangeCandles.at(-1);
   // Legacy/demo fixtures have no candle-state metadata. Preserve their original contract:
@@ -284,22 +296,28 @@ function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { range: De
   const forming = last?.closed === false ? last : !hasExplicitState ? last : undefined;
   const closed = forming ? completedCandles(rangeCandles.slice(0, -1)) : completedCandles(rangeCandles);
   const n = closed.length;
-  for (let rangeIndex = Math.max(0, n - 1 - RAID_PERSISTENCE_LOOKBACK); rangeIndex <= n - 3; rangeIndex += 1) {
+  if (n === 0) return { range: rangeFromCandle(rangeCandles[rangeCandles.length - 1], spec) };
+  const firstRange = Math.max(0, n - 1 - RAID_PERSISTENCE_LOOKBACK);
+  // Closed raid: range candle -> first later candle (adjacent or several bars on) that sweeps it.
+  for (let rangeIndex = firstRange; rangeIndex <= n - 2; rangeIndex += 1) {
     const range = rangeFromCandle(closed[rangeIndex], spec);
-    const raid = raidFromPair(range, closed[rangeIndex + 1], true);
-    if (raid && raidStillActive(closed, rangeIndex + 1, range, raid.direction)) return { range, raid };
+    const raidIndex = firstSweepIndex(closed, rangeIndex, range);
+    if (raidIndex === -1) continue;
+    const raid = raidFromPair(range, closed[raidIndex], true);
+    if (raid && raidStillActive(closed, raidIndex, range, raid.direction)) return { range, raid };
   }
-  if (n >= 2) {
-    const range = rangeFromCandle(closed[n - 2], spec);
-    const raid = raidFromPair(range, closed[n - 1], true);
-    if (raid) return { range, raid };
+  // Forming raid: the most recent closed range candle every later closed candle respected,
+  // now swept by the still-forming candle.
+  if (forming) {
+    for (let rangeIndex = n - 1; rangeIndex >= firstRange; rangeIndex -= 1) {
+      const range = rangeFromCandle(closed[rangeIndex], spec);
+      const respected = closed.slice(rangeIndex + 1).every((candle) => candle.high <= range.high && candle.low >= range.low);
+      if (!respected) break;
+      const raid = raidFromPair(range, forming, false);
+      if (raid) return { range, raid };
+    }
   }
-  if (forming && n >= 1) {
-    const range = rangeFromCandle(closed[n - 1], spec);
-    const raid = raidFromPair(range, forming, false);
-    return raid ? { range, raid } : { range };
-  }
-  return { range: rangeFromCandle(closed[Math.max(0, n - 1)] ?? rangeCandles[rangeCandles.length - 1], spec) };
+  return { range: rangeFromCandle(closed[n - 1], spec) };
 }
 
 function buildAnchorCtx(context: MarketContext, spec: AnchorSpec): AnchorCtx | undefined {

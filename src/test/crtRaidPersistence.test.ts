@@ -1,9 +1,49 @@
 import { describe, expect, it } from "vitest";
+import type { Candle } from "../lib/ict/types";
 import { createDemoMarkets } from "../data/demoData";
 import { buildMarketContext } from "../lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
-import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
+import { crtStrategy, detectAnchorRaid } from "../lib/strategies/crt/crt.strategy";
 import { createStructureContext } from "./strategyFixtures";
+
+function bar(high: number, low: number, close: number): Candle {
+  return { time: 0, open: (high + low) / 2, high, low, close, volume: 1, closed: true };
+}
+
+describe("CRT delayed manipulation", () => {
+  it("accepts a raid that sweeps the range candle several bars later, not only the adjacent one", () => {
+    // idx1 is the meaningful range candle (110/100). idx2 and idx3 trade INSIDE it
+    // (accumulation), and idx4 sweeps its high three bars on. The manipulation is not the
+    // candle immediately after the range candle.
+    const candles: Candle[] = [
+      { ...bar(100, 90, 95), time: 0 },
+      { ...bar(110, 100, 104), time: 1 },
+      { ...bar(108, 102, 105), time: 2 },
+      { ...bar(107, 101, 103), time: 3 },
+      { ...bar(115, 103, 108), time: 4 }
+    ];
+    const { range, raid } = detectAnchorRaid(candles, { rangeTf: "4h", confirmTf: "15m" });
+
+    expect(range.high).toBe(110);
+    expect(range.low).toBe(100);
+    expect(raid?.direction).toBe("short");
+    expect(raid?.level).toBe(115);
+  });
+
+  it("does not pair the range candle with an intervening candle that stayed inside it", () => {
+    // If manipulation HAD to be adjacent, this would report idx3 (107) as the range. It must
+    // report idx1 (110) — the candle whose liquidity was actually taken.
+    const candles: Candle[] = [
+      { ...bar(100, 90, 95), time: 0 },
+      { ...bar(110, 100, 104), time: 1 },
+      { ...bar(108, 102, 105), time: 2 },
+      { ...bar(107, 101, 103), time: 3 },
+      { ...bar(115, 103, 108), time: 4 }
+    ];
+    const { range } = detectAnchorRaid(candles, { rangeTf: "4h", confirmTf: "15m" });
+    expect(range.high).not.toBe(107);
+  });
+});
 
 // Regression: a long raid waiting for LTF confirmation must not flip to short just because
 // the next range candle poked above the raid candle's high. That poke is the long setup's
