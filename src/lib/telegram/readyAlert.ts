@@ -1,5 +1,6 @@
 import { formatR } from "../ict/format";
 import type { TradingSignal } from "../ict/types";
+import { captureSignalChartImages, type TelegramChartImage } from "./chartSnapshot";
 import { buildGeminiTradeCommentaryPayload, type GeminiTradeCommentaryPayload } from "../gemini/tradeCommentary";
 import { GRADE_RISK_FACTOR } from "../risk/positionSizing";
 import { defaultAccountModel } from "../risk/accountModel";
@@ -31,7 +32,19 @@ export type TelegramReadyAlertPayload = {
   raidClosed?: boolean;
   aiCommentary?: string;
   tradeContext?: GeminiTradeCommentaryPayload;
+  charts?: TelegramChartImage[];
 };
+
+// Screenshot capture is best-effort: an alert must never be delayed or dropped because a
+// chart could not be rasterized.
+async function chartsFor(signal: TradingSignal): Promise<Pick<TelegramReadyAlertPayload, "charts">> {
+  try {
+    const charts = await captureSignalChartImages(signal);
+    return charts.length ? { charts } : {};
+  } catch {
+    return {};
+  }
+}
 
 type TelegramAlertResponse = {
   status?: "sent" | "disabled" | "error";
@@ -186,7 +199,8 @@ export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<Teleg
         `${anchor.confirmTf} ChoCH/Just kapanışı bekleniyor`,
         ...(signal.governance.blockers.slice(0, 2))
       ],
-      tradeContext: undefined
+      tradeContext: undefined,
+      ...(await chartsFor(signal))
     };
     const response = await fetch("/api/telegram/ready-alert", {
       method: "POST",
@@ -233,7 +247,8 @@ export async function notifyCrtContextSignalOnce(signal: TradingSignal): Promise
         `Bu entry değil; önce range kenarı sweep, sonra ${anchor.confirmTf} ChoCH/Just kapanışı gerekir.`,
         ...(signal.governance.blockers.slice(0, 2))
       ],
-      tradeContext: undefined
+      tradeContext: undefined,
+      ...(await chartsFor(signal))
     };
     const response = await fetch("/api/telegram/ready-alert", {
       method: "POST",
@@ -261,7 +276,7 @@ export async function notifyReadySignalOnce(signal: TradingSignal): Promise<Tele
     const response = await fetch("/api/telegram/ready-alert", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(buildTelegramReadyAlertPayload(signal))
+      body: JSON.stringify({ ...buildTelegramReadyAlertPayload(signal), ...(await chartsFor(signal)) })
     });
     const result = await response.json().catch(() => ({})) as TelegramAlertResponse;
     if (response.ok && result.status === "sent") {

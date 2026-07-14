@@ -33,6 +33,7 @@ type ReadyTelegramPayload = {
   priority?: string;
   aiCommentary?: string;
   tradeContext?: GeminiTradePayload;
+  charts?: Array<{ label?: string; dataUrl?: string }>;
 };
 
 type GeminiTradePayload = {
@@ -883,7 +884,34 @@ async function sendTelegramReadyAlert(payload: ReadyTelegramPayload, env: Telegr
   if (!upstream.ok) {
     return { status: "error" as const, error: await upstream.text() };
   }
+  await sendTelegramChartPhotos(payload, token, chatId);
   return { status: "sent" as const };
+}
+
+// Sends the CRT range-TF and confirmation-TF screenshots after the text alert. Best-effort:
+// the alert already went out, so photo failures are swallowed rather than surfaced as errors.
+async function sendTelegramChartPhotos(payload: ReadyTelegramPayload, token: string, chatId: string) {
+  const charts = (payload.charts ?? [])
+    .filter((chart) => typeof chart?.dataUrl === "string" && chart.dataUrl.startsWith("data:image/"))
+    .slice(0, 3);
+  for (const [index, chart] of charts.entries()) {
+    try {
+      const base64 = chart.dataUrl!.split(",")[1] ?? "";
+      if (!base64) continue;
+      const bytes = Buffer.from(base64, "base64");
+      if (bytes.length === 0 || bytes.length > 9_500_000) continue;
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      form.append("caption", (chart.label ?? `${payload.symbol ?? ""} chart`).slice(0, 1000));
+      form.append("photo", new Blob([bytes], { type: "image/jpeg" }), `chart-${index}.jpg`);
+      const upstream = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: form });
+      if (!upstream.ok) {
+        console.warn(`[telegram] chart photo ${index} failed:`, (await upstream.text().catch(() => "")).slice(0, 200));
+      }
+    } catch (error) {
+      console.warn(`[telegram] chart photo ${index} failed:`, error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 async function handleGeminiTradeCommentary(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
