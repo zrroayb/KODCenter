@@ -23,16 +23,16 @@ function readySignal() {
     : index === 21
         ? { ...candle, open: 100.4, high: 100.8, low: 99.9, close: 100.6 }
     : index === 22
-        ? { ...candle, open: 100.8, high: 101.15, low: 100, close: 100.2 }
+        ? { ...candle, open: 100.8, high: 101.15, low: 100.2, close: 100.5 }
         : index === 23
-          ? { ...candle, open: 100.4, high: 100.45, low: 99.1, close: 99.3 }
+          ? { ...candle, open: 100.5, high: 100.6, low: 99.1, close: 99.3 }
           : candle
   );
   const lastM15 = mappedM15[mappedM15.length - 1];
   const m15 = [
     ...mappedM15,
-    { ...lastM15, time: lastM15.time + 15 * 60 * 1000, open: 100.5, high: 100.7, low: 100.4, close: 100.5 },
-    { ...lastM15, time: lastM15.time + 30 * 60 * 1000, open: 100.5, high: 100.65, low: 100.45, close: 100.5 }
+    { ...lastM15, time: lastM15.time + 15 * 60 * 1000, open: 99.3, high: 99.8, low: 99.1, close: 99.4 },
+    { ...lastM15, time: lastM15.time + 30 * 60 * 1000, open: 99.5, high: 100, low: 99.3, close: 99.7 }
   ];
   const context = createStructureContext({
     timeframes: { ...base.timeframes, m15, m5: m15, h4 },
@@ -151,10 +151,11 @@ describe("Telegram READY alert payload", () => {
     expect(payload.stopLoss).toBe(signal.plan.stopLoss);
     expect(payload.targets).toEqual(signal.plan.targets.slice(0, 2));
     expect(payload.rr).toBeGreaterThanOrEqual(1.5);
-    expect(payload.reasons.join(" ")).toContain("CRT bias");
+    expect(payload.reasons.join(" ")).toContain("Range hazır");
     expect(payload.reasons.join(" ")).toContain("Manipulation");
     expect(payload.reasons.join(" ")).toContain("ChoCH/Just");
-    expect(payload.reasons.join(" ")).toContain("entry retest");
+    expect(payload.reasons.join(" ")).toContain("Giriş aktif");
+    expect(payload.reasons.join(" ")).toContain("Karşı CRT kenarı hedef");
     expect(payload.tradeContext?.symbol).toBe("XAUUSD");
     expect(payload.tradeContext?.checklist.length).toBeGreaterThan(0);
     expect(payload.tradeContext?.evidence.length).toBeGreaterThan(0);
@@ -193,14 +194,12 @@ describe("Telegram READY alert payload", () => {
     expect(readyTelegramDedupeKey(signal)).not.toBe(signal.id);
   });
 
-  it("does not post a low-quality Daily CRT context before entry is ready", async () => {
+  it("does not post a Daily raid through the context-only alert channel", async () => {
     const signal = dailyContextSignal();
     if (!signal) throw new Error("Daily context signal missing");
     expect(signal.stage).toBe("watch");
-    expect(signal.direction).toBe("long");
-    expect(signal.score).toBeLessThan(50);
-    expect(signal.crtAnchor?.raidActive).toBe(false);
-    expect(signal.evidence.find((item) => item.id === "crt-bias")?.status).toBe("pass");
+    expect(signal.direction).toBe("short");
+    expect(signal.crtAnchor?.raidActive).toBe(true);
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => ({ status: "sent" })

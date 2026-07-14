@@ -1,6 +1,6 @@
 import type { TradingSignal } from "../ict/types";
 
-export type SignalDecisionClass = "tradeable" | "watch" | "wait" | "inactive";
+export type SignalDecisionClass = "tradeable" | "watch" | "wait" | "invalid" | "inactive";
 export type SignalLifecycleStatus =
   | "ready-locked"
   | "ready"
@@ -20,8 +20,29 @@ export type SignalLifecycleState = {
   severity: "good" | "watch" | "danger" | "muted";
 };
 
+const TERMINAL_BLOCKER_PARTS = [
+  "HTF continuation kapanışı ters yönde",
+  "reclaim tutmuyor",
+  "Gerçek distribution/DOL hedefi yok",
+  "TP1 hedefi girişin gerisinde",
+  "Stop entry'nin yanlış tarafında",
+  "Retest uzak",
+  "Haber/spike expansion rejimi",
+  "Trend rejiminde counter-bias reversal alınmaz",
+  "Replay sonucu stop/invalidation görmüş",
+  "Replay sonucu hedef görülmüş",
+  "ICT sequence invalid"
+];
+
+export function signalHardInvalidReason(signal: TradingSignal): string | undefined {
+  return signal.governance.blockers.find((blocker) =>
+    TERMINAL_BLOCKER_PARTS.some((part) => blocker.includes(part))
+  );
+}
+
 export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass {
   if (signal.stage === "invalidated" || signal.stage === "missed") return "inactive";
+  if (signalHardInvalidReason(signal)) return "invalid";
   if (signal.governance.status === "block") return "wait";
   if (signal.stage === "ready") return "tradeable";
   if (signal.score >= 65 && signal.plan.rr >= 1) return "watch";
@@ -31,6 +52,7 @@ export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass 
 export function signalDecisionLabel(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "ALINABİLİR";
+  if (decision === "invalid") return "GEÇERSİZ";
   if (signal.crtAnchor?.setupPhase === "context") return "BAĞLAM";
   if (signal.crtAnchor?.setupPhase === "raid") return "RAID";
   if (signal.crtAnchor?.setupPhase === "model") return "MODEL";
@@ -42,16 +64,17 @@ export function signalDecisionLabel(signal: TradingSignal): string {
 export function signalDecisionReason(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "READY: entry, stop ve TP planı aktif.";
-  if (signal.crtAnchor?.setupPhase === "context") return "Sadece CRT bağlamı var; raid/manipulation gelmeden trade yok.";
-  if (signal.crtAnchor?.setupPhase === "raid") return "Likidite alınmış; POI ve ChoCH/Just kapanışı bekleniyor.";
-  if (signal.crtAnchor?.setupPhase === "model") return "Model oluşuyor; entry/retest, RR veya kalite filtresi bekleniyor.";
-  if (signal.governance.blockers.length) return signal.governance.blockers[0];
-  if (signal.governance.warnings.length) return signal.governance.warnings[0];
   if (decision === "inactive") {
     return signal.stage === "invalidated"
       ? "Stop/invalidation görülmüş. Trade kovalanmaz."
-      : signal.plan.planWarnings.find((warning) => warning.includes("Entry kaçtı")) ?? "Hedefe gitmiş veya geç kalmış. Yeni model beklenir.";
+      : signal.plan.planWarnings.find((warning) => warning.includes("%50/EQ") || warning.includes("Entry kaçtı")) ?? "Hedefe gitmiş veya geç kalmış. Yeni model beklenir.";
   }
+  if (decision === "invalid") return signalHardInvalidReason(signal) ?? "Setup yapısı bozulmuş; yeni CRT modeli bekle.";
+  if (signal.governance.blockers.length) return signal.governance.blockers[0];
+  if (signal.crtAnchor?.setupPhase === "context") return "Sadece CRT bağlamı var; raid/manipulation gelmeden trade yok.";
+  if (signal.crtAnchor?.setupPhase === "raid") return `CRT high/low alındı; yalnızca ${(signal.crtAnchor.confirmTf ?? "15m").toUpperCase()} ChoCH/shift kapanışı bekleniyor.`;
+  if (signal.crtAnchor?.setupPhase === "model") return "Model oluşuyor; entry/retest, RR veya kalite filtresi bekleniyor.";
+  if (signal.governance.warnings.length) return signal.governance.warnings[0];
   if (signal.plan.planWarnings.length) return signal.plan.planWarnings[0];
   const failed = signal.decisionSummary.checklist.find((item) => item.status === "fail");
   if (failed) return failed.explanation;
@@ -76,6 +99,16 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
       label: "KAÇTI",
       nextAction: "Fiyat hedefe gitmiş veya entry kaçmış. Kovalamadan yeni model bekle.",
       severity: "muted"
+    };
+  }
+
+  const hardInvalidReason = signalHardInvalidReason(signal);
+  if (hardInvalidReason) {
+    return {
+      status: "blocked",
+      label: "GEÇERSİZ",
+      nextAction: hardInvalidReason,
+      severity: "danger"
     };
   }
 
@@ -128,7 +161,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
       return {
         status: "close-wait",
         label: "RAID VAR",
-        nextAction: "Likidite alındı. POI/retest ve ChoCH/Just kapanışı gelmeden entry yok.",
+        nextAction: `CRT high/low alındı. Yalnızca ${(signal.crtAnchor.confirmTf ?? "15m").toUpperCase()} ChoCH/shift kapanışı bekleniyor.`,
         severity: "watch"
       };
     }

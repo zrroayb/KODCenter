@@ -77,12 +77,12 @@ function priceBucket(value: number | undefined): string {
 }
 
 export function readyTelegramDedupeKey(signal: TradingSignal): string {
-  const anchors = ["crt-bias", "crt-range", "turtle-soup", "poi", "manipulation", "choch", "dol-target"].map((id) => {
+  const anchors = ["crt-range", "manipulation", "choch", "entry", "dol-target"].map((id) => {
     const evidence = signal.evidence.find((item) => item.id === id);
     return `${id}:${evidence?.time ?? evidence?.candleIndex ?? "na"}:${priceBucket(evidence?.price)}`;
   });
   return [
-    "ready-alert-text-v3",
+    "ready-alert-text-v4",
     signal.strategyId,
     signal.symbol,
     signal.direction,
@@ -95,15 +95,13 @@ export function readyTelegramDedupeKey(signal: TradingSignal): string {
 
 function readyReasons(signal: TradingSignal): string[] {
   const passed = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
+  const rangeLabel = signal.decisionSummary.checklist.find((item) => item.label.endsWith(" Range"))?.label;
   const reasons = [
-    passed.has("CRT Bias / DOL") ? "CRT bias ve DOL net" : null,
-    passed.has("Turtle Soup") ? "3 mum Turtle Soup teyidi var" : null,
-    passed.has("Premium / Discount") ? "Doğru premium/discount bölgesi" : null,
-    passed.has("POI") ? "POI map edildi" : null,
-    passed.has("Manipulation") ? "Manipulation sweep + reclaim var" : null,
+    rangeLabel && passed.has(rangeLabel) ? `${rangeLabel} hazır` : "CRT range hazır",
+    passed.has("Manipulation") ? "Manipulation: CRT high/low alındı" : null,
     passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
-    passed.has("Entry Retest") ? "ChoCH sonrası entry retest var" : null,
-    passed.has("SMT") ? "SMT kalite teyidi var" : null,
+    passed.has("Entry") ? "Giriş aktif" : null,
+    passed.has("RR to DOL") ? "Karşı CRT kenarı hedef" : null,
     `Net RR ${formatR(signal.plan.rr)}`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 6);
@@ -136,8 +134,8 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
   };
 }
 
-// Early heads-up: the HTF raid formed and the reclaim holds — the trader should now watch
-// the confirmation timeframe for ChoCH + retest. Fires once per raid (range-level keyed).
+// Early heads-up: the HTF wick took the reference extreme. The raid candle may remain open;
+// the only remaining core step is the confirmation-timeframe character-shift close.
 export function raidTelegramDedupeKey(signal: TradingSignal): string {
   const anchor = signal.crtAnchor;
   return [
@@ -184,8 +182,8 @@ export async function notifyRaidSignalOnce(signal: TradingSignal): Promise<Teleg
       rangeLow: anchor.rangeLow,
       raidClosed: anchor.raidClosed,
       reasons: [
-        `${anchor.rangeTf.toUpperCase()} CRT range ${signal.direction === "short" ? "high" : "low"} raid edildi; reclaim tutuluyor${anchor.raidClosed ? " (aynı mum içeri kapandı)" : " (mum kapanışı şart değil)"}`,
-        `${anchor.confirmTf} ChoCH/Just kapanışı + retest bekleniyor`,
+        `${anchor.rangeTf.toUpperCase()} CRT ${signal.direction === "short" ? "high" : "low"} alındı; ${anchor.rangeTf.toUpperCase()} mum kapanışı beklenmiyor`,
+        `${anchor.confirmTf} ChoCH/Just kapanışı bekleniyor`,
         ...(signal.governance.blockers.slice(0, 2))
       ],
       tradeContext: undefined
@@ -232,7 +230,7 @@ export async function notifyCrtContextSignalOnce(signal: TradingSignal): Promise
       rangeLow: anchor.rangeLow,
       reasons: [
         contextLine,
-        `Bu entry değil; ${anchor.confirmTf} ChoCH/Just + POI/retest bekleniyor.`,
+        `Bu entry değil; önce range kenarı sweep, sonra ${anchor.confirmTf} ChoCH/Just kapanışı gerekir.`,
         ...(signal.governance.blockers.slice(0, 2))
       ],
       tradeContext: undefined

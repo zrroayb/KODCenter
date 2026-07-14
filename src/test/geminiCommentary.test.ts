@@ -32,7 +32,7 @@ describe("Gemini trade commentary", () => {
     expect(payload.chart.recentCandles.some((candle) => candle.role?.includes("liquidity sweep"))).toBe(true);
     expect(payload.chart.annotations.fairValueGap?.low).toBe(100.2);
     expect(payload.structureAudit.headline).toBeTruthy();
-    expect(payload.structureAudit.items.map((item) => item.label)).toContain("ChoCH/Just");
+    expect(payload.structureAudit.items.map((item) => item.label)).toContain("Distribution");
   });
 
   it("does not invent a chart FVG when the selected plan has no gap", () => {

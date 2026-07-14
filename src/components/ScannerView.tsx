@@ -4,10 +4,9 @@ import type { TradingSignal } from "../lib/ict/types";
 import type { RejectedSetup } from "../lib/strategies/types";
 import { buildMarketPickPayload, fetchGeminiMarketPick, type GeminiMarketPickResponse } from "../lib/gemini/marketPick";
 import { formatPrice, formatR } from "../lib/ict/format";
-import { isCryptoSymbol } from "../lib/ict/symbols";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
 import type { DataHealthReport } from "../lib/data/dataHealth";
-import { signalDecisionLabel, signalDecisionReason } from "../lib/signals/signalClassification";
+import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason } from "../lib/signals/signalClassification";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../lib/signals/waitingGuidance";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
@@ -26,118 +25,15 @@ function sortForAction(signals: TradingSignal[]) {
   });
 }
 
-function expectedLiquiditySide(signal: TradingSignal) {
-  return signal.direction === "long" ? "sell-side" : "buy-side";
-}
-
-function expectedBias(signal: TradingSignal) {
-  return signal.direction === "long" ? "bullish" : "bearish";
-}
-
-function expectedPdZone(signal: TradingSignal) {
-  return signal.direction === "long" ? "discount" : "premium";
-}
-
 function simpleDirectionText(signal: TradingSignal) {
   return signal.direction === "long" ? "yukarı" : "aşağı";
 }
 
-function simplePdText(signal: TradingSignal) {
-  return signal.direction === "long"
-    ? "Fiyat daha ucuz bölgeye insin."
-    : "Fiyat daha pahalı bölgeye çıksın.";
-}
-
 function simpleSweepText(signal: TradingSignal) {
+  const rangeTf = (signal.crtAnchor?.rangeTf ?? "4h").toUpperCase();
   return signal.direction === "long"
-    ? "Önce alttaki stoplar alınsın, sonra fiyat geri dönsün."
-    : "Önce üstteki stoplar alınsın, sonra fiyat geri dönsün.";
-}
-
-function simpleChecklistText(label: string, signal: TradingSignal): string | null {
-  const direction = simpleDirectionText(signal);
-  switch (label) {
-    case "CRT Bias / DOL":
-      return `Üst zaman CRT yönü ve DOL ${direction} tarafa net olmalı.`;
-    case "4H+ Range":
-      return `CRT aralığı ${(signal.crtAnchor?.rangeTf ?? "4h").toUpperCase()} mumdan gelmeli.`;
-    case "Turtle Soup":
-      return null;
-    case "Valid Pullback":
-      return "Yeni range kabulü için extreme mum ihlal edilmeden valid pullback oluşmalı.";
-    case "Dealing Range":
-      return "CRT aralığı net olmalı.";
-    case "Entry Model":
-      return "Giriş alanına temas yeterli; kapanış teyidi ChoCH/Just tarafında aranır.";
-    case "Premium / Discount":
-      return simplePdText(signal);
-    case "Killzone":
-      return "Doğru saat gelsin: London veya New York zamanı.";
-    case "Judas Swing":
-      return "Session başındaki ters hareket daha net görünsün.";
-    case "Liquidity Sweep":
-      return simpleSweepText(signal);
-    case "Displacement":
-      return `Fiyat ${direction} tarafa güçlü bir mum atsın.`;
-    case "ChoCH / Just":
-    case "MSS":
-    case "BOS / CHOCH":
-      return `Yön değişimi ${direction} tarafa mum kapanışıyla netleşsin.`;
-    case "Order Block":
-      return "OB teyidi varsa kalite artar; yoksa tek başına no-trade değil.";
-    case "Retracement":
-      return "Fiyat çok geç kalmış olmasın; derin retracement/chase riski kontrol edilsin.";
-    case "POI Touch":
-      return "POI teması net olsun: FVG, OB, Breaker ya da OTE.";
-    case "Manipulation":
-      return simpleSweepText(signal);
-    case "FVG":
-      return signal.plan.entryModel.fairValueGap
-        ? "Seçilen POI kutusu korunup retest temiz kalsın."
-        : "Giriş POI/ChoCH modeliyle netleşsin.";
-    case "SMT":
-      return "SMT pair teyidi gelirse kalite artar; yoksa tek başına no-trade sebebi değil.";
-    case "RR":
-      return "Hedef mesafesi stop riskine değsin.";
-    case "Execution Cost":
-      return "Spread/slippage planı bozmayacak kadar düşük kalsın.";
-    case "Regime":
-      return "Piyasa chop/news spike değil, setup modeline uygun rejimde olsun.";
-    case "Event Risk":
-      return "Yakında kırmızı haber varsa sakinleşene kadar bekle.";
-    case "Data Confidence":
-      return "Veri güveni yeterli olsun; demo/stale veriyle READY alma.";
-    case "HTF Alignment":
-      return `Üst zaman CRT yönü de ${direction} tarafa baksın.`;
-    default:
-      return null;
-  }
-}
-
-function simplePlanWarning(warning: string): string | null {
-  const lower = warning.toLowerCase();
-  if (lower.includes("spread") || lower.includes("slippage") || lower.includes("friction")) {
-    return "Spread/slippage yüzünden plan zayıflıyor.";
-  }
-  if (lower.includes("rr") || lower.includes("risk reward")) {
-    return "Kazanç mesafesi stop riskine göre yetmiyor.";
-  }
-  if (lower.includes("entry map yok") || lower.includes("fallback")) {
-    return "Giriş yeri net değil; daha temiz bir giriş bekle.";
-  }
-  if (lower.includes("retest")) {
-    return "Fiyat giriş alanına tekrar dokunsun.";
-  }
-  if (lower.includes("mss") || lower.includes("cisd") || lower.includes("confirmation")) {
-    return "ChoCH/Just mum kapanışıyla onaylansın.";
-  }
-  if (lower.includes("stop") && lower.includes("çok yakın")) {
-    return "Stop girişe çok yakın; daha güvenli stop mesafesi beklenmeli.";
-  }
-  if (lower.includes("ready değil")) {
-    return "Plan hâlâ hazır değil; onay bekle.";
-  }
-  return null;
+    ? `${rangeTf} CRT low alınsın. Mum kapanışı beklenmez.`
+    : `${rangeTf} CRT high alınsın. Mum kapanışı beklenmez.`;
 }
 
 function stopSourceText(signal: TradingSignal) {
@@ -171,56 +67,26 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
     const entryMissed = signal.plan.planWarnings.find((warning) => warning.includes("Entry kaçtı"));
     return [entryMissed ?? "Fiyat hedefe gitmiş veya entry kaçmış. Geç kalındı, yeni giriş bekle."];
   }
-  const context = signal.context;
-  const direction = signal.direction;
-  const simpleDirection = simpleDirectionText(signal);
-  // The confirmation candle is on the signal's own confirmation timeframe (15m/1h/4h), not
-  // always 15m — a 1D-anchor setup waits for a 1H close, a 1W-anchor for a 4H close.
+  const hardInvalid = signalHardInvalidReason(signal);
+  if (hardInvalid) return [hardInvalid];
   const confTf = signalConfirmTimeframe(signal);
   const needs: string[] = [];
   const closeRequirement = closeConfirmationRequirement(signal);
   const retestRequirement = entryRetestRequirement(signal);
-  const failedChecklist = signal.decisionSummary.checklist.filter((item) => item.status === "fail");
-  const neutralChecklist = signal.decisionSummary.checklist.filter((item) => item.status === "neutral");
   const passedLabels = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
-  if (signal.plan.entryStatus !== "confirmed") {
-    if (closeRequirement) {
-      needs.push(`${closeRequirement.label} kapanmalı. ${closeRequirement.reason}`);
-    } else if (retestRequirement) {
-      needs.push(retestRequirement);
-    }
-    if (!retestRequirement && !closeRequirement) {
-      needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
-    }
+  if (signal.crtAnchor?.originClosed === false) {
+    needs.push(`${(signal.crtAnchor.rangeTf ?? "4h").toUpperCase()} CRT range mumu kapansın.`);
   }
-  if (signal.stage === "watch" && !closeRequirement && !needs.some((item) => item.includes("mum " + simpleDirection))) {
-    needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
-  }
-  for (const item of [...failedChecklist, ...neutralChecklist].filter((item) => item.label !== "Entry Model" && item.label !== "MSS" && item.label !== "ChoCH / Just").slice(0, 3)) {
-    const simple = simpleChecklistText(item.label, signal);
-    if (simple) needs.push(simple);
-  }
-  const pdZone = expectedPdZone(signal);
-  const liquiditySide = expectedLiquiditySide(signal);
-  const bias = expectedBias(signal);
-
-  if (context.premiumDiscount.zone !== pdZone) {
-    needs.push(`${simplePdText(signal)} Şu an doğru bölgede değil.`);
-  }
-  if (!passedLabels.has("Manipulation") && !context.sweeps.some((sweep) => sweep.side === liquiditySide && sweep.reclaimed)) {
+  if (!passedLabels.has("Manipulation")) {
     needs.push(simpleSweepText(signal));
   }
-  if (!passedLabels.has("Turtle Soup") && !passedLabels.has("Displacement") && !context.displacements.some((item) => item.direction === direction)) {
-    needs.push(`Fiyat ${simpleDirection} tarafa güçlü bir mum atsın.`);
+  if (!signal.plan.entryModel.cisdConfirmed) {
+    needs.push(closeRequirement
+      ? `${closeRequirement.label} kapanmalı. ${closeRequirement.reason}`
+      : `${confTf} mum ${simpleDirectionText(signal)} tarafa iç yapıyı kırarak kapanmalı.`);
   }
-  if (!signal.plan.entryModel.cisdConfirmed && !closeRequirement && !context.marketStructureShifts.some((item) => item.direction === direction)) {
-    needs.push(`${confTf} mum ${simpleDirection} tarafa kapanmalı. Son kapanmış mumun kırılımı yön değişimini onaylar.`);
-  }
-  if ((signal.plan.entrySource === "fvg-retest" || signal.plan.entrySource === "ifvg-retest") && !signal.plan.entryModel.fairValueGap) {
-    needs.push("Temiz bir giriş boşluğu oluşsun veya korunmuş kalsın.");
-  }
-  if (signal.plan.entrySource !== "fvg-retest" && signal.plan.entrySource !== "ifvg-retest" && signal.plan.entryStatus !== "confirmed") {
-    needs.push("Giriş POI/ChoCH kapanış/onay modeliyle netleşsin.");
+  if (signal.plan.entryModel.cisdConfirmed && signal.plan.entryStatus !== "confirmed") {
+    needs.push(retestRequirement ?? "Dağılım kapanışı onaylansın; sonra giriş planı aktif olsun.");
   }
   if (signal.plan.executionCosts.stress !== "off" && signal.plan.grossRR >= minimumRR && signal.plan.rr < minimumRR) {
     needs.push(`Spread/slippage fazla. Kağıt üstünde ${formatR(signal.plan.grossRR)}, gerçek hesapta ${formatR(signal.plan.rr)}.`);
@@ -228,20 +94,14 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   if (signal.plan.rr < minimumRR) {
     needs.push(`Kazanç mesafesi yetmiyor. En az ${formatR(minimumRR)} lazım, şu an ${formatR(signal.plan.rr)}.`);
   }
-  needs.push(...signal.governance.blockers);
-  needs.push(...signal.governance.warnings);
   if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") {
     needs.push(signal.actionWindow.summary);
   }
-  if (context.bias.daily !== bias && context.bias.h4 !== bias) {
-    needs.push(`Üst zaman CRT yönü de ${simpleDirection} tarafa dönsün.`);
+  for (const blocker of signal.governance.blockers) {
+    if (blocker.includes("Manipulation") || blocker.includes("ChoCH") || blocker.includes("RR minimum")) continue;
+    needs.push(blocker);
   }
-  if (!isCryptoSymbol(signal.symbol) && context.killzones.every((zone) => !zone.active || zone.name === "Outside")) {
-    needs.push("Doğru saat gelsin: London veya New York zamanı.");
-  }
-  needs.push(...signal.plan.planWarnings.map(simplePlanWarning).filter((warning): warning is string => Boolean(warning)));
-
-  return Array.from(new Set(needs)).slice(0, 9);
+  return Array.from(new Set(needs)).slice(0, 3);
 }
 
 function DataHealthPanel({ report }: { report: DataHealthReport }) {
@@ -519,7 +379,7 @@ export function ScannerView({
         </div>
       </article>
       <details className="scanner-more">
-        <summary>Geçmiş, veri ve düşük kalite</summary>
+        <summary>Geçmiş, veri ve erken adaylar</summary>
         <div className="scanner-more-body">
       <article className="panel">
         <header className="panel-head"><h2>Geçmiş / bozulmuş setup</h2><span className="badge">{inactiveSignals.length}</span></header>
@@ -538,7 +398,7 @@ export function ScannerView({
       </article>
       <DataHealthPanel report={dataHealth} />
       <article className="panel wide">
-        <header className="panel-head"><h2>Elendi / düşük kalite</h2><span className="badge">{sortedLowQualitySignals.length + rejectedSetups.length}</span></header>
+        <header className="panel-head"><h2>Erken aday / elendi</h2><span className="badge">{sortedLowQualitySignals.length + rejectedSetups.length}</span></header>
         <div className="scan-signal-list">
           {sortedLowQualitySignals.map((signal) => (
             <button
@@ -550,7 +410,7 @@ export function ScannerView({
               <span className={`status-dot ${signal.stage}`} />
               <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
               <b>{signal.grade} · {signal.score}</b>
-              <small>Düşük ihtimal · {signalDecisionLabel(signal)} · Net RR {formatR(signal.plan.rr)}</small>
+              <small>Erken aday · {signalDecisionLabel(signal)} · Net RR {formatR(signal.plan.rr)}</small>
               <em>{signalDecisionReason(signal)}</em>
             </button>
           ))}
@@ -563,7 +423,7 @@ export function ScannerView({
               <b>{item.score}</b>
             </div>
           ))}
-          {!sortedLowQualitySignals.length && !rejectedSetups.length && <p className="muted-note">Düşük kalite setup yok.</p>}
+          {!sortedLowQualitySignals.length && !rejectedSetups.length && <p className="muted-note">Erken aday yok.</p>}
         </div>
       </article>
         </div>

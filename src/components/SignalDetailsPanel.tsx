@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { selectedSignalAnnotations, signalAnchorTime } from "../lib/charts/selectedSignal";
+import { signalAnchorTime } from "../lib/charts/selectedSignal";
 import { fetchGeminiTradeCommentary, type GeminiTradeCommentaryResponse } from "../lib/gemini/tradeCommentary";
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
+import { signalDecisionClass } from "../lib/signals/signalClassification";
 import { waitingRequirementsForMinimumRR } from "./ScannerView";
 
 function statusClass(status: DecisionChecklistItem["status"] | SignalEvidenceItem["status"]) {
@@ -29,6 +30,7 @@ function rrStatusText(signal: TradingSignal) {
 }
 
 function actionTitle(signal: TradingSignal) {
+  if (signalDecisionClass(signal) === "invalid") return "Geçersiz";
   if (signal.stage === "ready") return "Plan hazır";
   if (signal.stage === "watch") return "Bekle";
   if (signal.stage === "invalidated") return "Bozuldu";
@@ -78,30 +80,20 @@ export function SignalDetailsPanel({
   const [outcomeNote, setOutcomeNote] = useState(journalEntry?.outcomeNote ?? "");
   const [aiCommentary, setAiCommentary] = useState<GeminiTradeCommentaryResponse>({ status: "disabled", reason: "Yüklenmedi" });
   const [aiLoading, setAiLoading] = useState(false);
-  const annotations = selectedSignalAnnotations(signal);
   const structureAudit = buildStructureAudit(signal);
+  const decisionClass = signalDecisionClass(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
   const setupTime = new Date(signalAnchorTime(signal)).toLocaleString();
-  const planGapLabel = signal.plan.entrySource === "ifvg-retest" ? "iFVG" : signal.plan.entrySource === "fvg-retest" ? "FVG" : "POI";
-  const fvgRetest: DecisionChecklistItem = {
-    label: "POI Retest",
-    status: annotations.fairValueGap ? (annotations.fairValueGap.mitigated ? "pass" : "neutral") : "neutral",
-    explanation: annotations.fairValueGap ? `Entry modeli seçilen ${planGapLabel} üzerinden map edildi.` : "Bu plan seçili FVG kutusu kullanmıyor; POI/ChoCH kapanış modeli izleniyor."
-  };
-  const htfBias = signal.decisionSummary.checklist.find((item) => item.label === "HTF Alignment");
-  const checklist = [...signal.decisionSummary.checklist, fvgRetest].map((item) =>
-    item.label === "HTF Alignment" ? { ...item, label: "HTF Bias" } : item
-  );
   const waitItems = waitingRequirementsForMinimumRR(signal, 1.5).slice(0, 3);
   const actualEntryNumber = optionalNumber(actualEntry);
   const actualExitNumber = optionalNumber(actualExit);
   const calculatedR = tradeRMultiple(signal, actualEntryNumber, actualExitNumber);
   const primaryWait = signal.stage === "ready"
     ? "Plan hazır: entry, stop ve DOL belli. Sadece kendi risk limitin uygunsa işlem alınır."
-    : waitItems[0] ?? "Yeni CRT ChoCH/POI kapanışı bekle.";
+    : signal.governance.blockers[0] ?? waitItems[0] ?? "Yeni CRT sweep ve ChoCH kapanışı bekle.";
   const secondaryWait = signal.stage === "ready"
     ? signal.decisionSummary.invalidation[0] ?? "Stop seviyesi görülürse plan iptal."
-    : waitItems[1] ?? signal.decisionSummary.invalidation[0] ?? "Onay gelmezse işlem yok.";
+    : waitItems.find((item) => item !== primaryWait) ?? signal.decisionSummary.invalidation[0] ?? "Onay gelmezse işlem yok.";
   useEffect(() => {
     setNotes(journalEntry?.notes ?? "");
     setMistake(journalEntry?.mistake ?? "");
@@ -180,7 +172,7 @@ export function SignalDetailsPanel({
         </div>
         <button className="icon-btn" onClick={onClear} type="button" aria-label="Seçili sinyali temizle"><X size={16} /></button>
       </header>
-      <section className={`simple-signal-card ${signal.stage}`}>
+      <section className={`simple-signal-card ${decisionClass === "invalid" ? "invalidated" : signal.stage}`}>
         <div>
           <span>{actionTitle(signal)}</span>
           <strong>{signal.grade} · {signal.score} puan</strong>
@@ -228,7 +220,7 @@ export function SignalDetailsPanel({
           <div><span>Risk</span><strong>{formatPrice(signal.plan.riskDistance)}</strong></div>
           <div><span>Zone</span><strong>{signal.context.premiumDiscount.zone}</strong></div>
           <div><span>Session</span><strong>{activeKillzone}</strong></div>
-          <div><span>Retest</span><strong>{signal.plan.entryModel.retested ? "var" : "bekliyor"}</strong></div>
+          <div><span>POI retest</span><strong>{signal.plan.entryModel.retested ? "var · bonus" : "yok · şart değil"}</strong></div>
           <div><span>ChoCH/Just</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
           <div><span>Friction</span><strong>{signal.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(signal.plan.executionCosts.total)}</strong></div>
           <div><span>RR durumu</span><strong>{rrStatusText(signal)}</strong></div>
@@ -239,17 +231,8 @@ export function SignalDetailsPanel({
           <div><span>Window</span><strong>{signal.actionWindow.status}</strong></div>
           <div><span>Governance</span><strong>{signal.governance.status}</strong></div>
         </div>
-        <div className="detail-checklist governance-checklist">
-          {signal.governance.checklist.map((item) => (
-            <div key={item.label}>
-              <span className={statusClass(item.status)}>{item.status}</span>
-              <strong>{item.label}</strong>
-              <small>{item.explanation}</small>
-            </div>
-          ))}
-        </div>
         <div className="detail-checklist">
-          {checklist.slice(0, 8).map((item) => (
+          {signal.governance.checklist.slice(0, 6).map((item) => (
             <div key={item.label}>
               <span className={statusClass(item.status)}>{item.status}</span>
               <strong>{item.label}</strong>
@@ -343,8 +326,7 @@ export function SignalDetailsPanel({
         <p><strong>Action window:</strong> {signal.actionWindow.summary}</p>
         <p><strong>Governance:</strong> {signal.governance.summary}</p>
         <p>{signal.decisionSummary.fullReasoning}</p>
-        {htfBias && <p className="muted-note">HTF okuma: {htfBias.explanation}</p>}
-        <p className="muted-note">Setup zamanı: {setupTime} · Judas: {annotations.judasSwing ? "mapped" : "map yok"}</p>
+        <p className="muted-note">Setup zamanı: {setupTime}</p>
       </details>
     </aside>
   );

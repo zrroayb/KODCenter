@@ -130,7 +130,7 @@ export type GeminiTradeCommentaryResponse = {
 };
 
 function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTradeCommentaryResponse {
-  // CRT mentor fallback: walk the SOP in order (manipulation -> ChoCH -> retest -> plan) and
+  // CRT mentor fallback: walk the core sequence (range -> manipulation -> ChoCH -> plan) and
   // speak to the first missing step with concrete levels. Each line carries different content;
   // Karar is the verdict, Neden the chart evidence, Beklenen the next concrete step.
   const audit = buildStructureAudit(signal);
@@ -150,8 +150,11 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
     beklenen = "Beklenen: Bu modelden uzak dur; yeni range mumu ve yeni manipulation sweep bekle.";
   } else if (signal.stage === "missed") {
     karar = "Karar: Kovalama yok; trade kaçtı.";
-    neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı.";
-    beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle.";
+    const eqConsumed = plan.planWarnings.find((warning) => warning.includes("%50/EQ"));
+    neden = eqConsumed
+      ? `Neden: ${eqConsumed}`
+      : "Neden: Fiyat planlanan giriş alanını bırakıp dağılıma başladı; geç girişin RR'ı kalmadı.";
+    beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (range → sweep → ChoCH) bekle.";
   } else if (geometryBroken) {
     karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
     neden = `Neden: Stop ${formatPrice(plan.stopLoss)}, entry ${formatPrice(plan.entry)} seviyesinin yanlış tarafında duruyor.`;
@@ -160,7 +163,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
     const extreme = signal.direction === "short" ? `range high ${formatPrice(range.high)}` : `range low ${formatPrice(range.low)}`;
     karar = "Karar: Bekle; manipulation yok.";
     neden = `Neden: CRT ${extreme} henüz süpürülmedi; likidite alınmadan distribution başlamaz.`;
-    beklenen = `Beklenen: ${extreme} süpürülsün ve fiyat range içine geri dönsün. Mitigation mum kapanışı şart değil; reclaim tutmalı.`;
+    beklenen = `Beklenen: ${extreme} wick ile alınsın. HTF mum kapanışı beklenmez; sonra yalnızca confirmation timeframe ChoCH kapanışı aranır.`;
   } else if (evidenceStatus("choch") === "fail" || (closeReq && plan.entryStatus !== "confirmed")) {
     karar = "Karar: Bekle; karakter değişimi onayı eksik.";
     neden = "Neden: Sweep tamam ama ChoCH/Just kapanışı yok; şimdilik bu sadece likidite avı.";
@@ -170,11 +173,11 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
   } else if (plan.entryStatus === "confirmed" && (signal.stage === "watch" || signal.stage === "ready")) {
     karar = signal.stage === "ready"
       ? "Karar: Plan hazır; disiplinle uygula."
-      : "Karar: Onay geldi; retest bekle, displacement kovalanmaz.";
+      : "Karar: Onay geldi ama plan henüz uygun değil.";
     neden = `Neden: ${audit.decision}`;
     beklenen = signal.stage === "ready"
       ? `Beklenen: Entry ${formatPrice(plan.entry)}; EQ ${formatPrice(plan.targets[0])} seviyesinde kısmi al, kalanı DOL'a taşı.`
-      : `Beklenen: Fiyat ${formatPrice(plan.entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok.`;
+      : `Beklenen: ${signal.governance.blockers[0] ?? "RR ve plan geometrisi uygun hale gelsin."}`;
   } else {
     karar = `Karar: ${audit.headline}`;
     neden = `Neden: ${audit.decision}`;
@@ -213,14 +216,11 @@ function buildDecisionLine(signal: TradingSignal): string {
   if (closeRequirement) {
     return `${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${closeRequirement.side === "above" ? "üstünde" : "altında"} kapanmalı; referans ${closeRequirement.reference}.`;
   }
-  if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
-    const gap = signal.plan.entryModel.fairValueGap;
-    return gap
-      ? `Fiyat ${formatPrice(gap.low)}-${formatPrice(gap.high)} entry kutusuna dokunsun; mitigation kapanışı şart değil.`
-      : `Fiyat ${formatPrice(signal.plan.entry)} entry seviyesine dokunsun; mitigation kapanışı şart değil.`;
-  }
   if (signal.stage === "ready") {
     return `READY plan: entry ${formatPrice(signal.plan.entry)}, stop ${formatPrice(signal.plan.stopLoss)}, EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}, DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`;
+  }
+  if (signal.plan.entryStatus === "pending") {
+    return "ChoCH kapanışı henüz girişe dönüşmedi; yeni kapalı mum bekleniyor.";
   }
   return signal.plan.planWarnings[0] ?? "Setup izleniyor; READY olmadan işlem yok.";
 }
@@ -228,11 +228,10 @@ function buildDecisionLine(signal: TradingSignal): string {
 function buildWaitingFor(signal: TradingSignal): string[] {
   const closeRequirement = closeConfirmationRequirement(signal);
   const waits = [
-    !signal.plan.entryModel.retested ? "Entry kutusu/retest seviyesine temas bekleniyor." : undefined,
     closeRequirement ? `${closeRequirement.label} kapanış onayı bekleniyor: ${closeRequirement.reason}` : undefined,
     signal.context.eventRisk.level !== "clear" ? `Event/saat riski: ${signal.context.eventRisk.summary}` : undefined,
     signal.governance.status !== "allow" ? signal.governance.summary : undefined,
-    ...signal.plan.planWarnings.slice(0, 3)
+    ...signal.governance.blockers.slice(0, 3)
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(waits)).slice(0, 6);
 }

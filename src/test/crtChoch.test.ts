@@ -53,6 +53,67 @@ describe("CRT ChoCH truth model", () => {
     });
 
     expect(read.reference?.candleIndex).toBe(4);
+    expect(read.structuralBreak?.candleIndex).toBe(10);
+    expect(read.confirmation).toBeUndefined();
+  });
+
+  it("recognizes an already-visible internal pivot as the shift reference", () => {
+    const data = candles();
+    data[5] = { ...data[5], high: 100.7 };
+    data[6] = { ...data[6], high: 101.2 };
+    data[7] = { ...data[7], high: 100.8 };
+    data[10] = { ...data[10], open: 100.1, high: 101.7, low: 100, close: 101.5 };
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings: [],
+      range,
+      direction: "long",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.reference).toEqual({ level: 101.2, candleIndex: 6 });
+    expect(read.confirmation?.candleIndex).toBe(10);
+  });
+
+  it("recognizes the mirrored bearish shift after a buy-side manipulation", () => {
+    const data = candles();
+    data[5] = { ...data[5], low: 99.3 };
+    data[6] = { ...data[6], low: 98.8 };
+    data[7] = { ...data[7], low: 99.2 };
+    data[10] = { ...data[10], open: 99.9, high: 100, low: 98.3, close: 98.5 };
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings: [],
+      range,
+      direction: "short",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.reference).toEqual({ level: 98.8, candleIndex: 6 });
+    expect(read.confirmation?.candleIndex).toBe(10);
+  });
+
+  it("never treats the CRT range low / DOL as the short ChoCH reference", () => {
+    const data = candles();
+    data[10] = { ...data[10], open: 98.2, high: 98.3, low: 96.5, close: 96.7 };
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings: [{ side: "low", level: range.low, candleIndex: 4, strength: "minor" }],
+      range,
+      direction: "short",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.reference).toBeUndefined();
     expect(read.confirmation).toBeUndefined();
   });
 
@@ -94,6 +155,24 @@ describe("CRT ChoCH truth model", () => {
     expect(findCrtEntryRetestIndex(data, 100, 9)).toBe(11);
   });
 
+  it("accepts a post-shift FVG edge tap without demanding a midpoint fill", () => {
+    const data = candles();
+    data[10] = { ...data[10], low: 99.5, high: 99.9 };
+    data[11] = { ...data[11], low: 99.8, high: 100.1 };
+
+    expect(findCrtEntryRetestIndex(data, 100.2, 9, { low: 100, high: 100.4 })).toBe(11);
+    expect(data[11].high).toBeLessThan(100.2);
+  });
+
+  it("accepts the mirrored bearish FVG low-edge tap without demanding midpoint fill", () => {
+    const data = candles();
+    data[10] = { ...data[10], low: 100.5, high: 100.9 };
+    data[11] = { ...data[11], low: 100.3, high: 100.6 };
+
+    expect(findCrtEntryRetestIndex(data, 100.2, 9, { low: 100, high: 100.4 })).toBe(11);
+    expect(data[11].low).toBeGreaterThan(100.2);
+  });
+
   it("keeps a fresh strong ChoCH pending until price retests its entry level", () => {
     const decision = selectCrtEntry({
       choch: { level: 101, candleIndex: 9, referenceCandleIndex: 4, bodyRatio: 0.8, rangeAtr: 1.5 },
@@ -104,6 +183,20 @@ describe("CRT ChoCH truth model", () => {
     expect(decision.entry).toBe(101);
     expect(decision.entrySource).toBe("choch-close");
     expect(decision.entryStatus).toBe("pending");
+    expect(decision.retested).toBe(false);
+  });
+
+  it("activates a direct entry from the closed ChoCH candle when no retest is offered", () => {
+    const decision = selectCrtEntry({
+      choch: { level: 101, candleIndex: 9, referenceCandleIndex: 4, bodyRatio: 0.8, rangeAtr: 1.5 },
+      plannedRetestEntry: 101,
+      retestIndex: undefined,
+      confirmationClose: 101.4
+    });
+
+    expect(decision.entry).toBe(101.4);
+    expect(decision.entrySource).toBe("choch-close");
+    expect(decision.entryStatus).toBe("confirmed");
     expect(decision.retested).toBe(false);
   });
 

@@ -9,6 +9,11 @@ describe("scanner waiting requirements", () => {
     const watchSignal = {
       ...signal,
       stage: "watch" as const,
+      plan: {
+        ...signal.plan,
+        entryStatus: "pending" as const,
+        entryModel: { ...signal.plan.entryModel, cisdConfirmed: false, retested: false }
+      },
       context: {
         ...signal.context,
         sweeps: [],
@@ -20,12 +25,13 @@ describe("scanner waiting requirements", () => {
 
     const requirements = waitingRequirements(watchSignal);
 
-    expect(requirements.join(" ")).toContain("stoplar alınsın");
+    expect(requirements.join(" ")).toContain("4H CRT high alınsın");
+    expect(requirements.join(" ")).toContain("Mum kapanışı beklenmez");
     expect(requirements.join(" ")).toContain("15m mum");
     expect(requirements.join(" ")).toContain("kapanmalı");
-    expect(requirements.join(" ")).toContain("Son kapanmış mumun");
-    expect(requirements.join(" ")).toContain("kapanış/onay modeliyle netleşsin");
+    expect(requirements.join(" ")).toContain("Son kapalı mum");
     expect(requirements.join(" ")).not.toContain("giriş boşluğu");
+    expect(requirements.join(" ")).not.toContain("retest");
   });
 
   it("does not describe invalidated signals as waiting trade candidates", () => {

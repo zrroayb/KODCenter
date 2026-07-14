@@ -171,9 +171,9 @@ describe("chart trade plan overlay", () => {
     expect(markup).toContain("kapanış onayı");
     expect(markup).toContain("TEK KARAR");
     expect(markup).toContain("Son kapalı mum low güçlü kapanışla kırılmalı");
-    expect(markup).toContain("liq alımı");
-    expect(markup).toContain("NYAM.H");
-    expect(markup).toContain("NYAM.L");
+    expect(markup).toContain("MANIPULATION");
+    expect(markup).not.toContain("NYAM.H");
+    expect(markup).not.toContain("NYAM.L");
   });
 
   it("renders a clear invalidated badge when stop has already been touched", () => {

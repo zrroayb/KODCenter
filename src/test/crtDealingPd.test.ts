@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
+import { crtStrategy, evaluateCrtHtfAlignment } from "../lib/strategies/crt/crt.strategy";
 import { createStructureContext } from "./strategyFixtures";
-import type { PremiumDiscountContext } from "../lib/ict/types";
+import type { MarketContext, PremiumDiscountContext } from "../lib/ict/types";
 
 // A textbook CRT short that sits correctly in the PREMIUM half of its own 4h range, but where
 // the broader GLOBAL dealing range reads discount. The CRT-range PD (pdAligned) is the setup's
 // own logic and must stay the hard gate; the global dealing-range PD may only note/size-down.
-function shortSignal(globalZone: PremiumDiscountContext["zone"]) {
+function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: Partial<MarketContext["bias"]> = {}) {
   const base = createStructureContext();
   const h4 = base.timeframes.h4.map((candle, index) =>
     index === 21
@@ -23,19 +23,20 @@ function shortSignal(globalZone: PremiumDiscountContext["zone"]) {
       : index === 21
         ? { ...candle, open: 100.4, high: 100.8, low: 99.9, close: 100.6 }
       : index === 22
-        ? { ...candle, open: 100.8, high: 101.15, low: 100, close: 100.2 }
+        ? { ...candle, open: 100.8, high: 101.15, low: 100.2, close: 100.5 }
         : index === 23
-          ? { ...candle, open: 100.4, high: 100.45, low: 99.1, close: 99.3 }
+          ? { ...candle, open: 100.5, high: 100.6, low: 99.1, close: 99.3 }
           : candle
   );
   const lastM15 = mappedM15[mappedM15.length - 1];
   const m15 = [
     ...mappedM15,
-    { ...lastM15, time: lastM15.time + 15 * 60 * 1000, open: 100.5, high: 100.7, low: 100.4, close: 100.5 },
-    { ...lastM15, time: lastM15.time + 30 * 60 * 1000, open: 100.5, high: 100.65, low: 100.45, close: 100.5 }
+    { ...lastM15, time: lastM15.time + 15 * 60 * 1000, open: 99.3, high: 99.8, low: 99.1, close: 99.4 },
+    { ...lastM15, time: lastM15.time + 30 * 60 * 1000, open: 99.5, high: 100, low: 99.3, close: 99.7 }
   ];
   const context = createStructureContext({
     timeframes: { ...base.timeframes, m15, m5: m15, h4 },
+    bias: { ...base.bias, ...biasOverrides },
     dealingRange: { high: 105, low: 90, midpoint: 97.5, source: "fixture" },
     premiumDiscount: { zone: globalZone, positionPct: globalZone === "premium" ? 0.72 : 0.28, midpoint: 97.5 },
     liquidityPools: [
@@ -74,7 +75,7 @@ function shortSignal(globalZone: PremiumDiscountContext["zone"]) {
   return crtStrategy.scan({
     context,
     settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
-  }).signals[0];
+  }).signals.find((signal) => signal.crtAnchor?.rangeTf === "4h" && signal.direction === "short")!;
 }
 
 describe("dealing-range PD is a note, not a second veto", () => {
@@ -90,5 +91,33 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(conflicting.governance.blockers.some((b) => b.includes("Dealing range"))).toBe(false);
     expect(conflicting.governance.blockers).toHaveLength(0);
     expect(conflicting.decisionSummary.warnings.some((w) => w.includes("dealing range PD ters"))).toBe(true);
+  });
+
+  it("keeps an otherwise valid setup at WATCH when its anchor-specific HTF direction conflicts", () => {
+    const signal = shortSignal("premium", { weekly: "bullish" });
+
+    expect(signal.stage).toBe("watch");
+    expect(signal.governance.blockers.join(" ")).toContain("HTF yönü uyumsuz");
+    expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
+  });
+
+  it("checks the correct higher-timeframe chain for every CRT anchor", () => {
+    const context = createStructureContext({
+      bias: {
+        monthly: "bullish",
+        weekly: "bullish",
+        daily: "bullish",
+        h4: "bearish",
+        h1: "bearish"
+      }
+    });
+
+    expect(evaluateCrtHtfAlignment(context, "4h", "long").required).toEqual(["1d", "1w"]);
+    expect(evaluateCrtHtfAlignment(context, "4h", "long").aligned).toBe(true);
+    expect(evaluateCrtHtfAlignment(context, "1d", "long").required).toEqual(["1w"]);
+    expect(evaluateCrtHtfAlignment(context, "1d", "long").aligned).toBe(true);
+    expect(evaluateCrtHtfAlignment(context, "1w", "long").required).toEqual(["1M"]);
+    expect(evaluateCrtHtfAlignment(context, "1w", "long").aligned).toBe(true);
+    expect(evaluateCrtHtfAlignment(context, "4h", "short").aligned).toBe(false);
   });
 });

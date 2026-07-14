@@ -10,7 +10,7 @@ import { createStructureContext } from "./strategyFixtures";
 // own delivery toward the range high, not a fresh short raid. The raid only releases when
 // the reclaim breaks (close beyond the swept extreme) or the target side gets touched.
 
-type CandlePatch = { open: number; high: number; low: number; close: number };
+type CandlePatch = { open: number; high: number; low: number; close: number; closed?: boolean };
 
 function patchCandles<T extends { open: number; high: number; low: number; close: number }>(candles: T[], patches: Record<number, CandlePatch>): T[] {
   return candles.map((candle, index) => patches[index] ? { ...candle, ...patches[index] } : candle);
@@ -63,11 +63,11 @@ describe("CRT direction sources", () => {
     expect(signal.symbol).toBe("USDJPY");
     expect(signal.stage).toBe("watch");
     expect(signal.crtAnchor?.rangeTf).toBe("4h");
-    expect(signal.crtAnchor?.raidActive).toBe(false);
+    expect(signal.crtAnchor?.raidActive).toBe(true);
     expect(signal.governance.blockers.join(" ")).toContain("ChoCH");
   });
 
-  it("lets Daily CRT continuation own direction over an opposite 1H Turtle Soup trace", () => {
+  it("surfaces a fresh Daily high raid without requiring the Daily raid candle to close", () => {
     const base = createStructureContext();
     const daily = patchCandles(base.timeframes.daily, {
       21: { open: 99, high: 100, low: 94, close: 98 },
@@ -97,13 +97,13 @@ describe("CRT direction sources", () => {
 
     expect(dailySignal).toBeDefined();
     expect(dailySignal?.symbol).toBe("GBPUSD");
-    expect(dailySignal?.direction).toBe("long");
+    expect(dailySignal?.direction).toBe("short");
     expect(dailySignal?.stage).toBe("watch");
     expect(dailySignal?.score).toBeGreaterThan(0);
-    expect(dailySignal?.crtAnchor?.setupPhase).toBe("context");
-    expect(dailySignal?.evidence.find((item) => item.id === "crt-bias")?.detail).toContain("1d close previous high üstünde");
-    expect(dailySignal?.evidence.find((item) => item.id === "turtle-soup")?.status).toBe("neutral");
-    expect(result.signals.some((signal) => signal.crtAnchor?.rangeTf === "1d" && signal.direction === "short")).toBe(false);
+    expect(dailySignal?.crtAnchor?.setupPhase).toBe("raid");
+    expect(dailySignal?.crtAnchor?.raidActive).toBe(true);
+    expect(dailySignal?.evidence.some((item) => item.id === "turtle-soup")).toBe(false);
+    expect(dailySignal?.governance.blockers.join(" ")).toContain("1h ChoCH");
   });
 
   it("surfaces a tapped 4H FVG origin candle as its own CRT watch setup", () => {
@@ -138,7 +138,7 @@ describe("CRT direction sources", () => {
     expect(signal?.stage).toBe("watch");
     expect(signal?.crtAnchor?.originLabel).toBe("4H FVG origin CRT");
     expect(signal?.evidence.find((item) => item.id === "crt-range")?.detail).toContain("FVG origin candle");
-    expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("Raid sonrası");
+    expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("CRT yine geçerlidir");
     expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
     expect(signal?.governance.blockers.join(" ")).toContain("ChoCH");
   });
@@ -181,6 +181,82 @@ describe("CRT direction sources", () => {
 });
 
 describe("CRT raid persistence", () => {
+  it("opens a SHORT raid watch as soon as a forming 4H candle takes the closed reference high", () => {
+    const signal = scanWithH4({
+      16: { open: 98, high: 102, low: 94, close: 98 },
+      17: { open: 98, high: 102, low: 94, close: 98 },
+      18: { open: 98, high: 102, low: 94, close: 98 },
+      19: { open: 98, high: 102, low: 94, close: 98 },
+      20: { open: 98, high: 102, low: 94, close: 98 },
+      21: { open: 98, high: 102, low: 94, close: 98 },
+      22: { open: 98, high: 101, low: 95, close: 98, closed: true },
+      23: { open: 98, high: 101.2, low: 97, close: 101.1, closed: false }
+    }, 101.1);
+
+    expect(signal.direction).toBe("short");
+    expect(signal.crtAnchor?.raidActive).toBe(true);
+    expect(signal.crtAnchor?.raidClosed).toBe(false);
+    expect(signal.crtAnchor?.setupPhase).toBe("raid");
+    expect(signal.governance.blockers.join(" ")).toContain("15m ChoCH");
+    expect(signal.governance.blockers.join(" ")).not.toContain("reclaim");
+    expect(signal.governance.blockers.join(" ")).not.toContain("4H CRT origin mumu");
+  });
+
+  it("opens the mirrored LONG raid watch without waiting for the forming 4H candle close", () => {
+    const signal = scanWithH4({
+      16: { open: 98, high: 102, low: 94, close: 98 },
+      17: { open: 98, high: 102, low: 94, close: 98 },
+      18: { open: 98, high: 102, low: 94, close: 98 },
+      19: { open: 98, high: 102, low: 94, close: 98 },
+      20: { open: 98, high: 102, low: 94, close: 98 },
+      21: { open: 98, high: 102, low: 94, close: 98 },
+      22: { open: 98, high: 101, low: 95, close: 98, closed: true },
+      23: { open: 98, high: 99, low: 94.8, close: 94.9, closed: false }
+    }, 94.9);
+
+    expect(signal.direction).toBe("long");
+    expect(signal.crtAnchor?.raidActive).toBe(true);
+    expect(signal.crtAnchor?.raidClosed).toBe(false);
+    expect(signal.crtAnchor?.setupPhase).toBe("raid");
+    expect(signal.governance.blockers.join(" ")).toContain("15m ChoCH");
+    expect(signal.governance.blockers.join(" ")).not.toContain("reclaim");
+  });
+
+  it("drops a raided setup once price has already reached the CRT midpoint", () => {
+    const signal = scanWithH4({
+      16: { open: 98, high: 102, low: 94, close: 98 },
+      17: { open: 98, high: 102, low: 94, close: 98 },
+      18: { open: 98, high: 102, low: 94, close: 98 },
+      19: { open: 98, high: 102, low: 94, close: 98 },
+      20: { open: 98, high: 102, low: 94, close: 98 },
+      21: { open: 98, high: 102, low: 94, close: 98 },
+      22: { open: 98, high: 101, low: 95, close: 98, closed: true },
+      23: { open: 98, high: 101.2, low: 97, close: 100.8, closed: false }
+    }, 98.2);
+
+    expect(signal.direction).toBe("short");
+    expect(signal.stage).toBe("missed");
+    expect(signal.outcome.summary).toContain("%50/EQ");
+    expect(signal.plan.planWarnings.join(" ")).toContain("setup tüketildi");
+  });
+
+  it("drops the mirrored LONG setup once price has already reached the CRT midpoint", () => {
+    const signal = scanWithH4({
+      16: { open: 98, high: 102, low: 94, close: 98 },
+      17: { open: 98, high: 102, low: 94, close: 98 },
+      18: { open: 98, high: 102, low: 94, close: 98 },
+      19: { open: 98, high: 102, low: 94, close: 98 },
+      20: { open: 98, high: 102, low: 94, close: 98 },
+      21: { open: 98, high: 102, low: 94, close: 98 },
+      22: { open: 98, high: 101, low: 95, close: 98, closed: true },
+      23: { open: 98, high: 99, low: 94.8, close: 95.2, closed: false }
+    }, 98.2);
+
+    expect(signal.direction).toBe("long");
+    expect(signal.stage).toBe("missed");
+    expect(signal.outcome.summary).toContain("%50/EQ");
+  });
+
   it("keeps the long direction while the raid's reclaim holds and the target is untouched", () => {
     // h4[20] is the range candle (101/95), h4[21] raids its low and closes back inside (long),
     // h4[22] pokes above h4[21]'s high — under the old rolling window this read as a fresh
@@ -188,9 +264,9 @@ describe("CRT raid persistence", () => {
     const signal = scanWithH4({
       20: { open: 100, high: 101, low: 95, close: 99 },
       21: { open: 98, high: 98.4, low: 94.6, close: 96 },
-      22: { open: 96, high: 99, low: 95.8, close: 98 },
-      23: { open: 98, high: 98.3, low: 97.6, close: 98 }
-    });
+      22: { open: 96, high: 99, low: 95.8, close: 96.5 },
+      23: { open: 96.5, high: 97, low: 96.1, close: 96.5 }
+    }, 96.5);
 
     expect(signal.direction).toBe("long");
     expect(signal.crtAnchor?.rangeHigh).toBe(101);
@@ -207,7 +283,7 @@ describe("CRT raid persistence", () => {
       21: { open: 98, high: 98.4, low: 94.6, close: 94.8 },
       22: { open: 94.8, high: 97.2, low: 94.7, close: 96 },
       23: { open: 96, high: 98.3, low: 95.8, close: 98 }
-    });
+    }, 96);
 
     expect(signal.direction).toBe("long");
     expect(signal.crtAnchor?.raidActive).toBe(true);
@@ -227,9 +303,9 @@ describe("CRT raid persistence", () => {
     expect(signal.direction).toBe("short");
   });
 
-  it("releases the long when a later close breaks the reclaim", () => {
-    // h4[22] closes below the swept low: that was a breakout, not a manipulation, so the
-    // long raid is dead and nothing here may fade the move.
+  it("recognizes the newer low raid even when that second 4H candle closes beyond the low", () => {
+    // The older long is consumed, but h4[22] itself takes h4[21]'s low. Under the simplified
+    // rule that newer raid is visible immediately; only its LTF confirmation can make it READY.
     const signal = scanWithH4({
       20: { open: 100, high: 101, low: 95, close: 99 },
       21: { open: 98, high: 98.4, low: 94.6, close: 96 },
@@ -237,6 +313,8 @@ describe("CRT raid persistence", () => {
       23: { open: 94.2, high: 94.6, low: 93.9, close: 94.3 }
     }, 94.3);
 
-    expect(signal?.crtAnchor?.raidActive ?? false).toBe(false);
+    expect(signal?.direction).toBe("long");
+    expect(signal?.crtAnchor?.raidActive).toBe(true);
+    expect(signal?.stage).toBe("watch");
   });
 });

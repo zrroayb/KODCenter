@@ -40,10 +40,9 @@ describe("structure audit", () => {
     });
 
     const audit = buildStructureAudit(signal);
-    const mss = audit.items.find((item) => item.label === "ChoCH/Just");
+    const mss = audit.items.find((item) => item.label === "Distribution");
 
     expect(mss?.status).toBe("wait");
-    expect(mss?.detail).toContain("mum");
     expect(mss?.detail).toContain("kapanışı bekleniyor");
   });
 

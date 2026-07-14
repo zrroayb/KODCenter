@@ -282,20 +282,28 @@ export function CandleChart({
     const ratio = Math.max(0, Math.min(1, (time - first.time) / (latest.time - first.time)));
     return firstX + (lastX - firstX) * ratio;
   };
-  const showPremiumDiscountBand = Boolean(range && contextLevels.includes(range.high) && contextLevels.includes(range.low) && contextLevels.includes(range.midpoint));
+  const showPremiumDiscountBand = Boolean(!selectedSignal && range && contextLevels.includes(range.high) && contextLevels.includes(range.low) && contextLevels.includes(range.midpoint));
   const timeIndexes = Array.from(new Set([0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => Math.min(visible.length - 1, Math.max(0, Math.round((visible.length - 1) * ratio))))));
   const lastPriceColor = latest && latest.close >= latest.open ? bull : bear;
   const seenLiquidityLevels = new Set<string>();
+  const visibleLiquidityY: number[] = [];
+  const rangeTagPrices = range ? [range.high, range.midpoint, range.low] : [];
   const visibleLiquidity = (context?.liquidityPools ?? [])
     .filter((pool) => contextLevels.includes(pool.level))
     .sort((a, b) => Math.abs(a.level - (latest?.close ?? a.level)) - Math.abs(b.level - (latest?.close ?? b.level)))
     .filter((pool) => {
       const key = `${pool.side}-${pool.level.toFixed(6)}`;
       if (seenLiquidityLevels.has(key)) return false;
+      const y = scaleY(pool.level);
+      // A CRT H/EQ/L tag already explains nearby liquidity. Avoid five near-identical BSL/SSL
+      // chips obscuring the latest candles, especially on the compact chart viewport.
+      if (rangeTagPrices.some((price) => Math.abs(scaleY(price) - y) < 18)) return false;
+      if (visibleLiquidityY.some((visibleY) => Math.abs(visibleY - y) < 18)) return false;
       seenLiquidityLevels.add(key);
+      visibleLiquidityY.push(y);
       return true;
     })
-    .slice(0, selectedSignal ? 3 : 5);
+    .slice(0, selectedSignal ? 2 : 3);
   const chartBackground = cleanChartBackground;
   const plotBackground = cleanChartBackground;
   const gridColor = grid;
@@ -304,7 +312,7 @@ export function CandleChart({
   const hudFill = "rgba(13, 17, 26, 0.86)";
   const hudText = "#e8ecf4";
   const sessionRanges = (() => {
-    if (mode !== "execution") return [];
+    if (mode !== "execution" || selectedSignal) return [];
 
     const ranges: Array<{
       key: string;
@@ -617,44 +625,7 @@ export function CandleChart({
             />
             <circle cx={xForCandleIndex(annotations.sweep.candleIndex)} cy={scaleY(annotations.sweep.level)} r="5" fill="#f59e0b" stroke="#06080c" strokeWidth="2" />
             <text x={Math.min(plotRight - 8, xForCandleIndex(annotations.sweep.candleIndex) + 18)} y={scaleY(annotations.sweep.level) - 8} fill="#f59e0b" fontSize="9" fontWeight="900">
-              sweep
-            </text>
-            <text x={plotRight - 12} y={scaleY(annotations.sweep.level) - 8} fill={manualLineColor} fontSize="11" fontWeight="800" textAnchor="end">
-              {annotations.sweep.side === "buy-side" ? "liq alımı" : "liq satımı"}
-            </text>
-          </g>
-        )}
-        {annotations.smtDivergence && (
-          <g>
-            <line
-              x1={Math.max(plot.left, xForCandleIndex(annotations.smtDivergence.candleIndex) - 30)}
-              x2={Math.min(plotRight, xForCandleIndex(annotations.smtDivergence.candleIndex) + 70)}
-              y1={scaleY(annotations.smtDivergence.localExtreme)}
-              y2={scaleY(annotations.smtDivergence.localExtreme)}
-              stroke="#fbbf24"
-              strokeWidth="1.4"
-              strokeDasharray="2 4"
-              opacity="0.78"
-            />
-            <rect
-              x={Math.min(plotRight - 92, xForCandleIndex(annotations.smtDivergence.candleIndex) + 12)}
-              y={scaleY(annotations.smtDivergence.localExtreme) + (selectedSignal.direction === "short" ? -28 : 10)}
-              width="88"
-              height="18"
-              rx="4"
-              fill="rgba(59, 37, 8, 0.92)"
-              stroke="#fbbf24"
-              strokeWidth="1"
-            />
-            <text
-              x={Math.min(plotRight - 92, xForCandleIndex(annotations.smtDivergence.candleIndex) + 12) + 44}
-              y={scaleY(annotations.smtDivergence.localExtreme) + (selectedSignal.direction === "short" ? -15 : 23)}
-              fill="#fde68a"
-              fontSize="9"
-              fontWeight="900"
-              textAnchor="middle"
-            >
-              SMT vs {annotations.smtDivergence.partner}
+              MANIPULATION
             </text>
           </g>
         )}
@@ -716,17 +687,6 @@ export function CandleChart({
                     : "Son kapalı mum low güçlü kapanışla kırılmalı"}
             </text>
           </g>
-        )}
-        {annotations.displacement && (
-          <rect
-            x={xForCandleIndex(annotations.displacement.candleIndex) - candleWidth / 2 - 4}
-            y={scaleY(candles[annotations.displacement.candleIndex]?.high ?? selectedSignal.plan.entry)}
-            width={candleWidth + 8}
-            height={Math.max(10, scaleY(candles[annotations.displacement.candleIndex]?.low ?? selectedSignal.plan.entry) - scaleY(candles[annotations.displacement.candleIndex]?.high ?? selectedSignal.plan.entry))}
-            fill="none"
-            stroke="#38bdf8"
-            strokeWidth="2"
-          />
         )}
         {levelLine(selectedSignal.plan.entry, "#38bdf8", "ENTRY", false, 1, "#0c4a6e")}
         {levelLine(selectedSignal.plan.stopLoss, bear, selectedSignal.stage === "invalidated" ? "STOP HIT" : "STOP", false, 1, "#4c0519")}
@@ -827,13 +787,12 @@ export function CandleChart({
     );
   })() : null;
 
-  const markers = showSignalMarkers && first && latest
+  const markers = showSignalMarkers && !selectedSignal && first && latest
     ? (() => {
         // Multi-anchor CRT signals share the same anchor candle: stack their chips instead of
         // stamping them on top of each other, and keep them clear of the right-edge price tags.
         const items = signals
           .filter((signal) => signal.context.symbol === context?.symbol)
-          .filter((signal) => signal.id !== selectedSignal?.id)
           .filter((signal) => {
             const focus = focusChartOnSignal(signal, 0);
             return focus.to >= first.time && focus.from <= latest.time;
@@ -870,7 +829,7 @@ export function CandleChart({
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") onSelectSignal?.(signal);
               }}
-              className={selectedSignal?.id === signal.id ? "signal-marker selected" : "signal-marker"}
+              className="signal-marker"
             >
               <rect x={x - chipWidth / 2} y={y - 12} width={chipWidth} height="22" rx="5" fill="#0f172a" stroke={color} strokeWidth="1.2" />
               <text x={x} y={y + 3} fill={color} fontSize="10" fontWeight="800" textAnchor="middle">{label}</text>
@@ -989,9 +948,9 @@ export function CandleChart({
             </g>
           );
         })}
-        {mode !== "context" && range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "", true, 0.24) : levelLine(range.high, "#94a3b8", "CRT H", true, 0.74))}
-        {mode !== "context" && range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "CRT EQ", true, 0.28) : levelLine(range.midpoint, "#64748b", "CRT EQ", true, 0.78))}
-        {mode !== "context" && range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "", true, 0.24) : levelLine(range.low, "#94a3b8", "CRT L", true, 0.74))}
+        {mode !== "context" && range && contextLevels.includes(range.high) && (selectedSignal ? guideLine(range.high, "#64748b", "CRT H", true, 0.42) : levelLine(range.high, "#94a3b8", "CRT H", true, 0.74))}
+        {mode !== "context" && range && contextLevels.includes(range.midpoint) && (selectedSignal ? guideLine(range.midpoint, "#64748b", "CRT EQ", true, 0.42) : levelLine(range.midpoint, "#64748b", "CRT EQ", true, 0.78))}
+        {mode !== "context" && range && contextLevels.includes(range.low) && (selectedSignal ? guideLine(range.low, "#64748b", "CRT L", true, 0.42) : levelLine(range.low, "#94a3b8", "CRT L", true, 0.74))}
         {!selectedSignal && visibleLiquidity.map((pool) => levelLine(pool.level, pool.side === "buy-side" ? "#7B5A16" : "#1D5C73", pool.side === "buy-side" ? "BSL" : "SSL", true, 0.5, pool.side === "buy-side" ? "#3b2508" : "#082f49"))}
         {visible.map((candle, index) => {
           const centerX = snap(xAtVisibleIndex(index));

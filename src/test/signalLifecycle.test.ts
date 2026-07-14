@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signalLifecycleState } from "../lib/signals/signalClassification";
+import { signalDecisionClass, signalDecisionLabel, signalLifecycleState } from "../lib/signals/signalClassification";
 import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
@@ -52,5 +52,22 @@ describe("signal lifecycle state", () => {
 
     expect(signalLifecycleState(signal).status).toBe("invalidated");
     expect(signalLifecycleState(signal).nextAction).toContain("Yeni sweep");
+  });
+
+  it("separates terminal structure contradictions from ordinary watch requirements", () => {
+    const context = createStructureContext();
+    const signal = kodStrategy.scan({ context, settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1 } }).signals[0];
+    const invalid = {
+      ...signal,
+      stage: "watch" as const,
+      governance: {
+        ...signal.governance,
+        blockers: ["HTF continuation kapanışı ters yönde; range close ile kırılmış, bu range'den reversal alınmaz."]
+      }
+    };
+
+    expect(signalDecisionClass(invalid)).toBe("invalid");
+    expect(signalDecisionLabel(invalid)).toBe("GEÇERSİZ");
+    expect(signalLifecycleState(invalid)).toMatchObject({ status: "blocked", label: "GEÇERSİZ", severity: "danger" });
   });
 });

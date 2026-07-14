@@ -22,6 +22,7 @@ import type { JournalEntry } from "./lib/journal/types";
 import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
 import { buildSessionClock, formatTurkeySessionTime } from "./lib/session/sessionClock";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
+import { signalDecisionClass } from "./lib/signals/signalClassification";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
 import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
@@ -46,6 +47,8 @@ const SIGNAL_STAGE_RANK: Record<TradingSignal["stage"], number> = { ready: 4, wa
 const SETUP_PHASE_RANK: Record<string, number> = { ready: 3, model: 2, raid: 1, context: 0 };
 
 function compareSignalsByDecision(a: TradingSignal, b: TradingSignal) {
+  const invalidDifference = Number(signalDecisionClass(a) === "invalid") - Number(signalDecisionClass(b) === "invalid");
+  if (invalidDifference) return invalidDifference;
   const stageDifference = (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0);
   if (stageDifference) return stageDifference;
   if (a.stage === "watch" && b.stage === "watch") {
@@ -82,10 +85,13 @@ function scanContexts(contexts: MarketContext[], strategyId: string, rules: User
   const activeSignals = rawSignals
     .filter((signal) => signal.stage !== "invalidated" && signal.stage !== "missed")
     .sort(compareSignalsByDecision);
-  const visibleCandidates = activeSignals.filter((signal) => ruleAllowsSignal(signal, rules));
+  const tradeCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) !== "invalid");
+  const invalidCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) === "invalid");
+  const visibleCandidates = tradeCandidates.filter((signal) => ruleAllowsSignal(signal, rules));
   const visibleSignals = visibleCandidates.slice(0, rules.maxSignalsPerScan);
   const hiddenCandidates = [
-    ...activeSignals.filter((signal) => !ruleAllowsSignal(signal, rules)),
+    ...invalidCandidates,
+    ...tradeCandidates.filter((signal) => !ruleAllowsSignal(signal, rules)),
     ...visibleCandidates.slice(rules.maxSignalsPerScan)
   ];
   const seenHiddenSignals = new Set<string>();
@@ -142,8 +148,10 @@ function shortReason(text: string | undefined, fallback = "Bekle"): string {
     .replace(/\s+/g, " ")
     .trim();
   const lower = clean.toLocaleLowerCase("tr-TR");
-  if (lower.includes("retest")) return "Giriş seviyesine dönüş bekleniyor.";
+  if (lower.includes("uzak") || lower.includes("kovalanmaz")) return "Giriş kaçtı; kovalama.";
+  if (lower.includes("retest")) return "POI dönüşü yalnızca kalite bonusu.";
   if (lower.includes("minimumun altında")) return "RR yetersiz.";
+  if (lower.includes("shift") && lower.includes("fvg")) return "Shift var; o harekete ait FVG yok.";
   if (lower.includes("origin mumu henüz kapanmadı")) return "CRT mumu kapanmadı.";
   if (lower.includes("turtle soup") || lower.includes("purge") || lower.includes("sweep")) return "Likidite alındı, onay bekle.";
   if (lower.includes("raid")) return "Raid var, onay bekle.";
@@ -153,7 +161,8 @@ function shortReason(text: string | undefined, fallback = "Bekle"): string {
   if (lower.includes("choch") || lower.includes("mss") || lower.includes("kapan")) return "Kapanış onayı yok.";
   if (lower.includes("rr") || lower.includes("risk")) return "RR yetmiyor.";
   if (lower.includes("anchor") || lower.includes("key seviye")) return "Key seviye yok.";
-  if (lower.includes("poi") || lower.includes("entry") || lower.includes("giriş")) return "Giriş alanı bekle.";
+  if (lower.includes("poi")) return "POI yalnızca kalite notu.";
+  if (lower.includes("entry") || lower.includes("giriş")) return "Plan geometrisi uygun değil.";
   return clean.length > 46 ? `${clean.slice(0, 43)}...` : clean;
 }
 
@@ -161,8 +170,10 @@ function signalReason(signal: TradingSignal): string {
   if (signal.stage === "ready") return "Giriş, stop ve DOL hazır.";
   const blocker = signal.governance.blockers[0];
   const lower = blocker?.toLocaleLowerCase("tr-TR") ?? "";
-  if (lower.includes("retest")) return `Giriş ${signal.plan.entry.toLocaleString("tr-TR", { maximumFractionDigits: 5 })} retesti bekleniyor.`;
+  if (lower.includes("uzak") || lower.includes("kovalanmaz")) return "Giriş kaçtı; bu hareket kovalanmaz.";
+  if (lower.includes("manipulation")) return "CRT kenarı sweep edilip range içine dönmeli.";
   if (lower.includes("minimumun altında")) return `RR ${signal.plan.rr.toFixed(2)}; işlem için yetersiz.`;
+  if (lower.includes("shift") && lower.includes("fvg")) return "Shift var; o harekete ait FVG yok.";
   if (lower.includes("choch")) return `${signal.timeframe} ChoCH kapanışı bekleniyor.`;
   return shortReason(blocker ?? signal.plan.planWarnings[0] ?? signal.decisionSummary.shortSummary, "Onay bekle");
 }
@@ -249,11 +260,11 @@ function FinanceDashboard({
                   <span className="decision-rank">{index + 1}</span>
                   <span className="decision-main">
                     <strong>{signal.symbol}</strong>
-                    <small>{signal.direction.toUpperCase()} · Düşük ihtimal</small>
+                    <small>{signal.direction.toUpperCase()} · Erken aday</small>
                   </span>
                   <span className="decision-meta">
                     <strong>{signal.score}</strong>
-                    <small>{signal.grade} · Açılabilir</small>
+                    <small>{signal.grade} · İzle</small>
                   </span>
                   <span className="decision-reason">{signalReason(signal)}</span>
                 </button>

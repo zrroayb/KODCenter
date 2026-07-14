@@ -115,7 +115,9 @@ export function detectMarketStructureShifts(candles: Candle[]): MarketStructureS
 
 export function detectFairValueGaps(candles: Candle[]): FairValueGap[] {
   const gaps: FairValueGap[] = [];
-  for (let index = Math.max(2, candles.length - 40); index < candles.length; index += 1) {
+  // Keep enough history for the slowest CRT confirmation pair (1W -> 4H). A 40-candle
+  // window dropped the displacement FVG before the allowed ChoCH/retest lifecycle expired.
+  for (let index = Math.max(2, candles.length - 80); index < candles.length; index += 1) {
     const left = candles[index - 2];
     const middle = candles[index - 1];
     const right = candles[index];
@@ -131,18 +133,20 @@ export function detectFairValueGaps(candles: Candle[]): FairValueGap[] {
       const gapSize = right.low - left.high;
       const midpoint = (left.high + right.low) / 2;
       const future = candles.slice(index + 1);
-      const fullyFilled = future.some((candle) => candle.low <= left.high);
+      // A wick through the far edge can still be a valid bullish-FVG mitigation/rejection.
+      // The gap only becomes a bearish IFVG after a candle closes below that edge.
+      const invalidated = future.some((candle) => candle.close < left.high);
       if (!middleIsBullishDisplacement || gapSize < minGapSize) continue;
       const mitigatedIndex = future.findIndex((candle) => candle.low <= right.low);
-      // A fully traded-through gap does not vanish: it inverts (IFVG) and works as
+      // A close through the gap does not make it vanish: it inverts and works as
       // resistance for shorts from then on.
       gaps.push({
-        direction: fullyFilled ? "short" : "long",
+        direction: invalidated ? "short" : "long",
         low: left.high,
         high: right.low,
         midpoint,
         candleIndex: index,
-        mitigated: fullyFilled || mitigatedIndex >= 0,
+        mitigated: invalidated || mitigatedIndex >= 0,
         mitigatedIndex: mitigatedIndex >= 0 ? index + 1 + mitigatedIndex : undefined
       });
     }
@@ -150,16 +154,18 @@ export function detectFairValueGaps(candles: Candle[]): FairValueGap[] {
       const gapSize = left.low - right.high;
       const midpoint = (right.high + left.low) / 2;
       const future = candles.slice(index + 1);
-      const fullyFilled = future.some((candle) => candle.high >= left.low);
+      // Symmetric bearish case: a buy-side wick filling the box is a mitigation, not an
+      // automatic bullish IFVG. Inversion needs a close above the far edge.
+      const invalidated = future.some((candle) => candle.close > left.low);
       if (!middleIsBearishDisplacement || gapSize < minGapSize) continue;
       const mitigatedIndex = future.findIndex((candle) => candle.high >= right.high);
       gaps.push({
-        direction: fullyFilled ? "long" : "short",
+        direction: invalidated ? "long" : "short",
         low: right.high,
         high: left.low,
         midpoint,
         candleIndex: index,
-        mitigated: fullyFilled || mitigatedIndex >= 0,
+        mitigated: invalidated || mitigatedIndex >= 0,
         mitigatedIndex: mitigatedIndex >= 0 ? index + 1 + mitigatedIndex : undefined
       });
     }
