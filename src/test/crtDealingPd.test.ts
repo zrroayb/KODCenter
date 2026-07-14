@@ -97,7 +97,7 @@ describe("dealing-range PD is a note, not a second veto", () => {
     const signal = shortSignal("premium", { weekly: "bullish" });
 
     expect(signal.stage).toBe("watch");
-    expect(signal.governance.blockers.join(" ")).toContain("HTF yönü uyumsuz");
+    expect(signal.governance.blockers.join(" ")).toContain("HTF yönü karşı");
     expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
   });
 
@@ -119,5 +119,21 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(evaluateCrtHtfAlignment(context, "1w", "long").required).toEqual(["1M"]);
     expect(evaluateCrtHtfAlignment(context, "1w", "long").aligned).toBe(true);
     expect(evaluateCrtHtfAlignment(context, "4h", "short").aligned).toBe(false);
+  });
+
+  it("tolerates a neutral higher timeframe but still vetoes an opposing one", () => {
+    const neutralAbove = createStructureContext({
+      bias: { monthly: "neutral", weekly: "neutral", daily: "neutral", h4: "bullish", h1: "bullish" }
+    });
+    const long4h = evaluateCrtHtfAlignment(neutralAbove, "4h", "long");
+    expect(long4h.aligned).toBe(true);
+    expect(long4h.fullyAligned).toBe(false);
+
+    const opposingAbove = createStructureContext({
+      bias: { monthly: "bearish", weekly: "bearish", daily: "bearish", h4: "bullish", h1: "bullish" }
+    });
+    const opposed4h = evaluateCrtHtfAlignment(opposingAbove, "4h", "long");
+    expect(opposed4h.aligned).toBe(false);
+    expect(opposed4h.opposing.length).toBeGreaterThan(0);
   });
 });

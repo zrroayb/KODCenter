@@ -121,6 +121,7 @@ type CrtHtfAlignmentTimeframe = Extract<Timeframe, "1M" | "1w" | "1d">;
 
 export type CrtHtfAlignment = {
   aligned: boolean;
+  fullyAligned: boolean;
   required: CrtHtfAlignmentTimeframe[];
   matching: CrtHtfAlignmentTimeframe[];
   opposing: CrtHtfAlignmentTimeframe[];
@@ -151,19 +152,26 @@ export function evaluateCrtHtfAlignment(
   const matching = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === expected);
   const opposing = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === opposite);
   const neutral = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === "neutral");
-  const aligned = matching.length === required.length;
+  // Loose gate: only an actively OPPOSING higher timeframe vetoes READY (never trade against
+  // the HTF narrative). A neutral/unclear higher TF is tolerated — it costs score via the
+  // fullyAligned bonus, not eligibility.
+  const aligned = opposing.length === 0;
+  const fullyAligned = matching.length === required.length;
   const reads = required
     .map((timeframe) => `${timeframe} ${contextBiasForTimeframe(context, timeframe)}`)
     .join(" + ");
   return {
     aligned,
+    fullyAligned,
     required,
     matching,
     opposing,
     neutral,
-    summary: aligned
-      ? `${reads}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} yönüyle uyumlu.`
-      : `${reads}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} READY için tüm üst yönler ${expected} olmalı.`
+    summary: fullyAligned
+      ? `${reads}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} yönüyle tam uyumlu.`
+      : aligned
+      ? `${reads}; üst yön ${expected} değil ama karşı da değil — nötr tolere edildi, skor düşük.`
+      : `${reads}; üst timeframe ${direction.toUpperCase()} yönüne karşı — READY vetosu.`
   };
 }
 
@@ -1014,7 +1022,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     anchor.origin?.kind === "active-crt" && !anchor.origin.closed ? `${anchor.spec.rangeTf.toUpperCase()} CRT origin mumu henüz kapanmadı; gelişen bağlam READY olamaz.` : undefined,
     !manipulation ? `Manipulation yok: ${anchor.spec.rangeTf.toUpperCase()} CRT high/low henüz alınmadı.` : undefined,
     !choch ? `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.` : undefined,
-    !htfAlignment.aligned ? `HTF yönü uyumsuz: ${htfAlignment.summary}` : undefined,
+    !htfAlignment.aligned ? `HTF yönü karşı: ${htfAlignment.summary}` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
@@ -1024,6 +1032,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   ].filter((item): item is string => Boolean(item));
   const warnings = [
     turtleSoup ? turtleSoup.summary : undefined,
+    htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üst yön nötr (${htfAlignment.neutral.join(", ")}); karşı değil ama tam onay yok, boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; ChoCH kapanış entry'si kullanıldı." : undefined,
@@ -1061,7 +1070,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (choch ? 25 : 0)
     + (plan.rr >= minimumRR ? 15 : Math.max(0, Math.round(plan.rr * 5)))
     + (linkedShiftFvg || typeof retestIndex === "number" ? 5 : 0)
-    + (htfAlignment.aligned ? 6 : 0)
+    + (htfAlignment.fullyAligned ? 6 : htfAlignment.aligned ? 3 : 0)
     + (smtAligned ? 3 : 0)
     + (inSession || isCryptoSymbol(context.symbol) ? 2 : 0)
     + (anchorAtKeyLevel || fvgConfluence ? 2 : 0)
@@ -1144,7 +1153,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("POI", setup.poi ? "pass" : "neutral", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)} kalite bonusu.` : "FVG/OB yok; CRT yine ChoCH kapanışıyla geçerli olabilir."),
     checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : "neutral", bias.summary),
     checklistItem("Premium / Discount", pdAligned ? "pass" : "neutral", `Entry ${crtZone}; ideal ${expectedPd(direction)}. Kalite notu, hard gate değil.`),
-    checklistItem("HTF Yön Uyumu", setup.htfAlignment.aligned ? "pass" : "fail", setup.htfAlignment.summary),
+    checklistItem("HTF Yön Uyumu", setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", setup.htfAlignment.summary),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
   ];
@@ -1275,7 +1284,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
   const bias = anchorBias(anchor);
   return [
     { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "neutral", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
-    { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.aligned ? "pass" : "fail", detail: setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
+    { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", detail: setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: anchor.range.source, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
     { id: "poi", label: "POI", status: setup.poi ? "pass" : "neutral", detail: setup.poi ? `${setup.poi.label} kalite bonusu olarak map edildi.` : "FVG/OB yok; ChoCH kapanışı varsa CRT yine geçerlidir.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
