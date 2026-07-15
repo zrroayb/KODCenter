@@ -2,6 +2,21 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — Gemini structured CRT interpretation layer (Master §10/§13/§14/§15)
+- New `src/lib/gemini/crtInterpretation.ts`: `buildCrtGeminiPayload(signal)` emits the deterministic
+  evidence as events with **unique ids** (`${signal.id}:${evidence.id}`) plus the crt block;
+  `CRT_GEMINI_SYSTEM_INSTRUCTION` (interpret-only, no invented facts); `validateCrtInterpretation`
+  rejects invalid JSON, missing required fields, and any response referencing an unknown event id.
+- New backend endpoint `/api/gemini/crt-analysis` (vite.config.ts, additive — the freeform mentor
+  commentary is untouched): calls Gemini with `systemInstruction` + `responseMimeType: application/
+  json` + `responseSchema` (Master §15), strips code fences, parses, and validates unknown ids.
+- Tests: `crtInterpretation.test.ts` (unique ids, accepts known-id response, rejects invented id,
+  rejects malformed). 149 tests pass.
+- Verified end-to-end against real Gemini: returned valid structured JSON, bias neutral, crt status
+  "developing", ref quality "medium", correctly flagged the 1d/1w-vs-4h contradiction, and
+  referenced only known event ids (2/2). Needed maxOutputTokens 4096 + a "keep reasoning concise"
+  instruction so the JSON isn't truncated mid-field.
+
 ## 2026-07-15 — two-sided directional bias implemented (Master §8/§11)
 - New `src/lib/strategies/crt/directionalBias.ts`: separate bullish/bearish scores in draw-first
   order (external draw 0-25, HTF structure 0-25, PD 0-15, reclaimed sweep 0-15, displacement 0-10,

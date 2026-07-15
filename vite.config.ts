@@ -728,6 +728,114 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
   return fallbackTradeCommentary(input, lastError || "Gemini yorumu alınamadı.");
 }
 
+// Master §10/§14/§15: the CRT interpretation layer. Gemini gets deterministic evidence events
+// (each with a unique id) and returns validated JSON — it must not invent events, and may only
+// reference provided event ids. Additive endpoint; the freeform mentor commentary is untouched.
+const CRT_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic Candle Range Theory trading system. You do NOT detect market events. All candles, ranges, structure breaks, liquidity sweeps, displacement events, targets and invalidation levels come only from the supplied evidence events. Reasoning order: external liquidity draw -> HTF structure -> dealing-range location -> liquidity sweep -> return inside -> displacement -> LTF confirmation -> target -> invalidation. Do not force a directional conclusion. Do not invent missing evidence. Do not assume every large candle is a valid CRT reference candle or every wick a valid sweep. You may only reference event ids present in the events array. If evidence is insufficient set crt_analysis.status to "insufficient_evidence". Keep every reasoning/summary field concise — one or two short sentences, at most ~35 words each — so the JSON stays complete. Return ONLY valid JSON matching the schema.`;
+
+const CRT_ANALYSIS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    directional_analysis: {
+      type: "object",
+      properties: {
+        bias: { type: "string", enum: ["bullish", "bearish", "neutral"] },
+        confidence: { type: "number" },
+        external_draw: { type: "string" },
+        reasoning: { type: "string" },
+        supporting_event_ids: { type: "array", items: { type: "string" } },
+        contradicting_event_ids: { type: "array", items: { type: "string" } }
+      },
+      required: ["bias", "reasoning"]
+    },
+    crt_analysis: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["candidate", "developing", "confirmed", "late", "invalid", "insufficient_evidence"] },
+        direction: { type: "string", enum: ["bullish", "bearish", "none"] },
+        reference_candle_quality: { type: "string", enum: ["high", "medium", "low", "invalid"] },
+        reference_candle_reasoning: { type: "string" },
+        sweep_reasoning: { type: "string" },
+        confirmation_reasoning: { type: "string" },
+        target_reasoning: { type: "string" },
+        invalidation_reasoning: { type: "string" }
+      },
+      required: ["status", "direction"]
+    },
+    important_evidence: { type: "array", items: { type: "string" } },
+    contradictions: { type: "array", items: { type: "string" } },
+    missing_evidence: { type: "array", items: { type: "string" } },
+    risks: { type: "array", items: { type: "string" } },
+    plain_language_summary: { type: "string" }
+  },
+  required: ["directional_analysis", "crt_analysis", "plain_language_summary"]
+};
+
+async function generateGeminiCrtAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
+  const events = Array.isArray((payload as { events?: unknown }).events) ? (payload as { events: Array<{ id?: string }> }).events : [];
+  const knownIds = new Set(events.map((event) => event?.id).filter((id): id is string => typeof id === "string"));
+  const prompt = `Interpret this deterministic CRT evidence. Reference only these event ids.\n${JSON.stringify(payload).slice(0, 12_000)}`;
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 18_000);
+  try {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: CRT_ANALYSIS_SYSTEM_INSTRUCTION }] },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: CRT_ANALYSIS_RESPONSE_SCHEMA }
+      }),
+      signal: controller.signal
+    });
+    const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
+    if (!upstream.ok) return { status: "error" as const, error: JSON.stringify(body).slice(0, 600) };
+    const text = extractGeminiText(body)?.trim();
+    if (!text) return { status: "error" as const, error: "Gemini boş analiz döndürdü." };
+    // Even with responseMimeType JSON some models wrap the payload in a ```json fence; strip it.
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const jsonStart = cleaned.indexOf("{");
+    const jsonEnd = cleaned.lastIndexOf("}");
+    const candidate = jsonStart >= 0 && jsonEnd > jsonStart ? cleaned.slice(jsonStart, jsonEnd + 1) : cleaned;
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(candidate) as Record<string, unknown>; }
+    catch { return { status: "error" as const, error: `Gemini yanıtı geçerli JSON değil: ${text.slice(0, 200)}` }; }
+    const da = parsed.directional_analysis as Record<string, unknown> | undefined;
+    const ca = parsed.crt_analysis as Record<string, unknown> | undefined;
+    if (!da?.bias || !ca?.status || typeof parsed.plain_language_summary !== "string") {
+      return { status: "error" as const, error: "Zorunlu analiz alanları eksik." };
+    }
+    const referenced = [
+      ...(Array.isArray(da.supporting_event_ids) ? da.supporting_event_ids : []),
+      ...(Array.isArray(da.contradicting_event_ids) ? da.contradicting_event_ids : [])
+    ].filter((id): id is string => typeof id === "string");
+    const unknownId = referenced.find((id) => !knownIds.has(id));
+    if (unknownId) return { status: "error" as const, error: `Gemini bilinmeyen event id kullandı: ${unknownId}` };
+    return { status: "ready" as const, analysis: parsed, model };
+  } catch (error) {
+    return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function handleGeminiCrtAnalysis(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "POST") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  try {
+    const payload = await readJsonBody(request) as Record<string, unknown>;
+    const result = await generateGeminiCrtAnalysis(payload, env);
+    jsonResponse(response, result.status === "error" ? 502 : 200, result);
+  } catch (error) {
+    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
   "eq-then-be": "EQ sonrası BE",
@@ -1021,6 +1129,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiMarketPick(request, response, env);
       });
+      server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiCrtAnalysis(request, response, env);
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -1037,6 +1148,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiMarketPick(request, response, env);
+      });
+      server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiCrtAnalysis(request, response, env);
       });
     }
   };

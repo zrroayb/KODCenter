@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "gemini-interpret-only",
+      "area": "gemini-interpretation",
+      "rule": "Gemini is the interpretation layer only (Master Section 10/13/14/15). It receives deterministic evidence events (each a unique id) and returns validated JSON matching the response schema; it may only reference provided event ids and must not invent candles, levels, sweeps or targets. Backend endpoint /api/gemini/crt-analysis uses systemInstruction + responseMimeType application/json + responseSchema; validateCrtInterpretation rejects invalid JSON, missing required fields, or unknown event ids. Key stays server-side. Additive — the freeform mentor commentary endpoint is unchanged.",
+      "status": "implemented"
+    },
+    {
       "id": "two-sided-directional-bias",
       "area": "directional-bias",
       "rule": "Direction is graded by a two-sided engine (Master Section 8/11) BEFORE the CRT setup, in draw-first order: external liquidity draw (0-25) -> HTF structure M/W/D/4H (0-25) -> premium/discount (0-15) -> reclaimed liquidity sweep (0-15) -> displacement (0-10) -> LTF MSS/BOS (0-5) -> killzone timing (0-5). Separate bullish_score/bearish_score; bullish if bullish>=65 and bullish-bearish>=15 (bearish symmetric), else neutral; PD alone never forces direction. Surfaced as the directional-bias evidence item and flags contradictions when the per-anchor signal disagrees with the dominant lean. Thresholds/weights configurable (directionalBias.ts). Does NOT override the per-anchor direction resolution yet.",
