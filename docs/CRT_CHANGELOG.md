@@ -2,6 +2,18 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — CRT analysis UI panel + lifecycle/bias finish
+- `fetchCrtAnalysis(signal)` client (crtInterpretation.ts) builds the deterministic payload and
+  calls /api/gemini/crt-analysis, normalizing the structured response.
+- SignalDetailsPanel now shows a "CRT Analiz (Gemini)" card: bias pill + confidence, plain-language
+  summary, crt-state / reference-candle-quality / draw tags, and contradictions + missing-evidence
+  lists. Loading / disabled / error states handled; styled in styles.css. Additive — the freeform
+  mentor card stays.
+- crt-analysis server timeout raised to 30s (structured output with a schema is heavier).
+- Verified in the app: the panel renders, shows the loading state, and renders result/error
+  correctly (the endpoint's structured "ready" success path was verified end-to-end earlier this
+  session — bias, crt status, contradiction, known-only ids). 149 tests, build clean.
+
 ## 2026-07-15 — Gemini structured CRT interpretation layer (Master §10/§13/§14/§15)
 - New `src/lib/gemini/crtInterpretation.ts`: `buildCrtGeminiPayload(signal)` emits the deterministic
   evidence as events with **unique ids** (`${signal.id}:${evidence.id}`) plus the crt block;

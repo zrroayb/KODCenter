@@ -2061,6 +2061,69 @@ textarea:hover {
   white-space: pre-line;
 }
 
+/* CRT structured analysis card (Gemini interpret-only layer) */
+.crt-analysis-card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--violet);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.crt-analysis-card.error { border-left-color: var(--danger, #e05a52); }
+.crt-analysis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.crt-analysis-head h3 {
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--violet);
+}
+.crt-bias-pill {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.crt-bias-pill.bullish { color: #2fbf88; border-color: rgba(47, 191, 136, 0.4); background: rgba(47, 191, 136, 0.12); }
+.crt-bias-pill.bearish { color: #e05a52; border-color: rgba(224, 90, 82, 0.4); background: rgba(224, 90, 82, 0.12); }
+.crt-analysis-body { display: grid; gap: 8px; }
+.crt-analysis-summary {
+  font-size: 12.5px;
+  color: var(--ink, var(--muted));
+  line-height: 1.55;
+}
+.crt-analysis-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.crt-tag {
+  font-size: 10.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.crt-analysis-list { display: grid; gap: 3px; }
+.crt-list-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint, var(--muted));
+}
+.crt-analysis-list ul { margin: 0; padding-left: 16px; display: grid; gap: 2px; }
+.crt-analysis-list li { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.crt-analysis-list.contradictions li { color: #d99b2f; }
+
 .ai-commentary.error,
 .ai-commentary.disabled {
   border-left-color: var(--dim);

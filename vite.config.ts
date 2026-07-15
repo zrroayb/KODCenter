@@ -779,7 +779,8 @@ async function generateGeminiCrtAnalysis(payload: Record<string, unknown>, env: 
   const knownIds = new Set(events.map((event) => event?.id).filter((id): id is string => typeof id === "string"));
   const prompt = `Interpret this deterministic CRT evidence. Reference only these event ids.\n${JSON.stringify(payload).slice(0, 12_000)}`;
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 18_000);
+  // Structured output with a response schema is heavier than the freeform commentary; give it room.
+  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);
   try {
     const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",

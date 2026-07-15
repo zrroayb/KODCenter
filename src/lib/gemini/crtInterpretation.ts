@@ -39,6 +39,80 @@ export type CrtGeminiPayload = {
   events: CrtEvidenceEvent[];
 };
 
+export type CrtInterpretationResult = {
+  bias?: string;
+  confidence?: number;
+  externalDraw?: string;
+  reasoning?: string;
+  supportingEventIds: string[];
+  contradictingEventIds: string[];
+  crtStatus?: string;
+  crtDirection?: string;
+  referenceCandleQuality?: string;
+  referenceCandleReasoning?: string;
+  sweepReasoning?: string;
+  confirmationReasoning?: string;
+  targetReasoning?: string;
+  invalidationReasoning?: string;
+  contradictions: string[];
+  missingEvidence: string[];
+  risks: string[];
+  summary?: string;
+};
+
+export type CrtAnalysisResponse =
+  | { status: "ready"; model?: string; analysis: CrtInterpretationResult }
+  | { status: "disabled"; reason?: string }
+  | { status: "error"; error?: string };
+
+function normalizeAnalysis(raw: Record<string, unknown>): CrtInterpretationResult {
+  const da = (raw.directional_analysis ?? {}) as Record<string, unknown>;
+  const ca = (raw.crt_analysis ?? {}) as Record<string, unknown>;
+  const strArr = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  const str = (value: unknown): string | undefined => typeof value === "string" ? value : undefined;
+  const num = (value: unknown): number | undefined => typeof value === "number" ? value : undefined;
+  return {
+    bias: str(da.bias),
+    confidence: num(da.confidence),
+    externalDraw: str(da.external_draw),
+    reasoning: str(da.reasoning),
+    supportingEventIds: strArr(da.supporting_event_ids),
+    contradictingEventIds: strArr(da.contradicting_event_ids),
+    crtStatus: str(ca.status),
+    crtDirection: str(ca.direction),
+    referenceCandleQuality: str(ca.reference_candle_quality),
+    referenceCandleReasoning: str(ca.reference_candle_reasoning),
+    sweepReasoning: str(ca.sweep_reasoning),
+    confirmationReasoning: str(ca.confirmation_reasoning),
+    targetReasoning: str(ca.target_reasoning),
+    invalidationReasoning: str(ca.invalidation_reasoning),
+    contradictions: strArr(raw.contradictions),
+    missingEvidence: strArr(raw.missing_evidence),
+    risks: strArr(raw.risks),
+    summary: str(raw.plain_language_summary)
+  };
+}
+
+// Client: build the deterministic payload and ask the backend to interpret it.
+export async function fetchCrtAnalysis(signal: TradingSignal): Promise<CrtAnalysisResponse> {
+  try {
+    const payload = buildCrtGeminiPayload(signal);
+    const response = await fetch("/api/gemini/crt-analysis", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({ status: "error", error: "CRT analizi okunamadı." })) as { status?: string; error?: string; reason?: string; model?: string; analysis?: Record<string, unknown> };
+    if (result.status === "ready" && result.analysis) {
+      return { status: "ready", model: result.model, analysis: normalizeAnalysis(result.analysis) };
+    }
+    if (result.status === "disabled") return { status: "disabled", reason: result.reason };
+    return { status: "error", error: result.error ?? "CRT analizi alınamadı." };
+  } catch (error) {
+    return { status: "error", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
   const anchor = signal.crtAnchor;
   const events: CrtEvidenceEvent[] = signal.evidence.map((item) => ({

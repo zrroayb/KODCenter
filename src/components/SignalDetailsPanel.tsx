@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { signalAnchorTime } from "../lib/charts/selectedSignal";
 import { fetchGeminiTradeCommentary, type GeminiTradeCommentaryResponse } from "../lib/gemini/tradeCommentary";
+import { fetchCrtAnalysis, type CrtAnalysisResponse } from "../lib/gemini/crtInterpretation";
 import { formatPrice, formatR } from "../lib/ict/format";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
@@ -80,6 +81,8 @@ export function SignalDetailsPanel({
   const [outcomeNote, setOutcomeNote] = useState(journalEntry?.outcomeNote ?? "");
   const [aiCommentary, setAiCommentary] = useState<GeminiTradeCommentaryResponse>({ status: "disabled", reason: "Yüklenmedi" });
   const [aiLoading, setAiLoading] = useState(false);
+  const [crtAnalysis, setCrtAnalysis] = useState<CrtAnalysisResponse>({ status: "disabled", reason: "Yüklenmedi" });
+  const [crtAnalysisLoading, setCrtAnalysisLoading] = useState(false);
   const structureAudit = buildStructureAudit(signal);
   const decisionClass = signalDecisionClass(signal);
   const activeKillzone = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
@@ -115,6 +118,20 @@ export function SignalDetailsPanel({
       if (!active) return;
       setAiCommentary(response);
       setAiLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [signal.id]);
+
+  useEffect(() => {
+    let active = true;
+    setCrtAnalysisLoading(true);
+    setCrtAnalysis({ status: "disabled", reason: "CRT analizi bekleniyor." });
+    void fetchCrtAnalysis(signal).then((response) => {
+      if (!active) return;
+      setCrtAnalysis(response);
+      setCrtAnalysisLoading(false);
     });
     return () => {
       active = false;
@@ -210,6 +227,45 @@ export function SignalDetailsPanel({
                 ? "Gemini env yok. Render Environment'a GEMINI_API_KEY veya GOOGLE_API_KEY ekleyip servisi yeniden deploy et; localde .env dosyasına ekleyip serverı yeniden başlat."
                 : `AI yorumu alınamadı: ${aiCommentary.error ?? aiCommentary.reason ?? "bilinmeyen hata"}`}
         </p>
+      </section>
+      <section className={`crt-analysis-card ${crtAnalysis.status === "ready" ? "ready" : crtAnalysis.status}`}>
+        <header className="crt-analysis-head">
+          <h3>CRT Analiz (Gemini)</h3>
+          {crtAnalysis.status === "ready" && crtAnalysis.analysis.bias && (
+            <span className={`crt-bias-pill ${crtAnalysis.analysis.bias}`}>
+              {crtAnalysis.analysis.bias.toUpperCase()}
+              {typeof crtAnalysis.analysis.confidence === "number" ? ` · güven ${crtAnalysis.analysis.confidence}` : ""}
+            </span>
+          )}
+        </header>
+        {crtAnalysisLoading ? (
+          <p className="crt-analysis-summary">Deterministik kanıt Gemini'ye yorumlatılıyor…</p>
+        ) : crtAnalysis.status === "ready" ? (
+          <div className="crt-analysis-body">
+            <p className="crt-analysis-summary">{crtAnalysis.analysis.summary ?? "Özet yok."}</p>
+            <div className="crt-analysis-tags">
+              {crtAnalysis.analysis.crtStatus && <span className="crt-tag">Durum: {crtAnalysis.analysis.crtStatus}</span>}
+              {crtAnalysis.analysis.referenceCandleQuality && <span className="crt-tag">Range mumu: {crtAnalysis.analysis.referenceCandleQuality}</span>}
+              {crtAnalysis.analysis.externalDraw && <span className="crt-tag">Draw: {crtAnalysis.analysis.externalDraw}</span>}
+            </div>
+            {crtAnalysis.analysis.contradictions.length > 0 && (
+              <div className="crt-analysis-list contradictions">
+                <span className="crt-list-label">Çelişkiler</span>
+                <ul>{crtAnalysis.analysis.contradictions.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+            )}
+            {crtAnalysis.analysis.missingEvidence.length > 0 && (
+              <div className="crt-analysis-list missing">
+                <span className="crt-list-label">Eksik kanıt</span>
+                <ul>{crtAnalysis.analysis.missingEvidence.slice(0, 3).map((item) => <li key={item}>{item}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        ) : crtAnalysis.status === "disabled" ? (
+          <p className="crt-analysis-summary">Gemini env yok. GEMINI_API_KEY ekleyince deterministik kanıt yapısal olarak yorumlanır.</p>
+        ) : (
+          <p className="crt-analysis-summary">CRT analizi alınamadı: {crtAnalysis.error ?? "bilinmeyen hata"}</p>
+        )}
       </section>
       <details className="details-section compact-details">
         <summary>Teknik detay</summary>
