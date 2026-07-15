@@ -486,8 +486,6 @@ export function CandleChart({
     const gapLabelWidth = gapText ? tagWidthFor(gapText) : 68;
     const manualLineColor = "#f8fafc";
     const waitLineY = closeRequirement ? scaleY(closeRequirement.level) : 0;
-    const waitLabelX = closeRequirement ? Math.min(plotRight - 168, Math.max(plot.left + 120, anchorX + 24)) : 0;
-    const waitLabelY = closeRequirement ? Math.max(plot.top + 22, Math.min(plotBottom - 16, waitLineY - 22)) : 0;
     const decisionText = chartDecisionText(selectedSignal, closeRequirement);
 
     return (
@@ -663,29 +661,67 @@ export function CandleChart({
                 </text>
               </g>
             )}
+            {/* The break level must be unmissable: a right-axis price tag (like ENTRY/STOP), a
+                bold line, arrows on the break side, and the info box glued to the line instead
+                of floating over the candles. */}
+            {registerEdgeTag(closeRequirement.level, "#f59e0b", "KIR", "#78350f", `KIR ${closeRequirement.side === "above" ? ">" : "<"} ${formatPrice(closeRequirement.level)}`)}
+            <rect
+              x={plot.left}
+              y={closeRequirement.side === "above" ? waitLineY - 16 : waitLineY}
+              width={Math.max(0, plotRight - plot.left)}
+              height={16}
+              fill="rgba(245, 158, 11, 0.08)"
+            />
             <line
               x1={plot.left}
               x2={plotRight}
               y1={waitLineY}
               y2={waitLineY}
               stroke="#f59e0b"
-              strokeWidth="1.35"
-              strokeDasharray="5 6"
-              opacity="0.95"
+              strokeWidth="2.2"
+              strokeDasharray="8 5"
+              opacity="1"
             />
-            <rect x={waitLabelX} y={waitLabelY - 17} width="216" height="34" rx="4" fill="rgba(15, 23, 42, 0.9)" stroke="#f59e0b" strokeWidth="1.1" />
-            <text x={waitLabelX + 108} y={waitLabelY - 3} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
-              kapanış onayı · {closeRequirement.timeframe} {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}
-            </text>
-            <text x={waitLabelX + 108} y={waitLabelY + 11} fill="#fbbf24" fontSize="9" fontWeight="800" textAnchor="middle">
-              {closeRequirement.reference === "internal-swing-high"
-                ? "Internal swing high güçlü kapanışla kırılmalı"
-                : closeRequirement.reference === "internal-swing-low"
-                  ? "Internal swing low güçlü kapanışla kırılmalı"
-                  : closeRequirement.reference === "last-closed-high"
-                    ? "Son kapalı mum high güçlü kapanışla kırılmalı"
-                    : "Son kapalı mum low güçlü kapanışla kırılmalı"}
-            </text>
+            {[0.32, 0.56, 0.8].map((fraction) => {
+              const arrowX = plot.left + (plotRight - plot.left) * fraction;
+              const tip = closeRequirement.side === "above" ? waitLineY - 11 : waitLineY + 11;
+              const base = closeRequirement.side === "above" ? waitLineY - 3 : waitLineY + 3;
+              return (
+                <path
+                  key={`break-arrow-${fraction}`}
+                  d={`M ${arrowX - 5} ${base} L ${arrowX + 5} ${base} L ${arrowX} ${tip} Z`}
+                  fill="#f59e0b"
+                  opacity="0.95"
+                />
+              );
+            })}
+            {(() => {
+              // Glue the box to the line, on the OPPOSITE side of the break so it never covers
+              // the zone price must close into; keep it left, away from the latest candles.
+              const boxX = plot.left + 10;
+              const boxAbove = closeRequirement.side !== "above";
+              const boxY = boxAbove
+                ? Math.max(plot.top + 6, waitLineY - 46)
+                : Math.min(plotBottom - 40, waitLineY + 12);
+              return (
+                <g>
+                  <line x1={boxX + 20} x2={boxX + 20} y1={boxAbove ? boxY + 34 : boxY} y2={waitLineY} stroke="#f59e0b" strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />
+                  <rect x={boxX} y={boxY} width="232" height="34" rx="4" fill="rgba(15, 23, 42, 0.94)" stroke="#f59e0b" strokeWidth="1.2" />
+                  <text x={boxX + 116} y={boxY + 14} fill="#f8fafc" fontSize="10" fontWeight="900" textAnchor="middle">
+                    kapanış onayı · {closeRequirement.timeframe} {closeRequirement.side === "above" ? ">" : "<"} {formatPrice(closeRequirement.level)}
+                  </text>
+                  <text x={boxX + 116} y={boxY + 27} fill="#fbbf24" fontSize="9" fontWeight="800" textAnchor="middle">
+                    {closeRequirement.reference === "internal-swing-high"
+                      ? "Internal swing high güçlü kapanışla kırılmalı"
+                      : closeRequirement.reference === "internal-swing-low"
+                        ? "Internal swing low güçlü kapanışla kırılmalı"
+                        : closeRequirement.reference === "last-closed-high"
+                          ? "Son kapalı mum high güçlü kapanışla kırılmalı"
+                          : "Son kapalı mum low güçlü kapanışla kırılmalı"}
+                  </text>
+                </g>
+              );
+            })()}
           </g>
         )}
         {levelLine(selectedSignal.plan.entry, "#38bdf8", "ENTRY", false, 1, "#0c4a6e")}
