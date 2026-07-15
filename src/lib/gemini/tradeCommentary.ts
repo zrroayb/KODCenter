@@ -389,7 +389,18 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
   };
 }
 
+// Cache real Gemini commentary per signal id so re-selecting a signal does not re-spend the
+// (easily exhausted) free-tier quota. Local fallbacks are not cached — a later live call can win.
+const commentaryCache = new Map<string, GeminiTradeCommentaryResponse>();
+const commentaryInFlight = new Map<string, Promise<GeminiTradeCommentaryResponse>>();
+
 export async function fetchGeminiTradeCommentary(signal: TradingSignal): Promise<GeminiTradeCommentaryResponse> {
+  const key = `${signal.id}:${signal.score}:${signal.stage}`;
+  const cached = commentaryCache.get(key);
+  if (cached) return cached;
+  const pending = commentaryInFlight.get(key);
+  if (pending) return pending;
+  const run = (async (): Promise<GeminiTradeCommentaryResponse> => {
   try {
     const payload = buildGeminiTradeCommentaryPayload(signal);
     const response = await fetch("/api/gemini/trade-commentary", {
@@ -404,8 +415,14 @@ export async function fetchGeminiTradeCommentary(signal: TradingSignal): Promise
     if (result.status === "error") {
       return localTradeCommentary(signal, result.error ?? result.reason);
     }
+    if (result.status === "ready") commentaryCache.set(key, result);
     return result;
   } catch (error) {
     return localTradeCommentary(signal, error instanceof Error ? error.message : String(error));
+  } finally {
+    commentaryInFlight.delete(key);
   }
+  })();
+  commentaryInFlight.set(key, run);
+  return run;
 }

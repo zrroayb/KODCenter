@@ -104,8 +104,24 @@ function normalizeAnalysis(raw: Record<string, unknown>): CrtInterpretationResul
   };
 }
 
+// Cache successful analyses per signal id so re-selecting a signal never re-spends Gemini quota
+// (the free tier is easily exhausted by clicking around). Only "ready" results are cached; a 429
+// / timeout can retry. Keyed by signal id + score so a mutated setup re-analyses.
+const crtAnalysisCache = new Map<string, CrtAnalysisResponse>();
+const crtAnalysisInFlight = new Map<string, Promise<CrtAnalysisResponse>>();
+
+function crtCacheKey(signal: TradingSignal): string {
+  return `${signal.id}:${signal.score}:${signal.stage}`;
+}
+
 // Client: build the deterministic payload and ask the backend to interpret it.
 export async function fetchCrtAnalysis(signal: TradingSignal): Promise<CrtAnalysisResponse> {
+  const key = crtCacheKey(signal);
+  const cached = crtAnalysisCache.get(key);
+  if (cached) return cached;
+  const pending = crtAnalysisInFlight.get(key);
+  if (pending) return pending;
+  const run = (async (): Promise<CrtAnalysisResponse> => {
   try {
     const payload = buildCrtGeminiPayload(signal);
     const response = await fetch("/api/gemini/crt-analysis", {
@@ -115,13 +131,20 @@ export async function fetchCrtAnalysis(signal: TradingSignal): Promise<CrtAnalys
     });
     const result = await response.json().catch(() => ({ status: "error", error: "CRT analizi okunamadı." })) as { status?: string; error?: string; reason?: string; model?: string; analysis?: Record<string, unknown> };
     if (result.status === "ready" && result.analysis) {
-      return { status: "ready", model: result.model, analysis: normalizeAnalysis(result.analysis) };
+      const ready: CrtAnalysisResponse = { status: "ready", model: result.model, analysis: normalizeAnalysis(result.analysis) };
+      crtAnalysisCache.set(key, ready);
+      return ready;
     }
     if (result.status === "disabled") return { status: "disabled", reason: result.reason };
     return { status: "error", error: result.error ?? "CRT analizi alınamadı." };
   } catch (error) {
     return { status: "error", error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    crtAnalysisInFlight.delete(key);
   }
+  })();
+  crtAnalysisInFlight.set(key, run);
+  return run;
 }
 
 export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
