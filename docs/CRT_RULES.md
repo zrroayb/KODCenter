@@ -37,8 +37,11 @@ message.** Do not silently forget them.
 - **News does not block by default.** *(implemented)*
 - **Confirm-TF honesty** — all user-facing text speaks the signal's real confirm TF. *(implemented)*
 
-## Open for discussion
-- **Reference-candle meaningfulness** *(proposed, 2026-07-15)* — range candles must be meaningful,
-  not arbitrary. Proposal: every closed candle is a *candidate*, graded by a `reference_candle_score`
-  (imbalance body/wick a large component, plus location, session, displacement, exhaustion, target
-  reachability); configurable & backtested, not a hard filter. **Pending user decision.**
+## Reference-candle meaningfulness *(implemented 2026-07-15)*
+- Range candles must be meaningful, not arbitrary. **Hybrid, not a hard filter**: every closed
+  candle is a *candidate*, but `reference_candle_score` (`referenceCandle.ts`, Master §5) grades it.
+  Components: imbalance body/range 0-30 (rejection < 0.3, strong ≥ 0.7), range vs ATR 0-25 (ideal
+  0.8×–2.5×, exhausted > 3.5×), expansion vs recent median 0-15, meaningful HTF location 0-20,
+  key-open/killzone session 0-10. An A imbalance candle adds ~9 to the setup score, a D/arbitrary
+  candle ~2; a weak (D/C) reference candle raises a quality warning. Thresholds configurable via
+  `REFERENCE_CANDLE_DEFAULTS`. Surfaced in evidence as `reference-candle`.

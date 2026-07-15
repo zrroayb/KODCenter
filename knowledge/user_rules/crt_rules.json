@@ -91,8 +91,8 @@
     {
       "id": "reference-candle-meaningful",
       "area": "reference-candle-selection",
-      "rule": "OPEN FOR DISCUSSION (2026-07-15): range candles must be meaningful, not arbitrary. Real practitioners (e.g. VasilyTrader) require an imbalance candle (large body, small wicks). Candidate direction: every closed candle is a CANDIDATE, but a reference_candle_score (Section 5) grades/gates it; imbalance is a large scoring component, configurable and backtested, not a hard filter. NOT YET IMPLEMENTED.",
-      "status": "proposed-pending-user-decision"
+      "rule": "Range candles must be meaningful, not arbitrary. Hybrid (not a hard filter): every closed candle is a CANDIDATE, but reference_candle_score (Master Section 5) grades it. Components: imbalance body/range 0-30 (rejection < 0.3, strong >= 0.7), range vs ATR 0-25 (ideal 0.8x-2.5x, exhausted > 3.5x), expansion vs recent median 0-15, meaningful HTF location 0-20, key-open/killzone session 0-10. An A imbalance candle adds ~9 to the setup score, a D/arbitrary candle ~2; a D/C reference candle raises a quality warning; thresholds are configurable (referenceCandle.ts REFERENCE_CANDLE_DEFAULTS). Grounded in ict-knowledge-library CRT checklist, XAU-60 body/ATR/expansion filters, crt-turtlesoup-ea wick/body.",
+      "status": "implemented"
     }
   ]
 }

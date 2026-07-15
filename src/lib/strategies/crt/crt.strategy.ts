@@ -13,6 +13,7 @@ import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../..
 import { buildKillzoneContext } from "../../intelligence/killzoneContextEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
+import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
@@ -117,6 +118,7 @@ type CrtSetup = {
   htfAlignment: CrtHtfAlignment;
   displacementStrength: "none" | "medium" | "strong";
   locationTier: "weekly" | "daily" | "fvg" | "none";
+  referenceCandle?: ReferenceCandleScore;
   eqConsumed: boolean;
   readyEligible: boolean;
 };
@@ -1044,6 +1046,23 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const sessionTimedRaid = Boolean(raidKillzone);
   // The 01/05/09 NY opens remain the 4H doctrine's key candles (extra weight on top).
   const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
+  // Master §5: grade the CRT reference candle so an arbitrary doji cannot pose as a real range.
+  // Hybrid, not a hard filter: every closed candle is a candidate, but a weak candle scores low.
+  let referenceIndex = -1;
+  for (let index = anchor.rangeCandles.length - 1; index >= 0; index -= 1) {
+    if (Math.abs(anchor.rangeCandles[index].high - anchor.range.high) < 1e-9 && Math.abs(anchor.rangeCandles[index].low - anchor.range.low) < 1e-9) {
+      referenceIndex = index;
+      break;
+    }
+  }
+  const referenceCandle = referenceIndex >= 0
+    ? evaluateReferenceCandle({
+        candle: anchor.rangeCandles[referenceIndex],
+        recentCandles: anchor.rangeCandles.slice(0, referenceIndex),
+        atMeaningfulLocation: anchorAtKeyLevel || fvgConfluence,
+        keyTime: keyOpenRaid || buildKillzoneContext(anchor.rangeCandles[referenceIndex].time).some((zone) => zone.active && zone.name !== "Outside")
+      })
+    : undefined;
 
   const blockers = [
     // CRT core: closed range -> one-side wick raid -> LTF character-shift close ->
@@ -1106,7 +1125,15 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (rangeRespect ? 2 : 0)
     + (sessionTimedRaid ? 2 : 0)
     + (keyOpenRaid ? 1 : 0)
+    // reference_candle_score: an A imbalance range candle earns ~9, a D/arbitrary candle ~2.
+    + Math.round(((referenceCandle?.score ?? 50) / 100) * 10)
   ));
+  if (referenceCandle && (referenceCandle.grade === "D" || referenceCandle.grade === "C")) {
+    warnings.push(`CRT range mumu zayıf (reference_candle_score ${referenceCandle.score}/${referenceCandle.grade}): ${referenceCandle.reasons[0]} Alelade mum güçlü imbalance mumu kadar güvenilir değildir.`);
+  }
+  if (referenceCandle?.exhausted) {
+    warnings.push("CRT range mumu aşırı büyük/tükenmiş; menzil zaten teslim edilmiş olabilir, boyutu küçük tut.");
+  }
   if (score < 70) warnings.push(`CRT kalite skoru ${score}; B altı kalite. Görünür kalsın ama küçük boyut/ek teyit gerekir.`);
   // READY = the setup is logically/geometrically valid AND at least tradable quality. Quality
   // gaps (weak location, no SMT, no session raid, medium displacement, tight EQ) only cost
@@ -1153,6 +1180,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     htfAlignment,
     displacementStrength,
     locationTier,
+    referenceCandle,
     eqConsumed,
     readyEligible
   };
@@ -1315,6 +1343,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
     { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "neutral", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
     { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", detail: setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: anchor.range.source, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
+    { id: "reference-candle", label: "Reference Candle", status: !setup.referenceCandle ? "neutral" : setup.referenceCandle.grade === "A" || setup.referenceCandle.grade === "B" ? "pass" : "warning", detail: setup.referenceCandle ? `reference_candle_score ${setup.referenceCandle.score}/100 (${setup.referenceCandle.grade}). ${setup.referenceCandle.reasons[0]}` : "Range mumu skorlanamadı.", timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
     { id: "poi", label: "POI", status: setup.poi ? "pass" : "neutral", detail: setup.poi ? `${setup.poi.label} kalite bonusu olarak map edildi.` : "FVG/OB yok; ChoCH kapanışı varsa CRT yine geçerlidir.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
     { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} wick ile alındı; HTF kapanışı şart değil.` : `${anchor.spec.rangeTf.toUpperCase()} CRT high/low raid yok.`, timeframe: anchor.spec.rangeTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },

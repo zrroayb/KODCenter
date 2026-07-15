@@ -2,6 +2,22 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — reference_candle_score implemented (Master §5)
+- New `src/lib/strategies/crt/referenceCandle.ts`: grades every candidate CRT range candle 0-100
+  (imbalance body/range, range vs ATR, expansion, meaningful location, key-open/killzone),
+  returns grade + per-component reasons. Grounded in ict-knowledge-library CRT checklist,
+  XAU-60 body/ATR/expansion filters, crt-turtlesoup-ea wick/body.
+- Wired into `crt.strategy.ts`: reference candle found by exact high/low match on the range TF,
+  scored, fed into the setup score (~9 for an A imbalance candle, ~2 for a D), surfaced as the
+  `reference-candle` evidence item, and a quality warning fires on a weak (D/C) or exhausted
+  candle. Hybrid, not a hard filter — a weak range candle loses score, never vetoes (keeps the
+  "blockers = single gate" rule).
+- Tests: `referenceCandle.test.ts` (imbalance vs doji ranking, exhaustion, A/D grading,
+  component explanations). 141 tests pass.
+- Live read (8 symbols, 30d): reference-candle grade spread D5/C14/B18/A21 (real differentiation);
+  setup-grade spread and replay live-READY unchanged (+1.86R) — quality signal added, no edge
+  regression.
+
 ## 2026-07-15 — CRT governance established
 - Added `docs/CRT_MASTER_INSTRUCTION.md` as the permanent source of truth for CRT detection,
   directional bias, and Gemini interpretation (per user's permanent instruction).
