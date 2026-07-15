@@ -1,0 +1,98 @@
+{
+  "$schema_note": "Objective, user-approved CRT rules. These have priority over repository assumptions and over any single latest message. See docs/CRT_MASTER_INSTRUCTION.md for the governing framework.",
+  "version": "2026-07-15",
+  "priority": "user_approved_rules_win",
+  "rules": [
+    {
+      "id": "anchor-mapping",
+      "area": "timeframe-roles",
+      "rule": "CRT is scanned on multiple anchors, each with its own confirmation TF: 4H range -> 15m confirm, 1D range -> 1h confirm, 1W range -> 4h confirm. All timeframes must be scanned, not only 4H.",
+      "configurable": true,
+      "status": "implemented"
+    },
+    {
+      "id": "htf-alignment-loose",
+      "area": "directional-bias",
+      "rule": "Only an actively OPPOSING higher timeframe vetoes READY (never trade against the HTF narrative). A neutral/unclear higher TF is tolerated and costs score, not eligibility. Chain: 4H needs 1D+1W, 1D needs 1W, 1W needs 1M.",
+      "status": "implemented"
+    },
+    {
+      "id": "killzone-confluence",
+      "area": "scoring",
+      "rule": "Killzones are confluence, not a veto. Inside a killzone adds probability/score; outside is never a blocker. TR sessions: Asia 02-05, London 09-12, NY 14-17, London Close 17-19.",
+      "status": "implemented"
+    },
+    {
+      "id": "no-daily-trade-cap",
+      "area": "risk",
+      "rule": "There is no daily max-trade-count cap. The only hard daily brake is -2R.",
+      "status": "implemented"
+    },
+    {
+      "id": "news-not-blocker",
+      "area": "scoring",
+      "rule": "News/high-impact-data windows do not block trades by default. Only a real news/spike (news-expansion) regime, or an explicit opt-in avoidNews flag, may gate.",
+      "status": "implemented"
+    },
+    {
+      "id": "raid-lands-at-poi",
+      "area": "sweep-validation",
+      "rule": "The raid must land at a map POI: the swept level must coincide with a key level (PDH/PDL/PWH/PWL) or an HTF FVG. A random wick is not a raid. (Currently a quality note, not a hard veto.)",
+      "status": "implemented-as-quality-note"
+    },
+    {
+      "id": "confirm-tf-honesty",
+      "area": "interpretation",
+      "rule": "All user-facing text (search, waiting, alerts) must speak the signal's real confirmation TF (15m/1h/4h), never a hard-coded 15m.",
+      "status": "implemented"
+    },
+    {
+      "id": "mitigating-candle-no-close",
+      "area": "sweep-validation",
+      "rule": "The candle that mitigates the CRT range candle (the raid) does NOT have to close back inside before dropping to the LTF. A live raid whose reclaim holds is a valid setup basis; live and closed raids score equally.",
+      "status": "implemented"
+    },
+    {
+      "id": "manipulation-not-adjacent",
+      "area": "sweep-validation",
+      "rule": "The manipulation need not be the candle immediately after the range candle. The raid is the FIRST later candle that sweeps the range extreme; the candles in between must have stayed inside the range (accumulation).",
+      "status": "implemented"
+    },
+    {
+      "id": "choch-first-break-near-sweep",
+      "area": "confirmation",
+      "rule": "ChoCH must be the FIRST close through the protecting swing, and it must land within a bounded window after the manipulation (CHOCH_MAX_DELAY_CANDLES=24 confirm candles). A later re-close of the same level is the new trend's BOS, not this raid's ChoCH.",
+      "status": "implemented"
+    },
+    {
+      "id": "eq-consumed-invalidation",
+      "area": "invalidation",
+      "rule": "Once price mid-fills the CRT range (EQ/50%) after the raid, the setup is consumed -> no fresh entry.",
+      "status": "implemented"
+    },
+    {
+      "id": "blockers-single-gate",
+      "area": "validation",
+      "rule": "blockers.length === 0 is the single hard READY gate. The blocker list holds only true CRT-core invalidators; everything soft (no POI, PD not ideal, out of session, weak displacement, continuation-against, chop) is a quality warning that costs score, never vetoes.",
+      "status": "implemented"
+    },
+    {
+      "id": "grade-risk-sizing",
+      "area": "risk",
+      "rule": "Quality grade auto-sizes risk: A+ 1.0, A 0.85, B 0.55, C 0.30, D 0.15 of base risk. A loosened low-grade READY is still small size; only A+ takes full size.",
+      "status": "implemented"
+    },
+    {
+      "id": "displacement-since-manipulation",
+      "area": "confirmation",
+      "rule": "Displacement after the manipulation is required for a tradable model, but a linked shift-FVG can substitute; medium/strong displacement scores, none is a quality note unless no shift FVG exists.",
+      "status": "implemented"
+    },
+    {
+      "id": "reference-candle-meaningful",
+      "area": "reference-candle-selection",
+      "rule": "OPEN FOR DISCUSSION (2026-07-15): range candles must be meaningful, not arbitrary. Real practitioners (e.g. VasilyTrader) require an imbalance candle (large body, small wicks). Candidate direction: every closed candle is a CANDIDATE, but a reference_candle_score (Section 5) grades/gates it; imbalance is a large scoring component, configurable and backtested, not a hard filter. NOT YET IMPLEMENTED.",
+      "status": "proposed-pending-user-decision"
+    }
+  ]
+}

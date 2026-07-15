@@ -13,3 +13,6 @@ vite.config.d.ts
 
 # Local Claude Code settings (machine-specific)
 .claude/settings.local.json
+
+# External CRT/ICT reference repos (inspected, not shipped)
+references/
