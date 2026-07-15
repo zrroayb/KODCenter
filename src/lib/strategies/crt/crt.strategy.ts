@@ -1,7 +1,7 @@
 import { checklistItem } from "../../brain/decisionSummary";
 import { formatPrice, formatR } from "../../ict/format";
 import { averageTrueRange, completedCandles } from "../../ict/candles";
-import type { Candle, CrtBiasContext, CrtPoi, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
+import type { Candle, CrtBiasContext, CrtPoi, CrtState, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
 import { isCryptoSymbol } from "../../ict/symbols";
 import { defaultAccountModel } from "../../risk/accountModel";
 import { estimateExecutionCosts } from "../../risk/executionCosts";
@@ -1141,7 +1141,13 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (keyOpenRaid ? 1 : 0)
     // reference_candle_score: an A imbalance range candle earns ~9, a D/arbitrary candle ~2.
     + Math.round(((referenceCandle?.score ?? 50) / 100) * 10)
+    // Two-sided bias gate (Master §8): a confident OPPOSING macro bias costs score (not a veto —
+    // the anchor still owns direction; htfAlignment already vetoes a hard opposing HTF).
+    - (directionalBias.direction !== "neutral" && (directionalBias.direction === "bullish" ? "long" : "short") !== direction ? Math.min(12, Math.round(directionalBias.confidence / 5)) : 0)
   ));
+  if (directionalBias.direction !== "neutral" && (directionalBias.direction === "bullish" ? "long" : "short") !== direction && directionalBias.confidence >= 25) {
+    warnings.push(`İki-taraflı bias ${directionalBias.direction} (güven ${directionalBias.confidence}) setup yönüne karşı; makro çekiş ters, boyutu küçük tut.`);
+  }
   if (referenceCandle && (referenceCandle.grade === "D" || referenceCandle.grade === "C")) {
     warnings.push(`CRT range mumu zayıf (reference_candle_score ${referenceCandle.score}/${referenceCandle.grade}): ${referenceCandle.reasons[0]} Alelade mum güçlü imbalance mumu kadar güvenilir değildir.`);
   }
@@ -1438,9 +1444,24 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       origin: anchor.origin?.kind ?? "standard",
       originLabel: anchor.origin?.kind === "fvg-origin" ? "4H FVG origin CRT" : anchor.origin?.kind === "active-crt" ? anchor.origin.label : undefined,
       originClosed: anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true,
-      setupPhase: setup.setupPhase
+      setupPhase: setup.setupPhase,
+      crtState: deriveCrtState(setup, life.stage, life.outcome.status, anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true)
     }
   };
+}
+
+// Master §6: derive the CRT lifecycle state from the setup facts + realized outcome.
+function deriveCrtState(setup: CrtSetup, stage: TradingSignal["stage"], outcomeStatus: SignalOutcome["status"], originClosed: boolean): CrtState {
+  if (outcomeStatus === "tp2") return "COMPLETED";
+  if (stage === "invalidated" || outcomeStatus === "stopped") return "INVALIDATED";
+  if (outcomeStatus === "tp1") return "TARGETING_OPPOSITE_EXTREME";
+  if (outcomeStatus === "open") return "TARGETING_MIDPOINT";
+  if (setup.plan.entryStatus === "confirmed") return "CONFIRMED";
+  if (setup.choch) return "CONFIRMATION_PENDING";
+  if (setup.manipulation?.reclaimed) return "RETURNED_INSIDE";
+  if (setup.manipulation) return "SIDE_SWEPT";
+  if (!originClosed) return "CANDIDATE";
+  return "ACTIVE_RANGE";
 }
 
 function anchorSignal(context: MarketContext, settings: StrategyInput["settings"], spec: AnchorSpec): TradingSignal | undefined {

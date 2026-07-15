@@ -68,7 +68,7 @@ export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
       reference_high: anchor?.rangeHigh,
       reference_low: anchor?.rangeLow,
       equilibrium: anchor ? (anchor.rangeHigh + anchor.rangeLow) / 2 : undefined,
-      state: signal.stage,
+      state: anchor?.crtState ?? signal.stage,
       swept_side: sweptSide,
       direction: signal.direction,
       entry: signal.plan.entry,

@@ -414,4 +414,18 @@ export type CrtAnchorInfo = {
   originLabel?: string;
   originClosed?: boolean;
   setupPhase?: "context" | "raid" | "model" | "ready";
+  crtState?: CrtState;
 };
+
+// Master §6: the CRT setup lifecycle, not a boolean.
+export type CrtState =
+  | "CANDIDATE"
+  | "ACTIVE_RANGE"
+  | "SIDE_SWEPT"
+  | "RETURNED_INSIDE"
+  | "CONFIRMATION_PENDING"
+  | "CONFIRMED"
+  | "TARGETING_MIDPOINT"
+  | "TARGETING_OPPOSITE_EXTREME"
+  | "INVALIDATED"
+  | "COMPLETED";
