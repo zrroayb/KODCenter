@@ -24,6 +24,15 @@ describe("CRT Gemini interpretation contract", () => {
     expect(payload.crt.reference_timeframe).toBeDefined();
   });
 
+  it("carries the structured directional_bias block and retrieved knowledge (Master §9/§16)", () => {
+    const payload = buildCrtGeminiPayload(crtSignal());
+    expect(payload.directional_bias).toBeDefined();
+    expect(typeof payload.directional_bias.bullish_score === "number" || payload.directional_bias.bullish_score === undefined).toBe(true);
+    expect(payload.knowledge.length).toBeGreaterThanOrEqual(3);
+    expect(payload.knowledge.length).toBeLessThanOrEqual(8);
+    expect(payload.crt).toHaveProperty("reference_candle_score");
+  });
+
   it("accepts a well-formed response that references only known event ids", () => {
     const payload = buildCrtGeminiPayload(crtSignal());
     const known = payload.events[0].id;

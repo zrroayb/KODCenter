@@ -1,4 +1,5 @@
 import type { TradingSignal } from "../ict/types";
+import { retrieveCrtKnowledge, type CrtKnowledgeRecord } from "./crtKnowledge";
 
 // Gemini CRT interpretation contract — Master §9/§10/§13/§14/§15. The deterministic bot supplies
 // FACTS as evidence events with unique ids; Gemini may only interpret them and may only reference
@@ -23,12 +24,21 @@ export type CrtGeminiPayload = {
   stage: string;
   grade: string;
   score: number;
+  directional_bias: {
+    direction?: string;
+    bullish_score?: number;
+    bearish_score?: number;
+    confidence?: number;
+    external_draw?: string;
+  };
   crt: {
     reference_timeframe?: string;
     confirmation_timeframe?: string;
     reference_high?: number;
     reference_low?: number;
     equilibrium?: number;
+    reference_candle_score?: number;
+    reference_candle_grade?: string;
     state: string;
     swept_side: "high" | "low" | "none";
     direction: string;
@@ -36,6 +46,7 @@ export type CrtGeminiPayload = {
     stop?: number;
     targets: number[];
   };
+  knowledge: CrtKnowledgeRecord[];
   events: CrtEvidenceEvent[];
 };
 
@@ -136,12 +147,21 @@ export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
     stage: signal.stage,
     grade: signal.grade,
     score: signal.score,
+    directional_bias: {
+      direction: anchor?.biasDirection,
+      bullish_score: anchor?.biasBullishScore,
+      bearish_score: anchor?.biasBearishScore,
+      confidence: anchor?.biasConfidence,
+      external_draw: anchor?.biasExternalDraw
+    },
     crt: {
       reference_timeframe: anchor?.rangeTf,
       confirmation_timeframe: anchor?.confirmTf,
       reference_high: anchor?.rangeHigh,
       reference_low: anchor?.rangeLow,
       equilibrium: anchor ? (anchor.rangeHigh + anchor.rangeLow) / 2 : undefined,
+      reference_candle_score: anchor?.referenceCandleScore,
+      reference_candle_grade: anchor?.referenceCandleGrade,
       state: anchor?.crtState ?? signal.stage,
       swept_side: sweptSide,
       direction: signal.direction,
@@ -149,6 +169,7 @@ export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
       stop: signal.plan.stopLoss,
       targets: signal.plan.targets ?? []
     },
+    knowledge: retrieveCrtKnowledge({ direction: signal.direction, hasTurtleSoup: anchor?.turtleSoup }),
     events
   };
 }

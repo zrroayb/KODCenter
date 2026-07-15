@@ -415,6 +415,14 @@ export type CrtAnchorInfo = {
   originClosed?: boolean;
   setupPhase?: "context" | "raid" | "model" | "ready";
   crtState?: CrtState;
+  biasDirection?: "bullish" | "bearish" | "neutral";
+  biasBullishScore?: number;
+  biasBearishScore?: number;
+  biasConfidence?: number;
+  biasExternalDraw?: string;
+  referenceCandleScore?: number;
+  referenceCandleGrade?: string;
+  turtleSoup?: boolean;
 };
 
 // Master §6: the CRT setup lifecycle, not a boolean.

@@ -731,7 +731,7 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
 // Master §10/§14/§15: the CRT interpretation layer. Gemini gets deterministic evidence events
 // (each with a unique id) and returns validated JSON — it must not invent events, and may only
 // reference provided event ids. Additive endpoint; the freeform mentor commentary is untouched.
-const CRT_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic Candle Range Theory trading system. You do NOT detect market events. All candles, ranges, structure breaks, liquidity sweeps, displacement events, targets and invalidation levels come only from the supplied evidence events. Reasoning order: external liquidity draw -> HTF structure -> dealing-range location -> liquidity sweep -> return inside -> displacement -> LTF confirmation -> target -> invalidation. Do not force a directional conclusion. Do not invent missing evidence. Do not assume every large candle is a valid CRT reference candle or every wick a valid sweep. You may only reference event ids present in the events array. If evidence is insufficient set crt_analysis.status to "insufficient_evidence". Keep every reasoning/summary field concise — one or two short sentences, at most ~35 words each — so the JSON stays complete. Return ONLY valid JSON matching the schema.`;
+const CRT_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic Candle Range Theory trading system. You do NOT detect market events. All candles, ranges, structure breaks, liquidity sweeps, displacement events, targets and invalidation levels come only from the supplied evidence events. Reasoning order: external liquidity draw -> HTF structure -> dealing-range location -> liquidity sweep -> return inside -> displacement -> LTF confirmation -> target -> invalidation. Do not force a directional conclusion. Do not invent missing evidence. Do not assume every large candle is a valid CRT reference candle or every wick a valid sweep. You may only reference event ids present in the events array. The "knowledge" array holds reference CRT definitions — use them to ground your reasoning, but they are NOT market facts and you must not treat them as events. If evidence is insufficient set crt_analysis.status to "insufficient_evidence". Keep every reasoning/summary field concise — one or two short sentences, at most ~35 words each — so the JSON stays complete. Return ONLY valid JSON matching the schema.`;
 
 const CRT_ANALYSIS_RESPONSE_SCHEMA = {
   type: "object",
@@ -777,7 +777,7 @@ async function generateGeminiCrtAnalysis(payload: Record<string, unknown>, env: 
   if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   const events = Array.isArray((payload as { events?: unknown }).events) ? (payload as { events: Array<{ id?: string }> }).events : [];
   const knownIds = new Set(events.map((event) => event?.id).filter((id): id is string => typeof id === "string"));
-  const prompt = `Interpret this deterministic CRT evidence. Reference only these event ids.\n${JSON.stringify(payload).slice(0, 12_000)}`;
+  const prompt = `Interpret this deterministic CRT evidence. Reference only these event ids.\n${JSON.stringify(payload).slice(0, 16_000)}`;
   const controller = new AbortController();
   // Structured output with a response schema is heavier than the freeform commentary; give it room.
   const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);

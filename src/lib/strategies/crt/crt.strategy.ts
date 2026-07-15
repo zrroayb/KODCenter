@@ -1445,7 +1445,15 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       originLabel: anchor.origin?.kind === "fvg-origin" ? "4H FVG origin CRT" : anchor.origin?.kind === "active-crt" ? anchor.origin.label : undefined,
       originClosed: anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true,
       setupPhase: setup.setupPhase,
-      crtState: deriveCrtState(setup, life.stage, life.outcome.status, anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true)
+      crtState: deriveCrtState(setup, life.stage, life.outcome.status, anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true),
+      biasDirection: setup.directionalBias?.direction,
+      biasBullishScore: setup.directionalBias?.bullishScore,
+      biasBearishScore: setup.directionalBias?.bearishScore,
+      biasConfidence: setup.directionalBias?.confidence,
+      biasExternalDraw: setup.directionalBias?.externalDraw?.label,
+      referenceCandleScore: setup.referenceCandle?.score,
+      referenceCandleGrade: setup.referenceCandle?.grade,
+      turtleSoup: Boolean(setup.turtleSoup)
     }
   };
 }

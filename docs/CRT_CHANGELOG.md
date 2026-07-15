@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — Knowledge retrieval (§16) + structured payload (§9/§12)
+- New `src/lib/gemini/crtKnowledge.ts`: a compact in-repo CRT knowledge base (original concise
+  concept definitions) + `retrieveCrtKnowledge` that returns only 3-8 records relevant to the
+  signal (direction-specific + core sequence, plus turtle-soup when present) — never the whole
+  base (Master §16). System instruction notes these are reference definitions, not market facts.
+- `buildCrtGeminiPayload` enriched: a structured `directional_bias` block (bullish/bearish scores,
+  confidence, external draw) + `reference_candle_score`/grade on the crt block + the retrieved
+  `knowledge` array — matching the Master §9/§12 evidence contract. Backed by new compact fields
+  on `CrtAnchorInfo` populated from the setup's directionalBias/referenceCandle.
+- Tests: `crtKnowledge.test.ts` (3-8 cap, direction-specific selection, turtle-soup gating,
+  uniqueness) + payload-enrichment assertion. Full suite 155 tests pass.
+- Live: XAUUSD payload carries directional_bias {bearish 46/71, draw PDL}, reference_candle 100/A,
+  7 knowledge records, 12 unique events.
+
 ## 2026-07-15 — CRT analysis UI panel + lifecycle/bias finish
 - `fetchCrtAnalysis(signal)` client (crtInterpretation.ts) builds the deterministic payload and
   calls /api/gemini/crt-analysis, normalizing the structured response.

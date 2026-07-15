@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "gemini-knowledge-retrieval",
+      "area": "gemini-interpretation",
+      "rule": "Master Section 16: Gemini gets only the relevant CRT knowledge, never the whole base. crtKnowledge.ts holds compact original concept records; retrieveCrtKnowledge returns 3-8 relevant to the signal (direction-specific + core sequence, plus turtle-soup when present) inside the payload. The payload also carries a structured directional_bias block (bullish/bearish scores, confidence, external draw) and reference_candle_score/grade (Master Section 9/12). Knowledge records are reference definitions, not market facts.",
+      "status": "implemented"
+    },
+    {
       "id": "gemini-interpret-only",
       "area": "gemini-interpretation",
       "rule": "Gemini is the interpretation layer only (Master Section 10/13/14/15). It receives deterministic evidence events (each a unique id) and returns validated JSON matching the response schema; it may only reference provided event ids and must not invent candles, levels, sweeps or targets. Backend endpoint /api/gemini/crt-analysis uses systemInstruction + responseMimeType application/json + responseSchema; validateCrtInterpretation rejects invalid JSON, missing required fields, or unknown event ids. Key stays server-side. Additive — the freeform mentor commentary endpoint is unchanged.",
