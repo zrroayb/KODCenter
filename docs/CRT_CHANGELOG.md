@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — two-sided directional bias implemented (Master §8/§11)
+- New `src/lib/strategies/crt/directionalBias.ts`: separate bullish/bearish scores in draw-first
+  order (external draw 0-25, HTF structure 0-25, PD 0-15, reclaimed sweep 0-15, displacement 0-10,
+  LTF MSS 0-5, killzone timing 0-5). Decision: bullish if ≥65 and margin ≥15 (bearish symmetric),
+  else neutral; PD alone never forces direction. Configurable weights/thresholds.
+- Wired into `crt.strategy.ts` as the `directional-bias` evidence item (structured bias for
+  Gemini/UI). It grades the market's lean + confidence and flags contradictions when a per-anchor
+  signal disagrees with the dominant lean — it does NOT override the per-anchor direction (Master
+  §14: don't rebuild working modules).
+- Tests: `directionalBias.test.ts` (bullish/bearish stacks, neutral on conflict, PD-alone stays
+  neutral). 145 tests pass.
+- Live read: XAUUSD short → bearish bias (pass), EURUSD long → bearish bias (warning, real
+  contradiction surfaced), ETHUSD short → bearish bias (pass).
+
 ## 2026-07-15 — reference_candle_score implemented (Master §5)
 - New `src/lib/strategies/crt/referenceCandle.ts`: grades every candidate CRT range candle 0-100
   (imbalance body/range, range vs ATR, expansion, meaningful location, key-open/killzone),

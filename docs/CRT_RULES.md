@@ -10,6 +10,10 @@ message.** Do not silently forget them.
 - **Anchor mapping** — 4H→15m, 1D→1h, 1W→4h. Scan **all** anchors, not just 4H. *(implemented)*
 - **HTF alignment (loose)** — only an *opposing* higher TF vetoes READY; a *neutral* higher TF is
   tolerated (costs score). Chain: 4H needs 1D+1W, 1D needs 1W, 1W needs 1M. *(implemented)*
+- **Two-sided directional bias** — separate bullish/bearish scores in draw-first order (external
+  draw → HTF structure → PD → sweep → displacement → LTF MSS → session), bullish if ≥65 & margin
+  ≥15 else neutral; PD alone never forces direction. Surfaced as `directional-bias` evidence,
+  flags contradictions; does not override per-anchor direction yet. *(implemented)*
 
 ## Location, sweep & confirmation
 - **Raid lands at a POI** — swept level must coincide with a key level (PDH/PDL/PWH/PWL) or HTF

@@ -14,6 +14,7 @@ import { buildKillzoneContext } from "../../intelligence/killzoneContextEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
+import { evaluateDirectionalBias, type DirectionalBias } from "./directionalBias";
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
@@ -119,6 +120,7 @@ type CrtSetup = {
   displacementStrength: "none" | "medium" | "strong";
   locationTier: "weekly" | "daily" | "fvg" | "none";
   referenceCandle?: ReferenceCandleScore;
+  directionalBias?: DirectionalBias;
   eqConsumed: boolean;
   readyEligible: boolean;
 };
@@ -1006,6 +1008,18 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const bullishVotes = votes.filter((vote) => vote === "bullish").length;
   const bearishVotes = votes.filter((vote) => vote === "bearish").length;
   const htfNarrative: TradeDirection | "neutral" = bullishVotes - bearishVotes >= 2 ? "long" : bearishVotes - bullishVotes >= 2 ? "short" : "neutral";
+  // Master §8/§11: two-sided directional bias (draw-first). Structured bias evidence for Gemini/UI;
+  // it grades the market's lean and confidence, it does not override the per-anchor direction.
+  const directionalBias = evaluateDirectionalBias({
+    price: (context.timeframes.m15.at(-1) ?? context.timeframes.m5.at(-1))?.close ?? anchor.range.midpoint,
+    htfBias: { monthly: context.bias.monthly, weekly: context.bias.weekly, daily: context.bias.daily, h4: context.bias.h4 },
+    pdZone: context.premiumDiscount.zone,
+    liquidityObjectives: context.liquidityObjectives,
+    sweeps: context.sweeps,
+    displacements: context.displacements,
+    marketStructureShifts: context.marketStructureShifts,
+    inKillzone: context.killzones.some((zone) => zone.active && zone.name !== "Outside")
+  });
   const htfAlignment = evaluateCrtHtfAlignment(context, anchor.spec.rangeTf, direction);
   // STEP 2: premium/discount discipline. The CRT setup's OWN range PD (pdAligned, below) is the
   // hard gate — that is the range this setup actually trades. The GLOBAL dealing-range PD is a
@@ -1181,6 +1195,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     displacementStrength,
     locationTier,
     referenceCandle,
+    directionalBias,
     eqConsumed,
     readyEligible
   };
@@ -1344,6 +1359,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
     { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", detail: setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: anchor.range.source, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "reference-candle", label: "Reference Candle", status: !setup.referenceCandle ? "neutral" : setup.referenceCandle.grade === "A" || setup.referenceCandle.grade === "B" ? "pass" : "warning", detail: setup.referenceCandle ? `reference_candle_score ${setup.referenceCandle.score}/100 (${setup.referenceCandle.grade}). ${setup.referenceCandle.reasons[0]}` : "Range mumu skorlanamadı.", timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
+    { id: "directional-bias", label: "Directional Bias", status: !setup.directionalBias ? "neutral" : setup.directionalBias.direction === "neutral" ? "neutral" : (setup.directionalBias.direction === "bullish" ? "long" : "short") === setup.direction ? "pass" : "warning", detail: setup.directionalBias ? `bullish ${setup.directionalBias.bullishScore} / bearish ${setup.directionalBias.bearishScore} → ${setup.directionalBias.direction} (güven ${setup.directionalBias.confidence}). ${setup.directionalBias.summary}` : "Bias skorlanamadı.", timeframe: anchor.spec.rangeTf, price: setup.directionalBias?.externalDraw?.level },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
     { id: "poi", label: "POI", status: setup.poi ? "pass" : "neutral", detail: setup.poi ? `${setup.poi.label} kalite bonusu olarak map edildi.` : "FVG/OB yok; ChoCH kapanışı varsa CRT yine geçerlidir.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
     { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} wick ile alındı; HTF kapanışı şart değil.` : `${anchor.spec.rangeTf.toUpperCase()} CRT high/low raid yok.`, timeframe: anchor.spec.rangeTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },

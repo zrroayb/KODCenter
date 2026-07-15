@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "two-sided-directional-bias",
+      "area": "directional-bias",
+      "rule": "Direction is graded by a two-sided engine (Master Section 8/11) BEFORE the CRT setup, in draw-first order: external liquidity draw (0-25) -> HTF structure M/W/D/4H (0-25) -> premium/discount (0-15) -> reclaimed liquidity sweep (0-15) -> displacement (0-10) -> LTF MSS/BOS (0-5) -> killzone timing (0-5). Separate bullish_score/bearish_score; bullish if bullish>=65 and bullish-bearish>=15 (bearish symmetric), else neutral; PD alone never forces direction. Surfaced as the directional-bias evidence item and flags contradictions when the per-anchor signal disagrees with the dominant lean. Thresholds/weights configurable (directionalBias.ts). Does NOT override the per-anchor direction resolution yet.",
+      "status": "implemented"
+    },
+    {
       "id": "reference-candle-meaningful",
       "area": "reference-candle-selection",
       "rule": "Range candles must be meaningful, not arbitrary. Hybrid (not a hard filter): every closed candle is a CANDIDATE, but reference_candle_score (Master Section 5) grades it. Components: imbalance body/range 0-30 (rejection < 0.3, strong >= 0.7), range vs ATR 0-25 (ideal 0.8x-2.5x, exhausted > 3.5x), expansion vs recent median 0-15, meaningful HTF location 0-20, key-open/killzone session 0-10. An A imbalance candle adds ~9 to the setup score, a D/arbitrary candle ~2; a D/C reference candle raises a quality warning; thresholds are configurable (referenceCandle.ts REFERENCE_CANDLE_DEFAULTS). Grounded in ict-knowledge-library CRT checklist, XAU-60 body/ATR/expansion filters, crt-turtlesoup-ea wick/body.",
