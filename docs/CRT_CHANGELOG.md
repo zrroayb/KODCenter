@@ -2,6 +2,21 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-15 — retest mandatory again: ChoCH close alone never confirms
+- An AI replay report proposed demoting choch-close entries from READY (-0.46R / 5 trades).
+  Independent measurement confirmed the numbers AND found the real cause: the "choch-close"
+  bucket is dominated by the refactor-era *direct entry from the closed ChoCH candle* (no
+  retest) — the retest-based model (poi-retest) was making +0.56R at the same time.
+- `selectCrtEntry` now deliberately ignores `confirmationClose`: without a real retest the entry
+  stays PENDING at the retest level (WATCH), exactly as the original owner rule said
+  ("displacement kovalanmaz, retest bekle"). Warning text updated; test locks the behavior.
+- Measured after (12 symbols, 30d): live-READY -0.14R -> +2.62R; poi-retest +0.89R edge;
+  choch-close bucket normalized to +0.09R neutral. Fewer triggers (5 -> 1) — selectivity by
+  design, counterfactuals still tracked.
+- NOT applied from the report: chop veto (2 trades, both losers — sample too small to overturn
+  the user's chop-is-a-note rule) and stop-in-noise re-promotion (1 trade). Logged for the 30+
+  trade review. HTF-aligned re-measured: +0.20R, already a READY gate.
+
 ## 2026-07-15 — Knowledge retrieval (§16) + structured payload (§9/§12)
 - New `src/lib/gemini/crtKnowledge.ts`: a compact in-repo CRT knowledge base (original concise
   concept definitions) + `retrieveCrtKnowledge` that returns only 3-8 records relevant to the

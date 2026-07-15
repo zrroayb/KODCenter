@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "retest-mandatory-for-entry",
+      "area": "confirmation",
+      "rule": "A ChoCH close alone NEVER confirms the entry — the post-ChoCH retest of the entry level is mandatory for READY. The displaced close is not chased; the plan stays visible (WATCH/pending) at the retest level until price actually returns. Restored 2026-07-15 after measurement: direct-from-close entries -0.46R over 5 trades vs retest-based +0.56R over 6; after restoring, live-READY went from -0.14R to +2.62R and the choch-close bucket normalized to +0.09R. (This re-asserts the original owner rule that a Codex refactor had relaxed.)",
+      "status": "implemented"
+    },
+    {
       "id": "gemini-knowledge-retrieval",
       "area": "gemini-interpretation",
       "rule": "Master Section 16: Gemini gets only the relevant CRT knowledge, never the whole base. crtKnowledge.ts holds compact original concept records; retrieveCrtKnowledge returns 3-8 relevant to the signal (direction-specific + core sequence, plus turtle-soup when present) inside the payload. The payload also carries a structured directional_bias block (bullish/bearish scores, confidence, external draw) and reference_candle_score/grade (Master Section 9/12). Knowledge records are reference definitions, not market facts.",

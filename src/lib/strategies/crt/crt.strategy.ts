@@ -833,7 +833,7 @@ export function selectCrtEntry(input: {
   entryStatus: TradePlan["entryStatus"];
   retested: boolean;
 } {
-  const { choch, poi, plannedRetestEntry, retestIndex, confirmationClose } = input;
+  const { choch, poi, plannedRetestEntry, retestIndex } = input;
   if (choch && typeof retestIndex === "number") {
     return {
       entry: plannedRetestEntry,
@@ -843,18 +843,11 @@ export function selectCrtEntry(input: {
     };
   }
 
-  // Core CRT does not require a second pullback after the character-shift close. If price
-  // offers the FVG/POI retest we use it; otherwise the closed ChoCH candle is an executable
-  // confirmation entry. FVG and retest improve execution, they do not define CRT validity.
-  if (choch && typeof confirmationClose === "number" && Number.isFinite(confirmationClose)) {
-    return {
-      entry: confirmationClose,
-      entrySource: "choch-close",
-      entryStatus: "confirmed",
-      retested: false
-    };
-  }
-
+  // A ChoCH close WITHOUT a retest never confirms the entry (input.confirmationClose is
+  // deliberately ignored). Measured 2026-07-15 (12 symbols, 30d): direct-from-close entries ran
+  // -0.46R over 5 trades while retest-based entries made +0.56R over 6 — and the doctrine says
+  // the displaced close is never chased. The plan stays visible (WATCH) at the retest level and
+  // confirms only when price actually returns to it.
   return {
     entry: plannedRetestEntry,
     entrySource: choch || poi ? (poi ? "poi-retest" : "choch-close") : "fallback-close",
@@ -1097,7 +1090,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üst yön nötr (${htfAlignment.neutral.join(", ")}); karşı değil ama tam onay yok, boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
-    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; ChoCH kapanış entry'si kullanıldı." : undefined,
+    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; entry retest gelene kadar PENDING (kapanıştan girilmez)." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !pdAligned ? `${direction.toUpperCase()} entry CRT range ${crtZone}; ideal ${expectedPd(direction)} ama RR/geometri uygunsa hard gate değil.` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
