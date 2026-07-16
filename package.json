@@ -9,10 +9,17 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && npm run worker:typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
-    "test": "vitest run"
+    "test": "vitest run",
+    "worker:typecheck": "tsc -p tsconfig.worker.json",
+    "cloud:dev": "npm run build && wrangler dev",
+    "cloud:deploy": "npm run build && wrangler deploy",
+    "cloud:scan": "tsx scripts/cloud-scan.ts",
+    "cloud:migrate": "wrangler d1 migrations apply tradebot-state --remote",
+    "cloud:migrate:local": "wrangler d1 migrations apply tradebot-state --local",
+    "cloud:types": "wrangler types"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -23,9 +30,12 @@
     "vite": "^6.0.5"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260716.1",
     "@types/node": "^22.20.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
-    "vitest": "^3.2.6"
+    "tsx": "^4.23.1",
+    "vitest": "^3.2.6",
+    "wrangler": "^4.111.0"
   }
 }

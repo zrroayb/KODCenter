@@ -21,13 +21,13 @@ import { journalInsights } from "./lib/journal/journalAnalyzer";
 import { journalLearningInsights } from "./lib/journal/strategyLearning";
 import type { JournalEntry } from "./lib/journal/types";
 import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
+import { compareSignalsByDecision, scanContexts } from "./lib/runtime/scanRuntime";
 import { formatTurkeySessionTime } from "./lib/session/sessionClock";
 import { buildSessionSetups } from "./lib/session/sessionConfluenceEngine";
 import { buildProfileSessionClock } from "./lib/session/sessionRangeEngine";
 import { loadSessionSetupLogs, loadSessionSetups, reconcileSessionSetupStore } from "./lib/session/sessionSetupStore";
 import type { SessionSetup, SessionSetupLog } from "./lib/session/types";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
-import { signalDecisionClass } from "./lib/signals/signalClassification";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
 import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
@@ -49,76 +49,6 @@ const VIEW_TITLES: Record<ViewId, string> = {
   settings: "Ayar"
 };
 const AUTO_REFRESH_MS = 60_000;
-const SIGNAL_STAGE_RANK: Record<TradingSignal["stage"], number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
-const SETUP_PHASE_RANK: Record<string, number> = { ready: 3, model: 2, raid: 1, context: 0 };
-
-function compareSignalsByDecision(a: TradingSignal, b: TradingSignal) {
-  const invalidDifference = Number(signalDecisionClass(a) === "invalid") - Number(signalDecisionClass(b) === "invalid");
-  if (invalidDifference) return invalidDifference;
-  const stageDifference = (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0);
-  if (stageDifference) return stageDifference;
-  if (a.stage === "watch" && b.stage === "watch") {
-    const blockerDifference = a.governance.blockers.length - b.governance.blockers.length;
-    if (blockerDifference) return blockerDifference;
-    const rrReadyDifference = Number(b.plan.rr >= 1.5) - Number(a.plan.rr >= 1.5);
-    if (rrReadyDifference) return rrReadyDifference;
-    const phaseDifference = (SETUP_PHASE_RANK[String(b.crtAnchor?.setupPhase)] ?? 0) - (SETUP_PHASE_RANK[String(a.crtAnchor?.setupPhase)] ?? 0);
-    if (phaseDifference) return phaseDifference;
-  }
-  return b.score - a.score
-    || b.plan.rr - a.plan.rr;
-}
-
-function scanContexts(contexts: MarketContext[], strategyId: string, rules: UserRules) {
-  const strategy = getStrategy(strategyId);
-  const results = contexts
-    .filter((context) => ruleAllowsContext(context, rules))
-    .map((context) => strategy.scan({
-      context,
-      settings: {
-        ...strategy.defaultSettings,
-        minimumRR: rules.minimumRR,
-        stopProfile: rules.stopProfile,
-        useExecutionCosts: rules.useExecutionCosts,
-        slippageStress: rules.slippageStress,
-        partialTpEnabled: rules.partialTpEnabled,
-        moveToBreakevenAtR: rules.moveToBreakevenAtR,
-        maxDailyRiskPct: rules.maxDailyRiskPct,
-        avoidNews: rules.avoidNews
-      }
-    }));
-  const rawSignals = results.flatMap((result) => result.signals);
-  const activeSignals = rawSignals
-    .filter((signal) => signal.stage !== "invalidated" && signal.stage !== "missed")
-    .sort(compareSignalsByDecision);
-  const tradeCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) !== "invalid");
-  const invalidCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) === "invalid");
-  const visibleCandidates = tradeCandidates.filter((signal) => ruleAllowsSignal(signal, rules));
-  const visibleSignals = visibleCandidates.slice(0, rules.maxSignalsPerScan);
-  const hiddenCandidates = [
-    ...invalidCandidates,
-    ...tradeCandidates.filter((signal) => !ruleAllowsSignal(signal, rules)),
-    ...visibleCandidates.slice(rules.maxSignalsPerScan)
-  ];
-  const seenHiddenSignals = new Set<string>();
-  const hiddenSignals = hiddenCandidates
-    .filter((signal) => {
-      if (seenHiddenSignals.has(signal.id)) return false;
-      seenHiddenSignals.add(signal.id);
-      return true;
-    })
-    .slice(0, 24);
-  const inactiveSignals = rawSignals
-    .filter((signal) => signal.stage === "invalidated" || signal.stage === "missed")
-    .sort(compareSignalsByDecision);
-  return {
-    signals: visibleSignals,
-    hiddenSignals,
-    inactiveSignals: inactiveSignals.slice(0, 24),
-    rejected: results.flatMap((result) => result.rejectedSetups)
-  };
-}
-
 function bestScanSignal(signals: TradingSignal[]): TradingSignal | undefined {
   return [...signals]
     .filter((signal) => signal.stage === "ready" || signal.stage === "watch")
@@ -449,7 +379,8 @@ export default function App() {
     source: "demo",
     feedMode: "demo",
     loadedAt: Date.now(),
-    errors: []
+    errors: [],
+    background: false
   });
   const [dataLoading, setDataLoading] = useState(true);
   const [dataRefreshing, setDataRefreshing] = useState(false);
@@ -530,7 +461,9 @@ export default function App() {
         source: result.source,
         feedMode: result.feedMode,
         loadedAt: result.loadedAt,
-        errors: result.errors
+        errors: result.errors,
+        background: result.background,
+        oldestLoadedAt: result.oldestLoadedAt
       });
     } catch (error) {
       setMarkets(demoMarkets);
@@ -538,7 +471,8 @@ export default function App() {
         source: "demo",
         feedMode: "demo",
         loadedAt: Date.now(),
-        errors: [error instanceof Error ? error.message : String(error)]
+        errors: [error instanceof Error ? error.message : String(error)],
+        background: false
       });
     } finally {
       hasLoadedDataRef.current = true;
@@ -607,7 +541,7 @@ export default function App() {
   }, [detectedSessionSetups, sessionSetupLogs, sessionSetups]);
 
   useEffect(() => {
-    if (dataLoading) return;
+    if (dataLoading || dataState.background) return;
     for (const signal of visibleSignals.filter((item) => item.stage === "ready")) {
       void notifyReadySignalOnce(signal).then((result) => {
         if (result.status === "error") {
@@ -615,7 +549,7 @@ export default function App() {
         }
       });
     }
-  }, [dataLoading, visibleSignals, lastScanTime]);
+  }, [dataLoading, dataState.background, visibleSignals, lastScanTime]);
 
   useEffect(() => {
     setSelectedSignalState((current) => {
@@ -796,9 +730,22 @@ export default function App() {
               <small>→ {sessionClock.display} · {nextSessionStart}</small>
             </div>
             <span className={`data-source-badge ${dataState.source}`}>
-              {dataLoading ? "Yükleniyor" : dataRefreshing ? "Güncelleniyor" : dataState.source === "yahoo-live" ? "Yahoo" : dataState.source === "mixed" ? "Karma" : "Demo"}
+              {dataLoading
+                ? "Yükleniyor"
+                : dataRefreshing
+                  ? "Güncelleniyor"
+                  : dataState.background
+                    ? "Canlı bot"
+                    : dataState.source === "yahoo-live"
+                      ? "Yahoo"
+                      : dataState.source === "mixed"
+                        ? "Karma"
+                        : "Demo"}
             </span>
-            <span className={`auto-refresh-badge ${dataRefreshing ? "refreshing" : ""}`} title="Sayfa açıkken canlı veri otomatik yenilenir.">
+            <span
+              className={`auto-refresh-badge ${dataRefreshing ? "refreshing" : ""}`}
+              title={dataState.background ? "Cloudflare botu sayfa kapalıyken de tarar." : "Sayfa açıkken canlı veri otomatik yenilenir."}
+            >
               <strong>{dataRefreshing ? "şimdi" : `${secondsToAutoRefresh}s`}</strong>
             </span>
             <button className="ghost-btn" onClick={() => void refreshMarketData()} type="button" disabled={dataLoading || dataRefreshing}>

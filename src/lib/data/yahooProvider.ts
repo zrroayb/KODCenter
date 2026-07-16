@@ -12,10 +12,12 @@ export type MarketDataLoadResult = {
   feedMode: MarketFeedMode;
   loadedAt: number;
   errors: string[];
+  background?: boolean;
+  oldestLoadedAt?: number;
 };
 
-type YahooInterval = "5m" | "15m" | "1h" | "1d";
-type YahooRange = "5d" | "60d" | "1y";
+export type YahooInterval = "5m" | "15m" | "1h" | "1d";
+export type YahooRange = "5d" | "60d" | "1y";
 
 const YAHOO_INTERVAL_MS: Record<YahooInterval, number> = {
   "5m": 5 * 60 * 1000,
@@ -42,7 +44,13 @@ type YahooChartResponse = {
   };
 };
 
-const YAHOO_SYMBOLS: Array<{ symbol: MarketSymbol; name: string; yahoo: string }> = [
+export type YahooSymbolDefinition = {
+  symbol: MarketSymbol;
+  name: string;
+  yahoo: string;
+};
+
+export const YAHOO_SYMBOLS: YahooSymbolDefinition[] = [
   { symbol: "XAUUSD", name: "Gold futures proxy · GC=F", yahoo: "GC=F" },
   { symbol: "NAS100", name: "Nasdaq futures proxy · NQ=F", yahoo: "NQ=F" },
   { symbol: "EURUSD", name: "Euro Dollar", yahoo: "EURUSD=X" },
@@ -107,16 +115,30 @@ export function parseYahooChartResponse(payload: YahooChartResponse, interval?: 
   return candles.sort((a, b) => a.time - b.time);
 }
 
-async function fetchYahooCandles(
+type YahooRequestOptions = {
+  fetcher?: typeof fetch;
+  baseUrl?: string;
+  retryAttempts?: number;
+};
+
+export async function fetchYahooCandles(
   yahooSymbol: string,
   interval: YahooInterval,
   range: YahooRange,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: YahooRequestOptions = {}
 ): Promise<Candle[]> {
-  const url = `/yahoo/v8/finance/chart/${yahooSymbol}?interval=${interval}&range=${range}&includePrePost=false`;
+  const baseUrl = options.baseUrl?.replace(/\/+$/, "") ?? "/yahoo";
+  const url = `${baseUrl}/v8/finance/chart/${yahooSymbol}?interval=${interval}&range=${range}&includePrePost=false`;
+  const fetcher = options.fetcher ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (/^https?:\/\//.test(baseUrl)) headers["User-Agent"] = "Mozilla/5.0";
   const requestSignal = createTimeoutSignal(signal);
   try {
-    const response = await fetch(url, { headers: { Accept: "application/json" }, signal: requestSignal.signal });
+    const response = await fetcher(url, {
+      headers,
+      signal: requestSignal.signal
+    });
     if (!response.ok) {
       const detail = (await response.text()).slice(0, 140).replace(/\s+/g, " ");
       throw new Error(`${yahooSymbol} ${interval}: HTTP ${response.status}${detail ? ` - ${detail}` : ""}`);
@@ -132,25 +154,30 @@ async function fetchYahooCandles(
   }
 }
 
-async function withRetry<T>(label: string, task: () => Promise<T>): Promise<T> {
+async function withRetry<T>(label: string, task: () => Promise<T>, attempts = 2): Promise<T> {
   let lastError: unknown;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await task();
     } catch (error) {
       lastError = error;
-      if (attempt < 2) await new Promise((resolve) => globalThis.setTimeout(resolve, 350));
+      if (attempt < attempts) await new Promise((resolve) => globalThis.setTimeout(resolve, 350));
     }
   }
   throw new Error(`${label}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
-async function loadYahooMarket(item: (typeof YAHOO_SYMBOLS)[number], signal?: AbortSignal): Promise<DemoMarket> {
+export async function loadYahooMarket(
+  item: YahooSymbolDefinition,
+  signal?: AbortSignal,
+  options: YahooRequestOptions = {}
+): Promise<DemoMarket> {
+  const attempts = options.retryAttempts ?? 2;
   const [m5, m15, h1, daily] = await Promise.all([
-    withRetry(`${item.symbol} 5m`, () => fetchYahooCandles(item.yahoo, "5m", "5d", signal)),
-    withRetry(`${item.symbol} 15m`, () => fetchYahooCandles(item.yahoo, "15m", "60d", signal)),
-    withRetry(`${item.symbol} 1h`, () => fetchYahooCandles(item.yahoo, "1h", "60d", signal)),
-    withRetry(`${item.symbol} 1d`, () => fetchYahooCandles(item.yahoo, "1d", "1y", signal))
+    withRetry(`${item.symbol} 5m`, () => fetchYahooCandles(item.yahoo, "5m", "5d", signal, options), attempts),
+    withRetry(`${item.symbol} 15m`, () => fetchYahooCandles(item.yahoo, "15m", "60d", signal, options), attempts),
+    withRetry(`${item.symbol} 1h`, () => fetchYahooCandles(item.yahoo, "1h", "60d", signal, options), attempts),
+    withRetry(`${item.symbol} 1d`, () => fetchYahooCandles(item.yahoo, "1d", "1y", signal, options), attempts)
   ]);
 
   if ((!m15.length && !m5.length) || !h1.length || !daily.length) {
@@ -172,7 +199,80 @@ async function loadYahooMarket(item: (typeof YAHOO_SYMBOLS)[number], signal?: Ab
   };
 }
 
+export type YahooMarketBatchResult = {
+  markets: DemoMarket[];
+  errors: string[];
+};
+
+export async function loadYahooMarketBatch(
+  symbols: MarketSymbol[],
+  options: YahooRequestOptions & { signal?: AbortSignal } = {}
+): Promise<YahooMarketBatchResult> {
+  const definitions = symbols
+    .map((symbol) => YAHOO_SYMBOLS.find((item) => item.symbol === symbol))
+    .filter((item): item is YahooSymbolDefinition => Boolean(item));
+  const settled = await Promise.allSettled(
+    definitions.map((item) => loadYahooMarket(item, options.signal, options))
+  );
+  const markets: DemoMarket[] = [];
+  const errors: string[] = [];
+
+  settled.forEach((result, index) => {
+    const symbol = definitions[index].symbol;
+    if (result.status === "fulfilled") markets.push(result.value);
+    else errors.push(`${symbol}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+  });
+
+  return { markets, errors };
+}
+
 export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketDataLoadResult> {
+  try {
+    const cacheSignal = createTimeoutSignal(signal, 4_000);
+    try {
+      const response = await fetch("/api/live-markets", {
+        headers: { Accept: "application/json" },
+        signal: cacheSignal.signal
+      });
+      if (response.ok) {
+        const cached = await response.json() as {
+          markets?: DemoMarket[];
+          loadedAt?: number;
+          oldestLoadedAt?: number;
+          background?: boolean;
+          errors?: string[];
+        };
+        if (Array.isArray(cached.markets) && cached.markets.length === YAHOO_SYMBOLS.length) {
+          const hydratedMarkets = cached.markets.map((market) => ({
+            ...market,
+            timeframes: {
+              monthly: enrichWithSyntheticBidAsk(market.timeframes.monthly, market.symbol),
+              weekly: enrichWithSyntheticBidAsk(market.timeframes.weekly, market.symbol),
+              daily: enrichWithSyntheticBidAsk(market.timeframes.daily, market.symbol),
+              h4: enrichWithSyntheticBidAsk(market.timeframes.h4, market.symbol),
+              h1: enrichWithSyntheticBidAsk(market.timeframes.h1, market.symbol),
+              m15: enrichWithSyntheticBidAsk(market.timeframes.m15, market.symbol),
+              m5: enrichWithSyntheticBidAsk(market.timeframes.m5, market.symbol)
+            }
+          }));
+          return {
+            markets: hydratedMarkets,
+            source: "yahoo-live",
+            feedMode: "synthetic-bid-ask",
+            loadedAt: typeof cached.loadedAt === "number" ? cached.loadedAt : Date.now(),
+            errors: Array.isArray(cached.errors) ? cached.errors : [],
+            background: cached.background === true,
+            oldestLoadedAt: typeof cached.oldestLoadedAt === "number" ? cached.oldestLoadedAt : undefined
+          };
+        }
+      }
+    } finally {
+      cacheSignal.cleanup();
+    }
+  } catch {
+    // Local Vite and a newly-created cloud database have no cache yet; use the direct proxy.
+  }
+
   const demoMarkets = createDemoMarkets();
   const demoBySymbol = new Map(demoMarkets.map((market) => [market.symbol, market]));
   const settled = await Promise.allSettled(YAHOO_SYMBOLS.map((item) => loadYahooMarket(item, signal)));
@@ -190,6 +290,7 @@ export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketData
     source: failedCount === 0 ? "yahoo-live" : failedCount === settled.length ? "demo" : "mixed",
     feedMode: failedCount === settled.length ? "demo" : "synthetic-bid-ask",
     loadedAt: Date.now(),
-    errors
+    errors,
+    background: false
   };
 }

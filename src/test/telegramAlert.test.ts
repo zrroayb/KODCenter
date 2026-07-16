@@ -145,6 +145,7 @@ describe("Telegram READY alert payload", () => {
 
     expect(signal.stage).toBe("ready");
     expect(payload.stage).toBe("ready");
+    expect(payload.dedupeKey).toBe(readyTelegramDedupeKey(signal));
     expect(payload.symbol).toBe("XAUUSD");
     expect(payload.direction).toBe("short");
     expect(payload.entry).toBe(signal.plan.entry);

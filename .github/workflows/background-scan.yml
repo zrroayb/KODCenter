@@ -1,0 +1,36 @@
+name: Background CRT scan
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: background-crt-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Scan all markets
+        run: npm run cloud:scan
+        env:
+          CLOUD_SCAN_URL: ${{ secrets.CLOUD_SCAN_URL }}
+          SCAN_TOKEN: ${{ secrets.SCAN_TOKEN }}

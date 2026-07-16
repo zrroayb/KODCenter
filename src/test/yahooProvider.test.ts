@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { parseYahooChartResponse } from "../lib/data/yahooProvider";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DemoMarket } from "../data/demoData";
+import { loadYahooMarkets, parseYahooChartResponse, YAHOO_SYMBOLS } from "../lib/data/yahooProvider";
 
 describe("Yahoo data provider", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("parses valid OHLC candles and skips incomplete Yahoo points", () => {
     const candles = parseYahooChartResponse({
       chart: {
@@ -61,5 +66,50 @@ describe("Yahoo data provider", () => {
     }, "15m", now);
 
     expect(candles.map((candle) => candle.closed)).toEqual([true, false]);
+  });
+
+  it("prefers the Cloudflare candle cache and hydrates executable bid/ask candles", async () => {
+    const candle = {
+      time: Date.now() - 60_000,
+      open: 10,
+      high: 11,
+      low: 9,
+      close: 10.5,
+      volume: 100,
+      closed: true
+    };
+    const markets: DemoMarket[] = YAHOO_SYMBOLS.map((item) => ({
+      symbol: item.symbol,
+      name: item.name,
+      timeframes: {
+        monthly: [candle],
+        weekly: [candle],
+        daily: [candle],
+        h4: [candle],
+        h1: [candle],
+        m15: [candle],
+        m5: [candle]
+      }
+    }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      markets,
+      loadedAt: 123,
+      oldestLoadedAt: 100,
+      background: true,
+      errors: []
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await loadYahooMarkets();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.background).toBe(true);
+    expect(result.loadedAt).toBe(123);
+    expect(result.markets).toHaveLength(YAHOO_SYMBOLS.length);
+    expect(result.markets[0].timeframes.m15[0].bid).toBeDefined();
+    expect(result.markets[0].timeframes.m15[0].ask).toBeDefined();
   });
 });
