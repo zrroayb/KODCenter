@@ -43,6 +43,56 @@ Use only deterministic_events from the payload. Explain HTF draw, reference-sess
 Do not invent levels, candles or event ids. If evidence is incomplete, return developing or insufficient_evidence.
 Return only valid JSON matching the supplied schema.`;
 
+const SILVER_BULLET_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic ICT Silver Bullet system (NY AM 09:00 hourly-range reversal; execution window 10:00-11:00 New York).
+Use only the supplied deterministic evidence and allowed_event_ids. A high sweep is not automatically bearish; acceptance outside the range is continuation, not reversal.
+Never approve a setup whose entry did not fill before 11:00 New York. Do not invent prices, events or targets.
+Keep fields concise and return only valid JSON matching the supplied schema.`;
+
+const SILVER_BULLET_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    strategy_analysis: {
+      type: "object",
+      properties: {
+        status: { type: "string", enum: ["candidate", "developing", "confirmed", "active", "late", "invalid", "no_trade", "insufficient_evidence"] },
+        direction: { type: "string", enum: ["bullish", "bearish", "none"] },
+        trigger_type: { type: "string" },
+        score: { type: "number" },
+        grade: { type: "string" }
+      },
+      required: ["status", "direction"]
+    },
+    sweep_analysis: {
+      type: "object",
+      properties: {
+        swept_side: { type: "string", enum: ["HIGH", "LOW", "NONE"] },
+        quality: { type: "string", enum: ["strong", "moderate", "weak", "invalid"] },
+        acceptance_state: { type: "string", enum: ["reclaimed", "accepted_outside", "unresolved"] },
+        reasoning: { type: "string" }
+      },
+      required: ["swept_side", "acceptance_state"]
+    },
+    timing_analysis: {
+      type: "object",
+      properties: {
+        timing_quality: { type: "string", enum: ["early", "optimal", "late", "invalid"] },
+        reasoning: { type: "string" }
+      },
+      required: ["timing_quality"]
+    },
+    confirmation_reasoning: { type: "string" },
+    trade_plan_reasoning: { type: "string" },
+    supporting_event_ids: { type: "array", items: { type: "string" } },
+    contradicting_event_ids: { type: "array", items: { type: "string" } },
+    contradictions: { type: "array", items: { type: "string" } },
+    missing_evidence: { type: "array", items: { type: "string" } },
+    no_trade_reasons: { type: "array", items: { type: "string" } },
+    risks: { type: "array", items: { type: "string" } },
+    plain_language_summary: { type: "string" }
+  },
+  required: ["strategy_analysis", "sweep_analysis", "timing_analysis", "plain_language_summary"]
+};
+
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
     status,
@@ -403,6 +453,31 @@ async function handleGeminiEndpoint(request: Request, env: CloudflareEnv, pathna
       return jsonResponse({ status: "ready", analysis: JSON.parse(result.text), model: result.model });
     } catch {
       return jsonResponse({ status: "error", error: "Gemini geçerli session JSON döndürmedi." }, 502);
+    }
+  }
+
+  if (pathname === "/api/gemini/silver-bullet-analysis") {
+    const result = await callGemini(env, {
+      prompt: `Interpret this deterministic Silver Bullet evidence.\n${JSON.stringify(payload).slice(0, 16_000)}`,
+      systemInstruction: SILVER_BULLET_SYSTEM_INSTRUCTION,
+      responseSchema: SILVER_BULLET_RESPONSE_SCHEMA,
+      maxOutputTokens: 2_000,
+      temperature: 0.2
+    });
+    if (result.status !== "ready") return jsonResponse(result, result.status === "error" ? 502 : 200);
+    try {
+      const parsed = JSON.parse(result.text) as { strategy_analysis?: { status?: string } };
+      // Deadline guard mirrors the vite handler: approving without a pre-11:00 fill is rejected.
+      const plan = (payload as { trade_plan?: { entryFilledUtc?: number } }).trade_plan;
+      const windowEnd = Date.parse(String((payload as { time_context?: { window_end_utc?: string } }).time_context?.window_end_utc ?? ""));
+      const approving = ["confirmed", "active"].includes(String(parsed.strategy_analysis?.status));
+      const filledInWindow = typeof plan?.entryFilledUtc === "number" && Number.isFinite(windowEnd) && plan.entryFilledUtc < windowEnd;
+      if (approving && !filledInWindow) {
+        return jsonResponse({ status: "error", error: "Gemini 11:00 NY deadline'ı geçmiş bir entry'yi onayladı — reddedildi." }, 502);
+      }
+      return jsonResponse({ status: "ready", analysis: parsed, model: result.model });
+    } catch {
+      return jsonResponse({ status: "error", error: "Gemini geçerli SB JSON döndürmedi." }, 502);
     }
   }
 

@@ -53,7 +53,7 @@ const fixture = {
 
 describe("Session Setups UI", () => {
   it("renders a compact decision row, range map and missing step", () => {
-    const html = renderToStaticMarkup(<SessionSetupsView setups={[fixture]} logs={[]} onOpenSignal={() => undefined} />);
+    const html = renderToStaticMarkup(<SessionSetupsView logs={[]} onOpenSignal={() => undefined} setups={[fixture]} silverBulletLogs={[]} silverBulletSetups={[]} />);
     expect(html).toContain("CRT × Session");
     expect(html).toContain("ASIA");
     expect(html).toContain("LONDON");

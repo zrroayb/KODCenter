@@ -1,0 +1,25 @@
+{
+  "strategy_profile": "NY_AM_09_HOURLY_RANGE_REVERSAL_V1",
+  "strategy_version": "1.0.0",
+  "setup_family": "ICT_SILVER_BULLET",
+  "timezone": "America/New_York",
+  "reference": { "start_local": "09:00", "end_local": "10:00" },
+  "window": { "start_local": "10:00", "end_local": "11:00", "strict_fill_deadline": true },
+  "execution_timeframe": "m5",
+  "execution_timeframe_note": "M1 preferred; Yahoo data ships M5 - expectedBars adapts per TF.",
+  "primary_symbols": ["NAS100"],
+  "config": {
+    "displacement_body_to_range_min": 0.7,
+    "displacement_body_to_atr_min": 1.5,
+    "fvg_min_atr_ratio": 0.3,
+    "minimum_rr": 2.5,
+    "break_even_r": 3.0,
+    "stop_buffer_atr": 0.25,
+    "acceptance_closes_outside": 2,
+    "max_trades_per_symbol_per_day": 1,
+    "late_window_seconds": 300,
+    "htf_bias_mode": "BIAS_SCORED"
+  },
+  "grades": { "A+": 85, "A": 75, "B": 65, "C": 50 },
+  "note": "Initial values from references/Silver-Bullet-AM-Session (REFERENCE ONLY, no licence); configurable and to be backtested per symbol."
+}

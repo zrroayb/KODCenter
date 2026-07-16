@@ -24,6 +24,9 @@ import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
 import { compareSignalsByDecision, scanContexts } from "./lib/runtime/scanRuntime";
 import { formatTurkeySessionTime } from "./lib/session/sessionClock";
 import { buildSessionSetups } from "./lib/session/sessionConfluenceEngine";
+import { buildSilverBulletSetups } from "./lib/strategies/silverBullet/silverBulletEngine";
+import { loadSilverBulletLogs, loadSilverBulletSetups, reconcileSilverBulletStore } from "./lib/strategies/silverBullet/silverBulletStore";
+import type { SilverBulletLog, SilverBulletSetup } from "./lib/strategies/silverBullet/types";
 import { buildProfileSessionClock } from "./lib/session/sessionRangeEngine";
 import { loadSessionSetupLogs, loadSessionSetups, reconcileSessionSetupStore } from "./lib/session/sessionSetupStore";
 import type { SessionSetup, SessionSetupLog } from "./lib/session/types";
@@ -406,6 +409,8 @@ export default function App() {
   const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>(initial.rejected);
   const [sessionSetups, setSessionSetups] = useState<SessionSetup[]>(() => loadSessionSetups());
   const [sessionSetupLogs, setSessionSetupLogs] = useState<SessionSetupLog[]>(() => loadSessionSetupLogs());
+  const [silverBulletSetups, setSilverBulletSetups] = useState<SilverBulletSetup[]>(() => loadSilverBulletSetups());
+  const [silverBulletLogs, setSilverBulletLogs] = useState<SilverBulletLog[]>(() => loadSilverBulletLogs());
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => loadJournalEntries());
   const [lastScanTime, setLastScanTime] = useState(Date.now());
   const [clockNow, setClockNow] = useState(Date.now());
@@ -422,6 +427,10 @@ export default function App() {
   const detectedSessionSetups = useMemo(
     () => buildSessionSetups({ contexts, signals: [...chartSignals, ...inactiveSignals], now: lastScanTime }),
     [chartSignals, contexts, inactiveSignals, lastScanTime]
+  );
+  const detectedSilverBulletSetups = useMemo(
+    () => buildSilverBulletSetups({ contexts, now: lastScanTime }),
+    [contexts, lastScanTime]
   );
   const selectableSignals = useMemo(() => [...chartSignals, ...inactiveSignals], [chartSignals, inactiveSignals]);
   const selectedSignal = selectableSignals.find((signal) => signal.id === selectedSignalState.selectedSignalId) ?? null;
@@ -539,6 +548,14 @@ export default function App() {
     if (setupChanged) setSessionSetups(reconciled.setups);
     if (logChanged) setSessionSetupLogs(reconciled.logs);
   }, [detectedSessionSetups, sessionSetupLogs, sessionSetups]);
+
+  useEffect(() => {
+    const reconciled = reconcileSilverBulletStore(silverBulletSetups, detectedSilverBulletSetups, silverBulletLogs);
+    const setupChanged = JSON.stringify(reconciled.setups) !== JSON.stringify(silverBulletSetups);
+    const logChanged = JSON.stringify(reconciled.logs) !== JSON.stringify(silverBulletLogs);
+    if (setupChanged) setSilverBulletSetups(reconciled.setups);
+    if (logChanged) setSilverBulletLogs(reconciled.logs);
+  }, [detectedSilverBulletSetups, silverBulletLogs, silverBulletSetups]);
 
   useEffect(() => {
     if (dataLoading || dataState.background) return;
@@ -786,7 +803,7 @@ export default function App() {
           />
         )}
         {activeView === "sessionSetups" && (
-          <SessionSetupsView setups={sessionSetups} logs={sessionSetupLogs} onOpenSignal={openSessionSignal} />
+          <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} silverBulletLogs={silverBulletLogs} silverBulletSetups={silverBulletSetups} />
         )}
         {activeView === "charts" && (
           <ChartsView

@@ -1,0 +1,14 @@
+{
+  "$schema_note": "Objective, user-approved Silver Bullet rules. User rules outrank repository assumptions. Governing doc: docs/SILVER_BULLET_MASTER_INSTRUCTION.md",
+  "version": "2026-07-16",
+  "strategy_profile": "NY_AM_09_HOURLY_RANGE_REVERSAL_V1",
+  "rules": [
+    { "id": "sb-reference-candle", "rule": "Reference range = the completed 09:00-10:00 America/New_York H1 candle, built from validated intraday bars, locked at 10:00 NY, never repainted.", "status": "implemented" },
+    { "id": "sb-window", "rule": "Entries only between 10:00 and 11:00 NY, and the entry must FILL before 11:00 - a signal before the deadline with a fill after it is NO_TRADE/LATE.", "status": "implemented" },
+    { "id": "sb-sequence", "rule": "Mandatory sequence: sweep of one reference side -> failure to accept outside -> reclaim -> displacement -> MSS or CISD -> valid entry array -> stop at sweep extreme + buffer -> target toward the opposite side with acceptable R:R. Any missing mandatory piece = NO_TRADE.", "status": "implemented" },
+    { "id": "sb-acceptance-rejects", "rule": "Break-and-acceptance outside the range (multiple closes outside, no reclaim) rejects the reversal setup (BREAK_ACCEPTED_OUTSIDE). Both sides swept before entry rejects by default.", "status": "implemented" },
+    { "id": "sb-bias-scored", "rule": "HTF bias mode is BIAS_SCORED: agreement adds score, conflict subtracts and is displayed; it never silently blocks the mechanical trigger.", "status": "implemented" },
+    { "id": "sb-separate-family", "rule": "Silver Bullet setups use setup_family ICT_SILVER_BULLET with their own labels, lifecycle, logs (namespace SILVER_BULLET_SETUP), UI section and statistics - never mixed into CRT or CRT_SESSION families.", "status": "implemented" },
+    { "id": "sb-config-values", "rule": "Initial parameter values come from the reference backtest and stay configurable: displacement body/range 0.70, body vs ATR 1.5x, FVG min 0.3xATR, min R:R 2.5, BE at 3R, stop buffer 0.25xATR, one filled trade per symbol per day.", "status": "implemented" }
+  ]
+}

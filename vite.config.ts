@@ -922,6 +922,126 @@ async function handleGeminiSessionAnalysis(request: JsonRequest, response: Yahoo
   }
 }
 
+// Master §33-§34: Silver Bullet interpretation layer — deterministic facts in, validated JSON
+// out; a post-11:00 entry can never be approved.
+const SILVER_BULLET_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic ICT Silver Bullet trading system.
+The active strategy profile is the New York AM 09:00 hourly-range reversal model: the 09:00-10:00 New York H1 candle is the reference range and the only execution window is 10:00-11:00 New York time.
+You do not independently detect candles, sweeps, MSS, CISD, FVGs, entries, stops or targets — every market fact comes only from the supplied deterministic evidence and events.
+Reasoning order: reference-range quality -> swept side -> sweep quality -> failure or acceptance outside -> reclaim -> displacement -> MSS or CISD -> entry-array quality -> entry timing -> stop validity -> target availability -> risk-to-reward -> HTF agreement -> contradictions.
+A high sweep is not automatically bearish and a low sweep is not automatically bullish; acceptance outside the range indicates continuation, not reversal.
+Never approve a setup whose entry did not fill before 11:00 New York (trade_plan.entryFilledUtc missing or late). Do not invent prices, events or targets and reference only allowed_event_ids.
+Keep every field concise (max ~30 words) and return ONLY valid JSON matching the schema.`;
+
+const SILVER_BULLET_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    strategy_analysis: {
+      type: "object",
+      properties: {
+        strategy_profile: { type: "string" },
+        status: { type: "string", enum: ["candidate", "developing", "confirmed", "active", "late", "invalid", "no_trade", "insufficient_evidence"] },
+        direction: { type: "string", enum: ["bullish", "bearish", "none"] },
+        trigger_type: { type: "string" },
+        score: { type: "number" },
+        grade: { type: "string" }
+      },
+      required: ["status", "direction"]
+    },
+    sweep_analysis: {
+      type: "object",
+      properties: {
+        swept_side: { type: "string", enum: ["HIGH", "LOW", "NONE"] },
+        quality: { type: "string", enum: ["strong", "moderate", "weak", "invalid"] },
+        acceptance_state: { type: "string", enum: ["reclaimed", "accepted_outside", "unresolved"] },
+        reasoning: { type: "string" }
+      },
+      required: ["swept_side", "acceptance_state"]
+    },
+    timing_analysis: {
+      type: "object",
+      properties: {
+        timing_quality: { type: "string", enum: ["early", "optimal", "late", "invalid"] },
+        reasoning: { type: "string" }
+      },
+      required: ["timing_quality"]
+    },
+    confirmation_reasoning: { type: "string" },
+    trade_plan_reasoning: { type: "string" },
+    supporting_event_ids: { type: "array", items: { type: "string" } },
+    contradicting_event_ids: { type: "array", items: { type: "string" } },
+    contradictions: { type: "array", items: { type: "string" } },
+    missing_evidence: { type: "array", items: { type: "string" } },
+    no_trade_reasons: { type: "array", items: { type: "string" } },
+    risks: { type: "array", items: { type: "string" } },
+    plain_language_summary: { type: "string" }
+  },
+  required: ["strategy_analysis", "sweep_analysis", "timing_analysis", "plain_language_summary"]
+};
+
+async function generateGeminiSilverBulletAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
+  const knownIds = new Set((Array.isArray(payload.allowed_event_ids) ? payload.allowed_event_ids : []).filter((id): id is string => typeof id === "string"));
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);
+  try {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SILVER_BULLET_SYSTEM_INSTRUCTION }] },
+        contents: [{ parts: [{ text: `Interpret this deterministic Silver Bullet evidence.\n${JSON.stringify(payload).slice(0, 16_000)}` }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 2_048, responseMimeType: "application/json", responseSchema: SILVER_BULLET_RESPONSE_SCHEMA }
+      }),
+      signal: controller.signal
+    });
+    const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
+    if (!upstream.ok) return { status: "error" as const, error: JSON.stringify(body).slice(0, 600) };
+    const text = extractGeminiText(body)?.trim();
+    if (!text) return { status: "error" as const, error: "Gemini boş SB analizi döndürdü." };
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const analysis = parsed.strategy_analysis as Record<string, unknown> | undefined;
+    if (!analysis || typeof analysis.status !== "string" || typeof parsed.plain_language_summary !== "string") {
+      return { status: "error" as const, error: "SB analizinin zorunlu alanları eksik." };
+    }
+    // Server-side deadline guard: an approving status without a pre-11:00 fill is rejected.
+    const plan = payload.trade_plan as { entryFilledUtc?: number } | undefined;
+    const windowEnd = Date.parse(String((payload.time_context as Record<string, unknown> | undefined)?.window_end_utc ?? ""));
+    const approving = ["confirmed", "active"].includes(String(analysis.status));
+    const filledInWindow = typeof plan?.entryFilledUtc === "number" && Number.isFinite(windowEnd) && plan.entryFilledUtc < windowEnd;
+    if (approving && !filledInWindow) {
+      return { status: "error" as const, error: "Gemini 11:00 NY deadline'ı geçmiş bir entry'yi onayladı — reddedildi." };
+    }
+    const referenced = [
+      ...(Array.isArray(parsed.supporting_event_ids) ? parsed.supporting_event_ids : []),
+      ...(Array.isArray(parsed.contradicting_event_ids) ? parsed.contradicting_event_ids : [])
+    ].filter((id): id is string => typeof id === "string");
+    const unknown = referenced.find((id) => !knownIds.has(id));
+    if (unknown) return { status: "error" as const, error: `Gemini bilinmeyen SB event id kullandı: ${unknown}` };
+    return { status: "ready" as const, model, analysis: parsed };
+  } catch (error) {
+    return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function handleGeminiSilverBulletAnalysis(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "POST") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  try {
+    const payload = await readJsonBody(request) as Record<string, unknown>;
+    const result = await generateGeminiSilverBulletAnalysis(payload, env);
+    jsonResponse(response, result.status === "error" ? 502 : 200, result);
+  } catch (error) {
+    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
   "eq-full": "EQ tam çıkış",
@@ -1222,6 +1342,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiSessionAnalysis(request, response, env);
       });
+      server.middlewares.use("/api/gemini/silver-bullet-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiSilverBulletAnalysis(request, response, env);
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -1244,6 +1367,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiSessionAnalysis(request, response, env);
+      });
+      server.middlewares.use("/api/gemini/silver-bullet-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiSilverBulletAnalysis(request, response, env);
       });
     }
   };
