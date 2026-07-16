@@ -2,6 +2,22 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-16 — AI report audit #3: Asia demotion REJECTED with receipts
+- Report proposed "Session Asia READY -> WATCH" off a 0.15R/4-trade bucket. Independent
+  measurement: the Asia bucket is polluted by watch-promoted counterfactuals (the 6/19 AUDUSD
+  WATCH->ENTRY loser). **Live-only Asia = 3 triggers +1.62R** — including GBPUSD +2.62R tp2, the
+  window's biggest winner, which the proposed rule would have blocked. Rejected; also consistent
+  with the user rule "killzone = confluence, not veto".
+- Calibration suggestions (governance-caution / watch-promoted / HTF-conflict tighten) all rest
+  on 2-sample buckets — rejected per the 30+ trade rule.
+- Confirmed: live-READY 20 signals / 11 triggers / WR 73% / +7.12R — the retest-mandatory +
+  reversal-exception + NaN fixes measure strongly (report's PF 4-8 range verified).
+- **Watch candidates logged (no action until 30+ trades):**
+  - Management: same-entry counterfactuals say full-close-at-EQ 11.85R > BE-yok 8.30R > current
+    EQ-partial+BE 6.12R. Doctrine says EQ partial + DOL runner; the data currently disagrees.
+    Owner's call at the 30+ review — the replay tracks all variants continuously.
+  - SMT bonus: SMT-aligned 0/2 while "SMT yok" runs +0.56R; the +8 score bonus may be noise.
+
 ## 2026-07-16 — reversal-at-external-liquidity exception (owner's USDCHF short)
 - Owner took a textbook USDCHF 4H short (buy-side raid of the old highs at 0.8152 → reversal
   toward 0.8010) that the bot SAW (RETURNED_INSIDE on the exact range) but auto-vetoed on every
