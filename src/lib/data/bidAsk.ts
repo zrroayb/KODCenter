@@ -25,7 +25,8 @@ function shift(ohlc: Ohlc, amount: number): Ohlc {
 }
 
 export function enrichWithSyntheticBidAsk(candles: Candle[], symbol: MarketSymbol): Candle[] {
-  const halfSpread = SYNTHETIC_SPREAD[symbol] / 2;
+  const configuredSpread = SYNTHETIC_SPREAD[symbol];
+  const halfSpread = Number.isFinite(configuredSpread) ? configuredSpread / 2 : 0;
   return candles.map((candle) => {
     const mid: Ohlc = {
       open: candle.open,
@@ -44,17 +45,24 @@ export function enrichWithSyntheticBidAsk(candles: Candle[], symbol: MarketSymbo
   });
 }
 
+// NaN is NOT nullish: `NaN ?? fallback` keeps the NaN, and one poisoned bid/ask silently turns
+// every downstream Math.max/R computation into NaN (seen live: a forming Yahoo candle produced
+// NaN synthetic quotes and the whole replay reported NaN R). Guard with Number.isFinite instead.
+function finitePrice(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) ? (value as number) : fallback;
+}
+
 export function executableHigh(candle: Candle, side: "buy" | "sell"): number {
-  if (side === "buy") return candle.ask?.high ?? candle.high;
-  return candle.bid?.high ?? candle.high;
+  if (side === "buy") return finitePrice(candle.ask?.high, candle.high);
+  return finitePrice(candle.bid?.high, candle.high);
 }
 
 export function executableLow(candle: Candle, side: "buy" | "sell"): number {
-  if (side === "buy") return candle.ask?.low ?? candle.low;
-  return candle.bid?.low ?? candle.low;
+  if (side === "buy") return finitePrice(candle.ask?.low, candle.low);
+  return finitePrice(candle.bid?.low, candle.low);
 }
 
 export function executableClose(candle: Candle, side: "buy" | "sell"): number {
-  if (side === "buy") return candle.ask?.close ?? candle.close;
-  return candle.bid?.close ?? candle.close;
+  if (side === "buy") return finitePrice(candle.ask?.close, candle.close);
+  return finitePrice(candle.bid?.close, candle.close);
 }
