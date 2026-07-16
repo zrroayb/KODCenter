@@ -54,6 +54,9 @@ export type RuntimeReplayTrade = {
   stopSource: string;
   targetSource: string;
   session: string;
+  sessionReference?: string;
+  sessionTrigger?: string;
+  sessionModel?: string;
   premiumDiscount: string;
   dailyBias: string;
   h4Bias: string;
@@ -95,6 +98,9 @@ export type RuntimeReplayCandidate = {
   decision: string;
   reasons: string[];
   tags: string[];
+  sessionReference?: string;
+  sessionTrigger?: string;
+  sessionModel?: string;
 };
 
 export type RuntimeReplaySymbolSummary = {
@@ -152,6 +158,9 @@ export type RuntimeReplayFailureCase = {
   stopSource: string;
   targetSource: string;
   session: string;
+  sessionReference?: string;
+  sessionTrigger?: string;
+  sessionModel?: string;
   premiumDiscount: string;
   dailyBias: string;
   h4Bias: string;

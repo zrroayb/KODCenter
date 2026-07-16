@@ -262,8 +262,41 @@ function signalAnchorZone(signal: TradingSignal): "premium" | "discount" {
   return signal.plan.entry >= midpoint ? "premium" : "discount";
 }
 
+function replaySessionClassification(signal: TradingSignal) {
+  const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
+  const manipulation = signal.evidence.find((item) => item.id === "manipulation")?.status === "pass";
+  if (activeSession === "London") {
+    return {
+      reference: "ASIA",
+      trigger: "LONDON",
+      model: manipulation
+        ? signal.direction === "long"
+          ? "ASIA_RANGE_LONDON_LOW_SWEEP_BULLISH_CRT"
+          : "ASIA_RANGE_LONDON_HIGH_SWEEP_BEARISH_CRT"
+        : signal.direction === "long"
+          ? "ASIA_RANGE_LONDON_BULLISH_CONTINUATION"
+          : "ASIA_RANGE_LONDON_BEARISH_CONTINUATION"
+    };
+  }
+  if (activeSession === "New York AM") {
+    return {
+      reference: "LONDON",
+      trigger: "NY_AM",
+      model: manipulation
+        ? signal.direction === "long"
+          ? "LONDON_RANGE_NY_LOW_SWEEP_BULLISH_CRT"
+          : "LONDON_RANGE_NY_HIGH_SWEEP_BEARISH_CRT"
+        : signal.direction === "long"
+          ? "LONDON_EXPANSION_NY_BULLISH_CONTINUATION"
+          : "LONDON_EXPANSION_NY_BEARISH_CONTINUATION"
+    };
+  }
+  return { reference: "NONE", trigger: activeSession.toUpperCase().replace(/\s+/g, "_"), model: "CRT_SESSION_UNCLASSIFIED" };
+}
+
 function tradeTags(signal: TradingSignal): string[] {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
+  const session = replaySessionClassification(signal);
   const expected = expectedBias(signal);
   const crtDirection = signal.context.crt.selectedBias.direction;
   const crtAligned = crtDirection === signal.direction;
@@ -280,6 +313,8 @@ function tradeTags(signal: TradingSignal): string[] {
     signal.evidence.find((item) => item.id === "manipulation")?.status === "pass" ? "manipulation:yes" : "manipulation:no",
     signal.evidence.find((item) => item.id === "choch")?.status === "pass" ? "choch:yes" : "choch:no",
     `session:${activeSession}`,
+    `session-route:${session.reference}->${session.trigger}`,
+    `session-model:${session.model}`,
     `pd:${signalAnchorZone(signal)}`,
     `regime:${signal.context.regime.type}`,
     `event:${signal.context.eventRisk.level}`,
@@ -293,6 +328,7 @@ function tradeTags(signal: TradingSignal): string[] {
 
 function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"]) {
   const activeSession = signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside";
+  const session = replaySessionClassification(signal);
   return {
     origin,
     rr: signal.plan.rr,
@@ -301,6 +337,9 @@ function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"
     stopSource: signal.plan.stopSource,
     targetSource: signal.plan.targetSource,
     session: activeSession,
+    sessionReference: session.reference,
+    sessionTrigger: session.trigger,
+    sessionModel: session.model,
     premiumDiscount: signalAnchorZone(signal),
     dailyBias: signal.context.bias.daily,
     h4Bias: signal.context.bias.h4,
@@ -709,6 +748,7 @@ function replayReadyDecision(signal: TradingSignal) {
 }
 
 function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeReplayCandidate["stage"] = signal.stage === "ready" ? "ready" : "watch"): RuntimeReplayCandidate {
+  const session = replaySessionClassification(signal);
   return {
     id: `${signal.id}-${time}-${stage}-candidate`,
     symbol: signal.symbol,
@@ -727,7 +767,10 @@ function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeRepl
     actionWindow: signal.actionWindow.status,
     decision: stage === "ready" ? replayReadyDecision(signal) : candidateDecision(signal),
     reasons: candidateReasons(signal),
-    tags: tradeTags(signal)
+    tags: tradeTags(signal),
+    sessionReference: session.reference,
+    sessionTrigger: session.trigger,
+    sessionModel: session.model
   };
 }
 
@@ -1051,6 +1094,8 @@ function breakdownLabel(key: string): string {
   if (group === "entry") return `Entry ${value}`;
   if (group === "stop") return `Stop ${value}`;
   if (group === "session") return `Session ${value}`;
+  if (group === "session-route") return `Session route ${value}`;
+  if (group === "session-model") return `Session model ${value.replace(/_/g, " ")}`;
   if (group === "pd") return `PD ${value}`;
   if (group === "regime") return `Regime ${value}`;
   if (group === "htf") return value === "aligned" ? "HTF aligned" : "HTF conflict";
@@ -1068,6 +1113,8 @@ function setupBreakdowns(trades: RuntimeReplayTrade[]): RuntimeReplaySetupBreakd
       `entry:${trade.entrySource}`,
       `stop:${trade.stopSource}`,
       `session:${trade.session}`,
+      `session-route:${trade.sessionReference ?? "NONE"}->${trade.sessionTrigger ?? trade.session}`,
+      `session-model:${trade.sessionModel ?? "CRT_SESSION_UNCLASSIFIED"}`,
       `pd:${trade.premiumDiscount}`,
       `regime:${trade.regime}`,
       `htf:${trade.tags.includes("htf:aligned") ? "aligned" : "conflict"}`,

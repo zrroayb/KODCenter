@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "setup_family": "CRT_SESSION",
+  "rules": [
+    "Session touch alone never confirms a setup.",
+    "Sweep and reclaim must be separated from break and acceptance.",
+    "Direction requires HTF context, session interaction, displacement and CRT confirmation.",
+    "Session is confluence, not a universal hard veto.",
+    "Crypto session timing is context only.",
+    "SMT is a quality factor, not a hard gate.",
+    "A confirmed setup must reference deterministic event ids.",
+    "Old session ranges expire at the next same-session occurrence."
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "version": "1.0.0",
+  "models": [
+    {
+      "id": "ASIA_RANGE_LONDON_LOW_SWEEP_BULLISH_CRT",
+      "reference_session": "ASIA",
+      "trigger_session": "LONDON",
+      "interaction": "LOW_SWEEP_RECLAIM",
+      "direction": "long"
+    },
+    {
+      "id": "ASIA_RANGE_LONDON_HIGH_SWEEP_BEARISH_CRT",
+      "reference_session": "ASIA",
+      "trigger_session": "LONDON",
+      "interaction": "HIGH_SWEEP_RECLAIM",
+      "direction": "short"
+    },
+    {
+      "id": "LONDON_RANGE_NY_LOW_SWEEP_BULLISH_CRT",
+      "reference_session": "LONDON",
+      "trigger_session": "NY_AM",
+      "interaction": "LOW_SWEEP_RECLAIM",
+      "direction": "long"
+    },
+    {
+      "id": "LONDON_RANGE_NY_HIGH_SWEEP_BEARISH_CRT",
+      "reference_session": "LONDON",
+      "trigger_session": "NY_AM",
+      "interaction": "HIGH_SWEEP_RECLAIM",
+      "direction": "short"
+    }
+  ]
+}

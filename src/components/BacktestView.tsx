@@ -193,7 +193,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             {replay.failureCases.slice(0, 8).map((trade) => (
               <div key={trade.id}>
                 <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE" : "WATCH→ENTRY"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
-                <span>{new Date(trade.signalTime).toLocaleString()} · {trade.entrySource}/{trade.entryStatus} · {trade.session} · PD {trade.premiumDiscount} · HTF {trade.dailyBias}/{trade.h4Bias}</span>
+                <span>{new Date(trade.signalTime).toLocaleString()} · {trade.entrySource}/{trade.entryStatus} · {trade.sessionReference ?? "NONE"}→{trade.sessionTrigger ?? trade.session} · PD {trade.premiumDiscount} · HTF {trade.dailyBias}/{trade.h4Bias}</span>
                 <small>MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · RR {trade.rr.toFixed(2)} · {reasonText(trade.outcomeReason)}</small>
                 <small>{trade.diagnosis}</small>
               </div>
@@ -215,7 +215,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             {replay.candidates.slice(0, 18).map((candidate) => (
               <div key={candidate.id}>
                 <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · {candidate.grade} · Score {candidate.score}</strong>
-                <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
+                <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · {candidate.sessionReference ?? "NONE"}→{candidate.sessionTrigger ?? "OUTSIDE"} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
                 <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · DOL {formatPrice(candidate.target)} · {candidate.decision}</small>
                 {candidate.reasons.length > 0 && <small>Eksik: {candidate.reasons.slice(0, 3).join(" · ")}</small>}
               </div>

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CRT Session Gemini Response",
+  "type": "object",
+  "required": [
+    "verdict",
+    "session_alignment",
+    "summary",
+    "sequence",
+    "missing_evidence",
+    "risks",
+    "supporting_event_ids"
+  ],
+  "properties": {
+    "verdict": {
+      "enum": ["confirmed", "developing", "weak", "invalid", "insufficient_evidence"]
+    },
+    "session_alignment": {
+      "enum": ["strong", "moderate", "weak", "conflicting"]
+    },
+    "summary": { "type": "string" },
+    "sequence": { "type": "array", "items": { "type": "string" } },
+    "missing_evidence": { "type": "array", "items": { "type": "string" } },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "supporting_event_ids": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -4,6 +4,7 @@ import { BacktestView } from "./components/BacktestView";
 import { BrandLogo } from "./components/BrandLogo";
 import { ChartsView } from "./components/ChartsView";
 import { ScannerView } from "./components/ScannerView";
+import { SessionSetupsView } from "./components/SessionSetupsView";
 import { SettingsView } from "./components/SettingsView";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
 import { createDemoMarkets } from "./data/demoData";
@@ -20,7 +21,11 @@ import { journalInsights } from "./lib/journal/journalAnalyzer";
 import { journalLearningInsights } from "./lib/journal/strategyLearning";
 import type { JournalEntry } from "./lib/journal/types";
 import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
-import { buildSessionClock, formatTurkeySessionTime } from "./lib/session/sessionClock";
+import { formatTurkeySessionTime } from "./lib/session/sessionClock";
+import { buildSessionSetups } from "./lib/session/sessionConfluenceEngine";
+import { buildProfileSessionClock } from "./lib/session/sessionRangeEngine";
+import { loadSessionSetupLogs, loadSessionSetups, reconcileSessionSetupStore } from "./lib/session/sessionSetupStore";
+import type { SessionSetup, SessionSetupLog } from "./lib/session/types";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import { signalDecisionClass } from "./lib/signals/signalClassification";
 import type { RejectedSetup } from "./lib/strategies/types";
@@ -31,12 +36,13 @@ import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
-export type ViewId = "dashboard" | "charts" | "scanner" | "backtest" | "journal" | "ai" | "settings";
+export type ViewId = "dashboard" | "charts" | "scanner" | "sessionSetups" | "backtest" | "journal" | "ai" | "settings";
 
 const VIEW_TITLES: Record<ViewId, string> = {
   charts: "Chart",
   dashboard: "Bugün",
   scanner: "Tara",
+  sessionSetups: "Session",
   backtest: "Replay",
   journal: "Notlar",
   ai: "AI",
@@ -467,6 +473,8 @@ export default function App() {
   const [hiddenSignals, setHiddenSignals] = useState<TradingSignal[]>(initial.hiddenSignals);
   const [inactiveSignals, setInactiveSignals] = useState<TradingSignal[]>(initial.inactiveSignals);
   const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>(initial.rejected);
+  const [sessionSetups, setSessionSetups] = useState<SessionSetup[]>(() => loadSessionSetups());
+  const [sessionSetupLogs, setSessionSetupLogs] = useState<SessionSetupLog[]>(() => loadSessionSetupLogs());
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => loadJournalEntries());
   const [lastScanTime, setLastScanTime] = useState(Date.now());
   const [clockNow, setClockNow] = useState(Date.now());
@@ -480,11 +488,15 @@ export default function App() {
   const dataHealth = useMemo(() => buildDataHealthReport(markets, dataState), [dataState, markets]);
   const visibleSignals = useMemo(() => signals.filter((signal) => ruleAllowsSignal(signal, rules)), [rules, signals]);
   const chartSignals = useMemo(() => [...visibleSignals, ...hiddenSignals], [hiddenSignals, visibleSignals]);
+  const detectedSessionSetups = useMemo(
+    () => buildSessionSetups({ contexts, signals: [...chartSignals, ...inactiveSignals], now: lastScanTime }),
+    [chartSignals, contexts, inactiveSignals, lastScanTime]
+  );
   const selectableSignals = useMemo(() => [...chartSignals, ...inactiveSignals], [chartSignals, inactiveSignals]);
   const selectedSignal = selectableSignals.find((signal) => signal.id === selectedSignalState.selectedSignalId) ?? null;
   const readyCount = visibleSignals.filter((signal) => signal.stage === "ready").length;
   const watchCount = visibleSignals.filter((signal) => signal.stage === "watch").length;
-  const sessionClock = useMemo(() => buildSessionClock(clockNow), [clockNow]);
+  const sessionClock = useMemo(() => buildProfileSessionClock(activeSymbol, clockNow), [activeSymbol, clockNow]);
   const nextSessionStart = useMemo(
     () => formatTurkeySessionTime(sessionClock.nextStartsAt),
     [sessionClock.nextStartsAt]
@@ -585,6 +597,14 @@ export default function App() {
   useEffect(() => {
     saveJournalEntries(journalEntries);
   }, [journalEntries]);
+
+  useEffect(() => {
+    const reconciled = reconcileSessionSetupStore(sessionSetups, detectedSessionSetups, sessionSetupLogs);
+    const setupChanged = JSON.stringify(reconciled.setups) !== JSON.stringify(sessionSetups);
+    const logChanged = JSON.stringify(reconciled.logs) !== JSON.stringify(sessionSetupLogs);
+    if (setupChanged) setSessionSetups(reconciled.setups);
+    if (logChanged) setSessionSetupLogs(reconciled.logs);
+  }, [detectedSessionSetups, sessionSetupLogs, sessionSetups]);
 
   useEffect(() => {
     if (dataLoading) return;
@@ -697,6 +717,11 @@ export default function App() {
       showSelectedSignalOnly: current.showSelectedSignalOnly
     }));
     setActiveView("charts");
+  };
+
+  const openSessionSignal = (signalId: string) => {
+    const signal = selectableSignals.find((item) => item.id === signalId);
+    if (signal) selectSignal(signal);
   };
 
   // Picking a pair from the chart rail switches to it and auto-opens its most tradeable setup
@@ -812,6 +837,9 @@ export default function App() {
             onScan={runScan}
             onSelectSignal={selectSignal}
           />
+        )}
+        {activeView === "sessionSetups" && (
+          <SessionSetupsView setups={sessionSetups} logs={sessionSetupLogs} onOpenSignal={openSessionSignal} />
         )}
         {activeView === "charts" && (
           <ChartsView

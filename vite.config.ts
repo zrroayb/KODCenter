@@ -837,6 +837,91 @@ async function handleGeminiCrtAnalysis(request: JsonRequest, response: YahooProx
   }
 }
 
+const SESSION_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic CRT and trading-session analysis system.
+You do not independently detect sessions, ranges, candles, sweeps, structure breaks, FVGs, displacement events, entries, stops or targets.
+Every market fact comes only from deterministic_events in the supplied payload.
+Explain the sequence in this order: HTF draw -> locked reference-session range -> trigger-session interaction -> sweep versus acceptance -> reclaim -> displacement -> lower-timeframe CRT confirmation -> target -> invalidation.
+Do not infer a bullish setup only because a low was swept, or a bearish setup only because a high was swept.
+Do not change timestamps, range prices, direction, lifecycle status, score or plan levels.
+Reference only event ids supplied in deterministic_events. If evidence is incomplete, return developing or insufficient_evidence.
+Keep the answer concise and return ONLY valid JSON matching the response schema.`;
+
+const SESSION_ANALYSIS_RESPONSE_SCHEMA = {
+  type: "object",
+  properties: {
+    verdict: { type: "string", enum: ["confirmed", "developing", "weak", "invalid", "insufficient_evidence"] },
+    session_alignment: { type: "string", enum: ["strong", "moderate", "weak", "conflicting"] },
+    summary: { type: "string" },
+    sequence: { type: "array", items: { type: "string" } },
+    missing_evidence: { type: "array", items: { type: "string" } },
+    risks: { type: "array", items: { type: "string" } },
+    supporting_event_ids: { type: "array", items: { type: "string" } }
+  },
+  required: ["verdict", "session_alignment", "summary", "sequence", "missing_evidence", "risks", "supporting_event_ids"]
+};
+
+async function generateGeminiSessionAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
+  const events = Array.isArray(payload.deterministic_events)
+    ? payload.deterministic_events as Array<{ id?: unknown }>
+    : [];
+  const knownIds = new Set(events.map((event) => event.id).filter((id): id is string => typeof id === "string"));
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);
+  try {
+    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SESSION_ANALYSIS_SYSTEM_INSTRUCTION }] },
+        contents: [{ parts: [{ text: `Explain this deterministic CRT_SESSION setup.\n${JSON.stringify(payload).slice(0, 16_000)}` }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 2_048,
+          responseMimeType: "application/json",
+          responseSchema: SESSION_ANALYSIS_RESPONSE_SCHEMA
+        }
+      }),
+      signal: controller.signal
+    });
+    const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
+    if (!upstream.ok) return { status: "error" as const, error: JSON.stringify(body).slice(0, 600) };
+    const text = extractGeminiText(body)?.trim();
+    if (!text) return { status: "error" as const, error: "Gemini boş session analizi döndürdü." };
+    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const referenced = Array.isArray(parsed.supporting_event_ids)
+      ? parsed.supporting_event_ids.filter((id): id is string => typeof id === "string")
+      : [];
+    const unknown = referenced.find((id) => !knownIds.has(id));
+    if (unknown) return { status: "error" as const, error: `Gemini bilinmeyen session event id kullandı: ${unknown}` };
+    if (typeof parsed.summary !== "string" || typeof parsed.verdict !== "string" || typeof parsed.session_alignment !== "string") {
+      return { status: "error" as const, error: "Session analizinin zorunlu alanları eksik." };
+    }
+    return { status: "ready" as const, model, analysis: parsed };
+  } catch (error) {
+    return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
+async function handleGeminiSessionAnalysis(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "POST") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  try {
+    const payload = await readJsonBody(request) as Record<string, unknown>;
+    const result = await generateGeminiSessionAnalysis(payload, env);
+    jsonResponse(response, result.status === "error" ? 502 : 200, result);
+  } catch (error) {
+    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
   "eq-full": "EQ tam çıkış",
@@ -1134,6 +1219,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiCrtAnalysis(request, response, env);
       });
+      server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiSessionAnalysis(request, response, env);
+      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -1153,6 +1241,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiCrtAnalysis(request, response, env);
+      });
+      server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
+        void handleGeminiSessionAnalysis(request, response, env);
       });
     }
   };

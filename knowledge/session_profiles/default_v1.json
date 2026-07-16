@@ -1,0 +1,13 @@
+{
+  "version": "1.0.0",
+  "timezone_storage": "UTC",
+  "sessions": {
+    "ASIA": { "timezone": "America/New_York", "start": "19:00", "end": "00:00", "enabled": true },
+    "LONDON": { "timezone": "Europe/London", "start": "07:00", "end": "10:00", "enabled": true },
+    "NY_AM": { "timezone": "America/New_York", "start": "08:00", "end": "12:00", "enabled": true },
+    "NY_PM": { "timezone": "America/New_York", "start": "13:30", "end": "16:00", "enabled": true },
+    "LONDON_CLOSE": { "timezone": "Europe/London", "start": "15:00", "end": "17:00", "enabled": false },
+    "LONDON_NY_OVERLAP": { "timezone": "America/New_York", "start": "08:00", "end": "10:00", "enabled": false }
+  },
+  "note": "These are versioned defaults, not immutable market truths."
+}

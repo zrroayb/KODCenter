@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CRT Session Setup",
+  "type": "object",
+  "required": [
+    "id",
+    "setupFamily",
+    "setupModel",
+    "referenceSession",
+    "triggerSession",
+    "direction",
+    "lifecycleStatus",
+    "symbol",
+    "tradingDayId",
+    "sessionProfileId",
+    "sessionProfileVersion",
+    "events"
+  ],
+  "properties": {
+    "setupFamily": { "const": "CRT_SESSION" },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "status", "label", "detail"]
+      }
+    }
+  }
+}
