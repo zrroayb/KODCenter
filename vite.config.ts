@@ -839,6 +839,7 @@ async function handleGeminiCrtAnalysis(request: JsonRequest, response: YahooProx
 
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
+  "eq-full": "EQ tam çıkış",
   "eq-then-be": "EQ sonrası BE",
   "dol-missed": "DOL gelmedi",
   "stop-too-tight": "stop gürültü bandında",

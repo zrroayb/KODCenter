@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "exit-model-eq-full",
+      "area": "management",
+      "rule": "Primary exit model is FULL close at EQ/TP1 (Hepsi-EQ): the whole position exits at the range equilibrium, no DOL runner, no break-even move. Owner decision 2026-07-16 after same-entry counterfactuals measured eq-full ~2x the old EQ-partial+BE model (11.85R vs 6.12R on the report window; 11.06R vs 4.67R re-verified). DOL still defines setup validity, direction and RR gating — only the EXIT changed. The old model remains available via settings.exitModel = 'eq-partial-be' and is continuously measured as the eq-partial-be management variant; revisit at the 30+ trade review.",
+      "status": "implemented"
+    },
+    {
       "id": "reversal-at-external-liquidity",
       "area": "directional-bias",
       "rule": "The opposing-HTF veto must NOT auto-kill top/bottom reversals: when the manipulation swept weekly/monthly-tier external liquidity (PWH/PML/PMH/PWL near the swept extreme) or a STRONG opposing liquidity pool (old structural high/low, equal highs/lows), the consumed draw plus the sweep itself is the counter-side evidence (Master 10.2/10.4), so the opposing-HTF read demotes from veto to a size-down warning. All other gates (ChoCH, retest, displacement, RR, geometry) still apply. Added 2026-07-16 after the owner's USDCHF short (buy-side raid of the old highs at 0.8152) was visible to the bot (RETURNED_INSIDE) but auto-vetoed on every anchor.",

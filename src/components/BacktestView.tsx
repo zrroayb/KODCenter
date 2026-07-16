@@ -6,6 +6,7 @@ import { formatPrice } from "../lib/ict/format";
 
 function reasonText(reason: string) {
   if (reason === "clean-model") return "Temiz model";
+  if (reason === "eq-full") return "EQ tam çıkış";
   if (reason === "eq-then-be") return "EQ sonra BE";
   if (reason === "dol-missed") return "DOL gelmedi";
   if (reason === "stop-too-tight") return "Stop / risk problemi";

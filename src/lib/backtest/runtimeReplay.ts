@@ -343,6 +343,7 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
   let firstEq = -1;
   let firstDol = -1;
   let firstBeScratch = -1;
+  let firstEntryAfterEq = -1;
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
     // Arming comes from PREVIOUS candles' extremes, like the live model.
@@ -350,6 +351,7 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
     if (firstStop < 0 && stopHit(signal, candle)) firstStop = index;
     if (firstDol < 0 && targetHit(signal, candle, 1)) firstDol = index;
     if (firstEq < 0 && targetHit(signal, candle, 0)) firstEq = index;
+    if (firstEq >= 0 && index > firstEq && firstEntryAfterEq < 0 && priceTouched(candle, signal.plan.entry)) firstEntryAfterEq = index;
     const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
     const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
     maxFavorableR = Math.max(maxFavorableR, highR, lowR);
@@ -378,14 +380,19 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
         ? -1
         : expiredR;
 
-  // Hepsi EQ'da: tam pozisyon ilk hedefte kapanır, DOL hiç beklenmez.
-  const eqFull = before(firstStop, firstEq)
-    ? -1
-    : firstEq >= 0
-      ? Number(eqR.toFixed(2))
-      : expiredR;
+  // EQ %50 + BE (eski canlı model): EQ'da yarı realize, +1R sonrası stop BE; kalan yarım DOL'a.
+  // Artık counterfactual olarak izlenir — 30+ trade incelemesinde geri dönüş kararı için.
+  const eqPartialBe = before(firstBeScratch, firstEq) && before(firstBeScratch, firstStop)
+    ? 0
+    : before(firstStop, firstEq)
+      ? -1
+      : firstEq >= 0
+        ? before(firstDol, firstEntryAfterEq)
+          ? Number((0.5 * eqR + 0.5 * dolR).toFixed(2))
+          : Number((0.5 * eqR).toFixed(2))
+        : expiredR;
 
-  return { noBe, fullDol, eqFull };
+  return { noBe, fullDol, eqPartialBe };
 }
 
 function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[], settings: StrategySettings = {}): ReplayOutcome {
@@ -403,6 +410,11 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
   const eqR = targetR(signal, 0);
   const dolR = targetR(signal, 1);
   const partialTpEnabled = settings.partialTpEnabled !== false;
+  // Owner decision 2026-07-16: the primary exit is FULL close at EQ/TP1 — no DOL runner, no BE.
+  // Measured on the same 12 entries: eq-full 11.85R vs the old EQ-partial+BE model's 6.12R.
+  // The old model stays available via settings.exitModel = "eq-partial-be" and keeps being
+  // measured as a management variant, so this stays reversible at the 30+ trade review.
+  const exitModel = settings.exitModel === "eq-partial-be" ? "eq-partial-be" : "eq-full";
   const configuredBe = typeof settings.moveToBreakevenAtR === "number" ? settings.moveToBreakevenAtR : 1;
   const breakevenTriggerR = configuredBe > 0 ? configuredBe : Number.POSITIVE_INFINITY;
 
@@ -410,7 +422,8 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
     const candle = afterEntry[index];
     // Once the trade has paid +1R, the stop lives at entry: a winner is never allowed to
     // become a full -1R loser. Armed from the previous candle's extreme (conservative).
-    if (eqHitIndex < 0 && breakevenArmed && priceTouched(candle, signal.plan.entry)) {
+    // (eq-partial-be only — the eq-full model never moves the stop.)
+    if (exitModel === "eq-partial-be" && eqHitIndex < 0 && breakevenArmed && priceTouched(candle, signal.plan.entry)) {
       return {
         status: "stopped",
         rMultiple: 0,
@@ -439,6 +452,20 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
           outcomeReason: stoppedReason(signal, maxFavorableR),
           tags,
           note: "CRT entry sonrası stop, EQ görülmeden önce çalıştı."
+        };
+      }
+      // eq-full: the FIRST target touch closes the whole position (a candle reaching DOL has
+      // necessarily spanned EQ, so the conservative same-candle exit is EQ).
+      if (exitModel === "eq-full" && targetHit(signal, candle, 0)) {
+        return {
+          status: "tp1",
+          rMultiple: Number(eqR.toFixed(2)),
+          maxFavorableR,
+          maxAdverseR,
+          candlesHeld: index + 1,
+          outcomeReason: "eq-full",
+          tags: Array.from(new Set([...tags, "crt:eq", "crt:eq-full"])),
+          note: "Tam pozisyon EQ/TP1'de kapandı; DOL beklenmez (Hepsi-EQ yönetimi)."
         };
       }
       if (targetHit(signal, candle, 1)) {
@@ -846,10 +873,10 @@ function managementScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayManagem
   const modelTotal = sample.reduce((sum, trade) => sum + trade.rMultiple, 0);
   const modelExpectancy = sample.length ? Number((modelTotal / sample.length).toFixed(2)) : 0;
   return [
-    stats("model", "Mevcut model", "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.", (trade) => trade.rMultiple, modelExpectancy),
+    stats("model", "Mevcut model (Hepsi EQ'da)", "Tam pozisyon ilk hedefte (EQ) kapanır, DOL beklenmez.", (trade) => trade.rMultiple, modelExpectancy),
+    stats("eq-partial-be", "EQ %50 + BE (eski model)", "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.", (trade) => trade.managementVariants?.eqPartialBe ?? trade.rMultiple, modelExpectancy),
     stats("no-be", "BE yok", "EQ'da %50 partial, stop asla taşınmaz; kalan yarım DOL veya stop.", (trade) => trade.managementVariants?.noBe ?? trade.rMultiple, modelExpectancy),
-    stats("full-dol", "Partial yok", "Tam pozisyon DOL hedefli, +1R sonrası stop BE.", (trade) => trade.managementVariants?.fullDol ?? trade.rMultiple, modelExpectancy),
-    stats("eq-full", "Hepsi EQ'da", "Tam pozisyon ilk hedefte (EQ) kapanır, DOL beklenmez.", (trade) => trade.managementVariants?.eqFull ?? trade.rMultiple, modelExpectancy)
+    stats("full-dol", "Partial yok", "Tam pozisyon DOL hedefli, +1R sonrası stop BE.", (trade) => trade.managementVariants?.fullDol ?? trade.rMultiple, modelExpectancy)
   ];
 }
 

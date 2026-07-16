@@ -71,20 +71,28 @@ describe("monthly runtime replay", () => {
         targetSource: "crt-dol" as const
       }
     };
-    const outcome = __runtimeReplayInternals.evaluateForwardOutcome(signal, [
+    const candles = [
       { time: 1, open: 100, high: 101.2, low: 100, close: 101, volume: 1000 },
       { time: 2, open: 101, high: 101.1, low: 99.95, close: 100.1, volume: 1000 }
-    ]);
+    ];
+    // Primary model (owner decision 2026-07-16): full close at EQ — the walk pays the full 1R.
+    const outcome = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles);
 
     expect(outcome.status).toBe("tp1");
-    expect(outcome.outcomeReason).toBe("eq-then-be");
-    expect(outcome.rMultiple).toBe(0.5);
+    expect(outcome.outcomeReason).toBe("eq-full");
+    expect(outcome.rMultiple).toBe(1);
     expect(outcome.tags).toContain("crt:eq");
-    expect(outcome.tags).toContain("crt:be");
-    // Counterfactual management math from the same walk: without BE the half position sits
-    // through the pullback (0.5R banked), a no-partial full-DOL position scratches at BE
-    // (0R), and closing everything at EQ pays the full 1R.
-    expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqFull: 1 });
+    expect(outcome.tags).toContain("crt:eq-full");
+    // Counterfactuals from the same walk: the old EQ-partial+BE model banks 0.5R (half at EQ,
+    // remainder scratched at BE on the pullback), no-BE holds the half for 0.5R, and the
+    // no-partial full-DOL position scratches at BE (0R).
+    expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqPartialBe: 0.5 });
+
+    // Legacy model still available behind the setting and still measures the old way.
+    const legacy = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-partial-be" });
+    expect(legacy.status).toBe("tp1");
+    expect(legacy.outcomeReason).toBe("eq-then-be");
+    expect(legacy.rMultiple).toBe(0.5);
   });
 
   it("marks an expired open trade at the final close instead of its MFE", () => {
@@ -144,8 +152,8 @@ describe("monthly runtime replay", () => {
       { time: 1, open: 100, high: 101.2, low: 100, close: 101, volume: 1000 },
       { time: 2, open: 101, high: 101.1, low: 99.95, close: 100.1, volume: 1000 }
     ];
-    const managed = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { partialTpEnabled: true, moveToBreakevenAtR: 1 });
-    const unmanaged = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { partialTpEnabled: false, moveToBreakevenAtR: 0 });
+    const managed = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-partial-be", partialTpEnabled: true, moveToBreakevenAtR: 1 });
+    const unmanaged = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-partial-be", partialTpEnabled: false, moveToBreakevenAtR: 0 });
 
     expect(managed.status).toBe("tp1");
     expect(managed.rMultiple).toBe(0.5);
@@ -164,7 +172,7 @@ describe("monthly runtime replay", () => {
     });
 
     const scenarios = result.replay?.managementScenarios ?? [];
-    expect(scenarios.map((item) => item.id)).toEqual(["model", "no-be", "full-dol", "eq-full"]);
+    expect(scenarios.map((item) => item.id)).toEqual(["model", "eq-partial-be", "no-be", "full-dol"]);
     const model = scenarios.find((item) => item.id === "model");
     expect(model?.deltaR).toBe(0);
     for (const scenario of scenarios) {

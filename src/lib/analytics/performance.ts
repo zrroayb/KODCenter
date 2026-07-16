@@ -22,6 +22,7 @@ export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggere
 export type RuntimeReplayTradeOrigin = "live-ready" | "watch-promoted";
 export type RuntimeReplayOutcomeReason =
   | "clean-model"
+  | "eq-full"
   | "eq-then-be"
   | "dol-missed"
   | "stop-too-tight"
@@ -175,11 +176,11 @@ export type RuntimeReplayFailureCase = {
 export type RuntimeReplayManagementVariants = {
   noBe: number;
   fullDol: number;
-  eqFull: number;
+  eqPartialBe: number;
 };
 
 export type RuntimeReplayManagementScenario = {
-  id: "model" | "no-be" | "full-dol" | "eq-full";
+  id: "model" | "no-be" | "full-dol" | "eq-partial-be";
   label: string;
   description: string;
   trades: number;

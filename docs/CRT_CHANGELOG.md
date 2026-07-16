@@ -2,6 +2,19 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-16 — exit model switched to full-close-at-EQ (owner: "fulle mk")
+- Primary replay/management model is now **Hepsi-EQ**: the whole position exits at EQ/TP1, no
+  DOL runner, no BE move. Same-entry counterfactuals measured it at ~2x the old model
+  (11.85R vs 6.12R on the report window; re-verified 11.06R vs 4.67R, WR 82%).
+- DOL is untouched as the setup's structural draw — validity, direction and RR gating still
+  use it; only the exit changed.
+- Reversible: the old EQ-partial+BE model lives behind `settings.exitModel = "eq-partial-be"`
+  and is continuously tracked as the `eq-partial-be` management variant (scenario list now
+  shows the new model as reference). Revisit at the 30+ trade review.
+- New outcome reason `eq-full` ("EQ tam çıkış") in UI + replay-review labels; eqTooClose and
+  EQ/TP1 texts updated to the new exit language. Tests updated; legacy behavior still locked
+  behind the setting.
+
 ## 2026-07-16 — AI report audit #3: Asia demotion REJECTED with receipts
 - Report proposed "Session Asia READY -> WATCH" off a 0.15R/4-trade bucket. Independent
   measurement: the Asia bucket is polluted by watch-promoted counterfactuals (the 6/19 AUDUSD
