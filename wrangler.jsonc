@@ -16,6 +16,7 @@
     {
       "binding": "DB",
       "database_name": "tradebot-state",
+      "database_id": "047e9706-bb5b-45b1-80d0-e07f944a7bdf",
       "migrations_dir": "migrations"
     }
   ],
