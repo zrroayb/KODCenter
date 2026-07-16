@@ -6,7 +6,7 @@ import type { MarketContext, PremiumDiscountContext } from "../lib/ict/types";
 // A textbook CRT short that sits correctly in the PREMIUM half of its own 4h range, but where
 // the broader GLOBAL dealing range reads discount. The CRT-range PD (pdAligned) is the setup's
 // own logic and must stay the hard gate; the global dealing-range PD may only note/size-down.
-function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: Partial<MarketContext["bias"]> = {}) {
+function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: Partial<MarketContext["bias"]> = {}, extraObjectives: MarketContext["liquidityObjectives"] = []) {
   const base = createStructureContext();
   const h4 = base.timeframes.h4.map((candle, index) =>
     index === 21
@@ -45,7 +45,8 @@ function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: 
     ],
     liquidityObjectives: [
       { id: "PDH", kind: "PDH", side: "buy-side", level: 101.4, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
-      { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
+      { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" },
+      ...extraObjectives
     ],
     sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 22, reclaimed: true }],
     displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
@@ -119,6 +120,19 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(evaluateCrtHtfAlignment(context, "1w", "long").required).toEqual(["1M"]);
     expect(evaluateCrtHtfAlignment(context, "1w", "long").aligned).toBe(true);
     expect(evaluateCrtHtfAlignment(context, "4h", "short").aligned).toBe(false);
+  });
+
+  it("demotes the opposing-HTF veto to a warning when weekly external liquidity was swept (top reversal)", () => {
+    // USDCHF 2026-07-15 case: at a top the 1D/1W bias is still bullish by definition — the old
+    // hard veto killed every reversal. When the raid sweeps weekly/monthly-tier EXTERNAL
+    // liquidity (PWH at the swept high), the draw is consumed and the veto demotes to size-down.
+    const signal = shortSignal("premium", { weekly: "bullish" }, [
+      { id: "PWH", kind: "PWH", side: "buy-side", level: 101.05, label: "PWH", timeframe: "1w", source: "fixture", strength: "strong" }
+    ]);
+
+    expect(signal.governance.blockers.join(" ")).not.toContain("HTF yönü karşı");
+    expect(signal.plan.planWarnings.join(" ")).toContain("Karşı-HTF dönüş");
+    expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("warning");
   });
 
   it("tolerates a neutral higher timeframe but still vetoes an opposing one", () => {

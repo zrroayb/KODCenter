@@ -2,6 +2,23 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-16 — reversal-at-external-liquidity exception (owner's USDCHF short)
+- Owner took a textbook USDCHF 4H short (buy-side raid of the old highs at 0.8152 → reversal
+  toward 0.8010) that the bot SAW (RETURNED_INSIDE on the exact range) but auto-vetoed on every
+  anchor with "HTF yönü karşı: 1d bullish + 1w bullish". Structural flaw: at a top the HTF candle
+  bias is still bullish BY DEFINITION — the old hard veto made every top/bottom reversal
+  untakeable.
+- Per Master §10.2/§10.4 (a swept draw is consumed; a buy-side sweep is bearish evidence): when
+  the manipulation swept weekly/monthly-tier external liquidity (PWH/PML) or a STRONG opposing
+  liquidity pool (old structural high/low, equal highs/lows), the opposing-HTF read demotes from
+  veto to a size-down warning. Every other gate still applies. Evidence/checklist show the
+  exception explicitly.
+- Verified live: USDCHF 1W SHORT score 83 now carries the exception (veto gone); non-external
+  readings stay vetoed. 12-symbol replay: live-READY +3.12R, 0 NaN. New regression test.
+- Also fixed alongside (separate commit): NaN synthetic bid/ask from a forming Yahoo candle
+  poisoned replay R computations (`NaN ?? fallback` keeps NaN) — executable prices now guard
+  with Number.isFinite.
+
 ## 2026-07-15 — retest mandatory again: ChoCH close alone never confirms
 - An AI replay report proposed demoting choch-close entries from READY (-0.46R / 5 trades).
   Independent measurement confirmed the numbers AND found the real cause: the "choch-close"

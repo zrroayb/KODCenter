@@ -89,6 +89,12 @@
       "status": "implemented"
     },
     {
+      "id": "reversal-at-external-liquidity",
+      "area": "directional-bias",
+      "rule": "The opposing-HTF veto must NOT auto-kill top/bottom reversals: when the manipulation swept weekly/monthly-tier external liquidity (PWH/PML/PMH/PWL near the swept extreme) or a STRONG opposing liquidity pool (old structural high/low, equal highs/lows), the consumed draw plus the sweep itself is the counter-side evidence (Master 10.2/10.4), so the opposing-HTF read demotes from veto to a size-down warning. All other gates (ChoCH, retest, displacement, RR, geometry) still apply. Added 2026-07-16 after the owner's USDCHF short (buy-side raid of the old highs at 0.8152) was visible to the bot (RETURNED_INSIDE) but auto-vetoed on every anchor.",
+      "status": "implemented"
+    },
+    {
       "id": "retest-mandatory-for-entry",
       "area": "confirmation",
       "rule": "A ChoCH close alone NEVER confirms the entry — the post-ChoCH retest of the entry level is mandatory for READY. The displaced close is not chased; the plan stays visible (WATCH/pending) at the retest level until price actually returns. Restored 2026-07-15 after measurement: direct-from-close entries -0.46R over 5 trades vs retest-based +0.56R over 6; after restoring, live-READY went from -0.14R to +2.62R and the choch-close bucket normalized to +0.09R. (This re-asserts the original owner rule that a Codex refactor had relaxed.)",
