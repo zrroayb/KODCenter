@@ -3,8 +3,6 @@ import { Brain, Clock3, Eye, Filter, Route, Sparkles } from "lucide-react";
 import { fetchSessionAnalysis, type SessionAnalysisResponse } from "../lib/session/sessionAnalysis";
 import { buildSessionStatistics } from "../lib/session/sessionConfluenceEngine";
 import type { SessionSetup, SessionSetupLifecycle, SessionSetupLog } from "../lib/session/types";
-import type { SilverBulletLog, SilverBulletSetup } from "../lib/strategies/silverBullet/types";
-import { SilverBulletSection } from "./SilverBulletSection";
 
 type SessionTab = "live" | "developing" | "confirmed" | "history";
 
@@ -79,17 +77,12 @@ function SessionRangeMap({ setup }: { setup: SessionSetup }) {
 export function SessionSetupsView({
   setups,
   logs,
-  silverBulletSetups,
-  silverBulletLogs,
   onOpenSignal
 }: {
   setups: SessionSetup[];
   logs: SessionSetupLog[];
-  silverBulletSetups: SilverBulletSetup[];
-  silverBulletLogs: SilverBulletLog[];
   onOpenSignal: (signalId: string) => void;
 }) {
-  const [family, setFamily] = useState<"crt-session" | "silver-bullet">("crt-session");
   const [tab, setTab] = useState<SessionTab>("live");
   const [symbol, setSymbol] = useState("ALL");
   const [model, setModel] = useState("ALL");
@@ -130,14 +123,6 @@ export function SessionSetupsView({
 
   return (
     <section className="session-setups-page">
-      <div className="session-family-tabs" role="tablist" aria-label="Setup ailesi">
-        <button className={family === "crt-session" ? "active" : ""} onClick={() => setFamily("crt-session")} type="button">CRT × Session</button>
-        <button className={family === "silver-bullet" ? "active" : ""} onClick={() => setFamily("silver-bullet")} type="button">Silver Bullet</button>
-      </div>
-      {family === "silver-bullet" ? (
-        <SilverBulletSection logs={silverBulletLogs} setups={silverBulletSetups} />
-      ) : (
-      <>
       <article className="panel session-summary-strip">
         <div>
           <span className="eyebrow">CRT × Session</span>
@@ -273,8 +258,6 @@ export function SessionSetupsView({
           )}
         </aside>
       </div>
-      </>
-      )}
     </section>
   );
 }

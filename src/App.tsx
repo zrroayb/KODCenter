@@ -7,6 +7,7 @@ import { ScannerView } from "./components/ScannerView";
 import { SessionSetupsView } from "./components/SessionSetupsView";
 import { SettingsView } from "./components/SettingsView";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
+import { SilverBulletSection } from "./components/SilverBulletSection";
 import { createDemoMarkets } from "./data/demoData";
 import { runDemoBacktest } from "./lib/backtest/backtestEngine";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
@@ -39,13 +40,14 @@ import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
-export type ViewId = "dashboard" | "charts" | "scanner" | "sessionSetups" | "backtest" | "journal" | "ai" | "settings";
+export type ViewId = "dashboard" | "charts" | "scanner" | "sessionSetups" | "silverBullet" | "backtest" | "journal" | "ai" | "settings";
 
 const VIEW_TITLES: Record<ViewId, string> = {
   charts: "Chart",
   dashboard: "Bugün",
   scanner: "Tara",
   sessionSetups: "Session",
+  silverBullet: "Silver Bullet",
   backtest: "Replay",
   journal: "Notlar",
   ai: "AI",
@@ -803,7 +805,10 @@ export default function App() {
           />
         )}
         {activeView === "sessionSetups" && (
-          <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} silverBulletLogs={silverBulletLogs} silverBulletSetups={silverBulletSetups} />
+          <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} />
+        )}
+        {activeView === "silverBullet" && (
+          <SilverBulletSection logs={silverBulletLogs} setups={silverBulletSetups} />
         )}
         {activeView === "charts" && (
           <ChartsView
