@@ -2563,6 +2563,11 @@ button {
   color: var(--dim);
 }
 
+/* Only rendered where the sidebar is hidden; see the media query below. */
+.topnav-secondary-nav {
+  display: none;
+}
+
 .topnav-search {
   min-width: 0;
   display: grid;
@@ -3000,12 +3005,65 @@ button {
     display: none;
   }
 
+  .topnav-secondary-nav {
+    display: flex;
+    justify-self: end;
+    gap: 6px;
+  }
+
+  .topnav-secondary-nav button {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--dim);
+  }
+
+  .topnav-secondary-nav button.active {
+    color: var(--ink);
+    background: var(--blue-soft);
+    border-color: var(--blue);
+  }
+
   .topnav-brand div {
     display: block;
   }
 
   .topnav-actions .profile-chip span {
     display: none;
+  }
+
+  /* The 118/148px chip floor forces each chip onto its own row here, which cost
+     ~500px of vertical space before any content. */
+  .topbar-actions {
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .session-clock,
+  .auto-refresh-badge {
+    min-width: 0;
+    padding: 6px 9px;
+  }
+
+  .session-clock {
+    flex: 1 1 auto;
+  }
+
+  .session-clock small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .data-source-badge,
+  .auto-refresh-badge,
+  .topbar-actions .ghost-btn {
+    flex: 0 0 auto;
   }
 
   .workspace {
@@ -3112,20 +3170,29 @@ button {
     font-size: 30px;
   }
 
+  /* One row: the clock takes the slack and ellipsizes, the rest keep their
+     natural width. The 2-column grid this replaces gave the badges and the
+     button a full row each. */
   .topbar-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .session-clock {
+    flex: 1 1 auto;
   }
 
   .session-clock,
   .auto-refresh-badge {
-    min-height: 58px;
+    min-height: 0;
   }
 
   .data-source-badge,
   .ghost-btn,
   .market-universe {
-    grid-column: span 2;
+    flex: 0 0 auto;
   }
 
   .journal-stat-row,

@@ -731,6 +731,24 @@ export default function App() {
           <div className="topnav-brand">
             <BrandLogo />
           </div>
+          {/* The sidebar is hidden under 900px and the tabbar has no room for these,
+              so they would otherwise be unreachable on mobile. */}
+          <nav className="topnav-secondary-nav" aria-label="Ek gezinme">
+            {NAV_ITEMS.filter((item) => !item.mobile).map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  aria-label={`${item.label} ${item.caption}`}
+                  className={activeView === item.id ? "active" : ""}
+                  onClick={() => setActiveView(item.id)}
+                  type="button"
+                >
+                  <Icon size={18} />
+                </button>
+              );
+            })}
+          </nav>
         </header>
         <main className="workspace">
           <header className={activeView === "charts" ? "topbar compact" : "topbar"}>
