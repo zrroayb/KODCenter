@@ -3,6 +3,7 @@ import { Brain, Clock3, Crosshair, Sparkles } from "lucide-react";
 import { fetchSilverBulletAnalysis, type SbAnalysisResponse } from "../lib/gemini/silverBulletInterpretation";
 import { tzOffsetHours } from "../lib/session/sessionClock";
 import type { SbLifecycle, SilverBulletLog, SilverBulletSetup } from "../lib/strategies/silverBullet/types";
+import { SilverBulletPlanChart } from "./SilverBulletPlanChart";
 
 const TERMINAL: SbLifecycle[] = ["STOPPED", "INVALIDATED", "LATE", "EXPIRED", "NO_TRADE", "COMPLETED", "BOTH_SIDES_SWEPT", "BREAK_ACCEPTED_OUTSIDE"];
 
@@ -135,6 +136,8 @@ export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetu
                 </div>
                 <span className={`session-state-badge ${selected.lifecycleStatus.toLowerCase()}`}>{lifecycleLabel(selected.lifecycleStatus)}</span>
               </header>
+
+              <SilverBulletPlanChart setup={selected} />
 
               {selected.plan && (
                 <div className="session-decision">
