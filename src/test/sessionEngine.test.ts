@@ -209,6 +209,54 @@ describe("CRT × session confluence", () => {
     expect(setups.some((setup) => setup.setupModel === "PREV_HTF_LOW_SESSION_SWEEP_BULLISH_CRT")).toBe(true);
   });
 
+  it("expires a swept-but-unconfirmed setup once the trigger window closes", () => {
+    const candles = [
+      candle(Date.UTC(2026, 6, 15, 23, 0), 1.1, 1.101, 1.099, 1.1002),
+      candle(Date.UTC(2026, 6, 16, 3, 45), 1.1002, 1.1008, 1.0992, 1.1001),
+      // London: Asia high süpürülür ama kapanış dışarıda kalır — reclaim yok.
+      candle(Date.UTC(2026, 6, 16, 6, 0), 1.1002, 1.1015, 1.0998, 1.1012),
+      // Pencere sonrası nötr mum: motor "now"u son mum zamanına kıskaçladığı için
+      // analiz anını London bitişinin (09:00 UTC) ötesine taşır.
+      candle(Date.UTC(2026, 6, 16, 11, 0), 1.1002, 1.1005, 1.0999, 1.1003)
+    ];
+    const context = contextWithM15(candles, "bearish");
+    const setups = buildSessionSetups({ contexts: [context], signals: [], now: Date.UTC(2026, 6, 16, 16, 0) });
+    const setup = setups.find((item) => item.setupModel === "ASIA_RANGE_LONDON_HIGH_SWEEP_BEARISH_CRT");
+    expect(setup).toBeDefined();
+    expect(["EXPIRED", "LATE"]).toContain(setup!.lifecycleStatus);
+    expect(setup!.lifecycleStatus).not.toMatch(/WAITING/);
+  });
+
+  it("expires stored setups from an older trading day when a newer day arrives", () => {
+    const stale = {
+      id: "stale-1",
+      tradingDayId: "eurusd-standard:2026-07-15",
+      lifecycleStatus: "WAITING_FOR_LTF_CONFIRMATION",
+      setupModel: "ASIA_RANGE_LONDON_LOW_SWEEP_BULLISH_CRT",
+      symbol: "EURUSD",
+      referenceSession: "ASIA",
+      triggerSession: "LONDON",
+      sessionProfileVersion: "v1",
+      createdAt: Date.UTC(2026, 6, 15, 8),
+      updatedAt: Date.UTC(2026, 6, 15, 8),
+      summary: "eski gün"
+    } as unknown as Parameters<typeof reconcileSessionSetupStore>[0][number];
+    const fresh = {
+      ...stale,
+      id: "fresh-1",
+      tradingDayId: "eurusd-standard:2026-07-16",
+      lifecycleStatus: "WAITING_FOR_SWEEP",
+      updatedAt: Date.UTC(2026, 6, 16, 8)
+    } as typeof stale;
+    const now = Date.UTC(2026, 6, 16, 8, 30);
+    const first = reconcileSessionSetupStore([stale], [fresh], [], now);
+    expect(first.setups.find((item) => item.id === "stale-1")?.lifecycleStatus).toBe("EXPIRED");
+    expect(first.setups.find((item) => item.id === "fresh-1")?.lifecycleStatus).toBe("WAITING_FOR_SWEEP");
+    expect(first.logs.some((log) => log.id === "stale-1:EXPIRED")).toBe(true);
+    const second = reconcileSessionSetupStore(first.setups, [fresh], first.logs, now + 60_000);
+    expect(second.logs.length).toBe(first.logs.length);
+  });
+
   it("writes only one idempotent log for the same lifecycle transition", () => {
     const context = contextWithM15([
       candle(Date.UTC(2026, 6, 15, 23, 0), 1.1, 1.101, 1.099, 1.1002),

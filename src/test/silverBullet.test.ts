@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Candle, MarketContext } from "../lib/ict/types";
 import { buildSilverBulletReferenceRange, nyHourToUtc, nyTradingDayId } from "../lib/strategies/silverBullet/referenceRange";
 import { evaluateSilverBullet, silverBulletTransitionLog } from "../lib/strategies/silverBullet/silverBulletEngine";
+import { reconcileSilverBulletStore } from "../lib/strategies/silverBullet/silverBulletStore";
 import { createStructureContext } from "./strategyFixtures";
 
 const M5 = 5 * 60 * 1000;
@@ -188,5 +189,30 @@ describe("Silver Bullet window engine", () => {
     expect(repeat).toBeUndefined();
     expect(setup.idempotencyKey).toContain("NAS100");
     expect(setup.idempotencyKey).toContain("NY_AM_09_HOURLY_RANGE_REVERSAL_V1");
+  });
+});
+
+describe("Silver Bullet store window guard", () => {
+  it("expires pre-entry setups whose 11:00 window passed without a rescan; filled trades survive", () => {
+    const windowEnd = nyHourToUtc(JUL, 11);
+    const base = {
+      setupId: "sb-stale",
+      lifecycleStatus: "ORDER_PENDING",
+      windowEndUtc: windowEnd,
+      updatedAtUtc: windowEnd - M5,
+      tradingDayId: nyTradingDayId(JUL),
+      symbol: "NAS100",
+      direction: "short",
+      detectorVersion: "sb-1.0.0",
+      summary: "pencere içi bekleyen emir"
+    } as unknown as Parameters<typeof reconcileSilverBulletStore>[0][number];
+    const filled = { ...base, setupId: "sb-filled", lifecycleStatus: "ACTIVE" } as typeof base;
+    const now = windowEnd + 10 * 60 * 1000;
+    const first = reconcileSilverBulletStore([base, filled], [], [], now);
+    expect(first.setups.find((item) => item.setupId === "sb-stale")?.lifecycleStatus).toBe("EXPIRED");
+    expect(first.setups.find((item) => item.setupId === "sb-filled")?.lifecycleStatus).toBe("ACTIVE");
+    expect(first.logs.some((log) => log.id === "sb-stale:EXPIRED")).toBe(true);
+    const second = reconcileSilverBulletStore(first.setups, [], first.logs, now + 60_000);
+    expect(second.logs.length).toBe(first.logs.length);
   });
 });

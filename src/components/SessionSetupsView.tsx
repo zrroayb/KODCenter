@@ -90,6 +90,24 @@ export function SessionSetupsView({
   const [analysis, setAnalysis] = useState<SessionAnalysisResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const stats = useMemo(() => buildSessionStatistics(setups), [setups]);
+  // Gün çizelgesi bugünü anlatır; 400 kayıtlık geçmiş store'u değil. Profil başına en yeni
+  // trading gününde kalan setup'lara daraltılır (tradingDayId = `${profil}:${YYYY-MM-DD}`).
+  const currentDaySetups = useMemo(() => {
+    const newestByProfile = new Map<string, string>();
+    for (const setup of setups) {
+      const splitAt = setup.tradingDayId.lastIndexOf(":");
+      if (splitAt <= 0) continue;
+      const profile = setup.tradingDayId.slice(0, splitAt);
+      const date = setup.tradingDayId.slice(splitAt + 1);
+      const known = newestByProfile.get(profile);
+      if (!known || date > known) newestByProfile.set(profile, date);
+    }
+    return setups.filter((setup) => {
+      const splitAt = setup.tradingDayId.lastIndexOf(":");
+      if (splitAt <= 0) return true;
+      return newestByProfile.get(setup.tradingDayId.slice(0, splitAt)) === setup.tradingDayId.slice(splitAt + 1);
+    });
+  }, [setups]);
   const symbols = useMemo(() => [...new Set(setups.map((setup) => setup.symbol))], [setups]);
   const models = useMemo(() => [...new Set(setups.map((setup) => setup.setupModel))], [setups]);
   const filtered = useMemo(() =>
@@ -138,7 +156,7 @@ export function SessionSetupsView({
 
       <div className="session-day-timeline" aria-label="Session akışı">
         {(["ASIA", "LONDON", "NY_AM", "NY_PM"] as const).map((session) => {
-          const related = setups.filter((setup) => setup.referenceSession === session || setup.triggerSession === session);
+          const related = currentDaySetups.filter((setup) => setup.referenceSession === session || setup.triggerSession === session);
           const active = related.some((setup) => !TERMINAL.includes(setup.lifecycleStatus));
           return (
             <div className={active ? "active" : related.length ? "completed" : "empty"} key={session}>

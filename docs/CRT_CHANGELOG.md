@@ -2,7 +2,25 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
-## 2026-07-16 — exit model switched to full-close-at-EQ (owner: "fulle mk")
+## 2026-07-17 — session confluence: past sessions can no longer masquerade as live (owner complaint)
+- Owner: the Session view listed setups from long-finished sessions (and previous days) as
+  "Canlı" — ASIA 84 / LONDON 227 counters, "81 gelişiyor". Root causes, both fixed:
+  1. **Engine**: the confirmation window was a flat 12h tail past the trigger session, and the
+     WAITING_* chain never re-checked it (a swept-but-unreclaimed setup stayed WAITING forever).
+     The profile declares `confirmationSession = trigger`, so the deadline is now trigger end +
+     one 15m confirmation candle (`CONFIRMATION_GRACE_MS`); past it the lifecycle is LATE (full
+     sequence) or EXPIRED — never WAITING. The 12h constant remains only as
+     `EXPIRED_RETENTION_MS` so expired pairs keep being emitted for logging/history.
+  2. **Store**: setups from a previous trading day were never re-detected, so their stored
+     WAITING_* state froze in "Canlı" indefinitely (up to the 400-entry cap). Reconcile now
+     expires non-terminal setups from an older trading day as soon as the same profile shows a
+     newer day (idempotent `id:EXPIRED` log). Same guard added to the Silver Bullet store for
+     pre-entry states past the 11:00 window (+5 min) — filled/active trades are untouched, the
+     strict deadline applies to entry, not exit (SB master rule preserved).
+- UI: the session day-timeline now counts only the newest trading day per profile instead of
+  the whole 400-entry history store.
+- Note: the engine clamps "now" to the last candle time (data honesty), so expiry needs a candle
+  after the window close — tests cover this. 190 tests pass.
 - Primary replay/management model is now **Hepsi-EQ**: the whole position exits at EQ/TP1, no
   DOL runner, no BE move. Same-entry counterfactuals measured it at ~2x the old model
   (11.85R vs 6.12R on the report window; re-verified 11.06R vs 4.67R, WR 82%).

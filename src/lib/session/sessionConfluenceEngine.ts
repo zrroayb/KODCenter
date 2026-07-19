@@ -14,7 +14,13 @@ import type {
 
 const DETECTOR_VERSION = "crt-session-1.0.0";
 const PROMPT_VERSION = "crt-session-gemini-1.0.0";
-const CONFIRMATION_LOOKAHEAD_MS = 12 * 60 * 60 * 1000;
+// Onay penceresi: profil `confirmationSession = trigger` ilan eder, yani sequence trigger
+// session'ın içinde tamamlanmak zorunda. Son kapanışın oturması için tek bir 15m onay mumu
+// kadar tolerans var — saatlerce süren bir kuyruk yok.
+const CONFIRMATION_GRACE_MS = 15 * 60 * 1000;
+// Süresi geçen pair'ler gün boyunca emit edilmeye devam eder ki store EXPIRED/LATE geçişini
+// loglasın ve Geçmiş sekmesi dolu kalsın. Bu bir aksiyon penceresi değil, saklama süresidir.
+const EXPIRED_RETENTION_MS = 12 * 60 * 60 * 1000;
 
 type PairSpec = {
   reference: SessionName;
@@ -179,10 +185,14 @@ function lifecycleFor(input: {
   if (input.invalid) return "INVALIDATED";
   if (input.confirmed) return "CONFIRMED";
   if (input.trigger.state === "SCHEDULED") return "WAITING_FOR_SWEEP";
+  // Pencere kapandıysa hiçbir WAITING_* durumu hayatta kalamaz: sequence tamamsa LATE,
+  // değilse EXPIRED. Aksi geçmiş session'ı canlı diye göstermek olur.
+  if (input.now > input.trigger.endsAt + CONFIRMATION_GRACE_MS) {
+    return input.sweep && input.reclaim && input.displacement ? "LATE" : "EXPIRED";
+  }
   if (!input.sweep) return input.trigger.state === "BUILDING" ? "WAITING_FOR_SWEEP" : "EXPIRED";
   if (!input.reclaim) return "WAITING_FOR_RECLAIM";
   if (!input.displacement) return "WAITING_FOR_DISPLACEMENT";
-  if (input.now > input.trigger.endsAt + CONFIRMATION_LOOKAHEAD_MS) return "LATE";
   return "WAITING_FOR_LTF_CONFIRMATION";
 }
 
@@ -211,7 +221,7 @@ function buildPairSetup(
   now: number
 ): SessionSetup | undefined {
   if (reference.high === undefined || reference.low === undefined || reference.midpoint === undefined) return undefined;
-  const candles = executionCandles(context).filter((candle) => candle.time >= trigger.startsAt && candle.time < Math.min(now, trigger.endsAt + CONFIRMATION_LOOKAHEAD_MS));
+  const candles = executionCandles(context).filter((candle) => candle.time >= trigger.startsAt && candle.time < Math.min(now, trigger.endsAt + CONFIRMATION_GRACE_MS));
   const highSweep = firstAfter(candles, 0, (candle) => candle.high > reference.high!);
   const lowSweep = firstAfter(candles, 0, (candle) => candle.low < reference.low!);
   const highReclaim = highSweep ? firstAfter(candles, highSweep.index, (candle) => candle.close < reference.high!) : undefined;
@@ -290,7 +300,7 @@ function buildPairSetup(
     displacement: Boolean(displacement),
     confirmed,
     targetValid,
-    timingValid: now <= trigger.endsAt + CONFIRMATION_LOOKAHEAD_MS,
+    timingValid: now <= trigger.endsAt + CONFIRMATION_GRACE_MS,
     bothSwept,
     dstUncertain: reference.dstUncertain || trigger.dstUncertain
   });
@@ -420,7 +430,7 @@ function latestTriggerRange(ranges: SessionRange[], now: number): SessionRange |
     .filter((range) =>
       supported.includes(range.session) &&
       range.startsAt <= now &&
-      range.endsAt + CONFIRMATION_LOOKAHEAD_MS >= now
+      range.endsAt + EXPIRED_RETENTION_MS >= now
     )
     .sort((left, right) => {
       const leftActive = Number(now >= left.startsAt && now < left.endsAt);
@@ -464,7 +474,7 @@ function syntheticReferenceRange(input: {
 function rangeWasSwept(context: MarketContext, trigger: SessionRange, high: number, low: number, now: number): boolean {
   return executionCandles(context).some((candle) =>
     candle.time >= trigger.startsAt &&
-    candle.time < Math.min(now, trigger.endsAt + CONFIRMATION_LOOKAHEAD_MS) &&
+    candle.time < Math.min(now, trigger.endsAt + CONFIRMATION_GRACE_MS) &&
     (candle.high > high || candle.low < low)
   );
 }
