@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildTelegramReadyAlertPayload, notifyCrtContextSignalOnce, notifyReadySignalOnce, readyTelegramDedupeKey } from "../lib/telegram/readyAlert";
+import { alertableReadySignals } from "../lib/runtime/scanRuntime";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
@@ -229,5 +230,22 @@ describe("Telegram READY alert payload", () => {
     expect(result.status).toBe("disabled");
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("Telegram alert visibility parity", () => {
+  it("only alerts READY signals the site actually lists — hidden signals never page the phone", () => {
+    const ready = (id: string) => ({ id, stage: "ready" }) as unknown as import("../lib/ict/types").TradingSignal;
+    const watch = (id: string) => ({ id, stage: "watch" }) as unknown as import("../lib/ict/types").TradingSignal;
+    const result = {
+      signals: [ready("xau-ready"), watch("eur-watch"), ready("xau-ready")],
+      hiddenSignals: [ready("gbp-hidden-ready")],
+      inactiveSignals: [],
+      rejected: []
+    } as unknown as Parameters<typeof alertableReadySignals>[0];
+
+    const alertable = alertableReadySignals(result);
+
+    expect(alertable.map((signal) => signal.id)).toEqual(["xau-ready"]);
   });
 });

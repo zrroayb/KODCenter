@@ -2,6 +2,18 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-19 — Telegram alerts now respect site visibility (owner: gold alert, site empty)
+- Owner got a XAUUSD READY alert on Telegram while the site listed nothing. Cause: the cloud
+  scan alerted from `[...signals, ...hiddenSignals]` — hiddenSignals is precisely what the
+  rules/decision-class/18-signal cap deliberately reject, so the bot paged on signals the UI
+  hides by design.
+- Fix: shared `alertableReadySignals(result)` gate in scanRuntime (READY ∩ the same visible
+  set the site lists, deduped); cloud-scan uses it. Parity test added; 192 tests pass.
+- Note: the cloud bot runs on `defaultRules` (score floor 50, cap 18 — same as the UI floor).
+  If browser-local rule edits diverge from defaults, small mismatches remain possible until
+  rules sync to D1; the systematic hidden-signal leak is gone. Takes effect on the next
+  5-minute background scan after merge.
+
 ## 2026-07-19 — stop anchors to the raid leg's running extreme (owner: "stop doğru durmuyor")
 - Owner screenshot (AUDUSD 1D short): stop 0.70050 sat INSIDE later raid wicks (~0.7013) with a
   bloated 1:7.12 RR. Root cause: `raidFromPair` froze `raid.level` at the FIRST raid candle's

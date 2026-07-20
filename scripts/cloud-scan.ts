@@ -1,12 +1,12 @@
 import { loadYahooMarketBatch, YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { buildMarketContext } from "../src/lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../src/lib/intelligence/smtEngine";
-import type { MarketSymbol, TradingSignal } from "../src/lib/ict/types";
+import type { MarketSymbol } from "../src/lib/ict/types";
 import {
   leanMarketForStorage,
   scanSnapshotForSymbol
 } from "../src/lib/runtime/cloudSnapshot";
-import { scanContexts } from "../src/lib/runtime/scanRuntime";
+import { alertableReadySignals, scanContexts } from "../src/lib/runtime/scanRuntime";
 import { buildTelegramReadyAlertPayload } from "../src/lib/telegram/alertPayload";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
 
@@ -57,17 +57,6 @@ function chunks<T>(items: T[], size: number): T[][] {
   return result;
 }
 
-function uniqueReadySignals(result: ReturnType<typeof scanContexts>): TradingSignal[] {
-  const seen = new Set<string>();
-  return [...result.signals, ...result.hiddenSignals]
-    .filter((signal) => signal.stage === "ready")
-    .filter((signal) => {
-      if (seen.has(signal.id)) return false;
-      seen.add(signal.id);
-      return true;
-    });
-}
-
 async function run() {
   const scannedAt = Date.now();
   const markets = [];
@@ -99,7 +88,7 @@ async function run() {
     await postSnapshot("/api/ingest-scan", market.symbol, scannedAt, scanSnapshotForSymbol(market.symbol, result));
   }
 
-  const readySignals = uniqueReadySignals(result);
+  const readySignals = alertableReadySignals(result);
   const finalize = await postJson("/api/finalize-scan", {
     scannedAt,
     symbols: markets.map((market) => market.symbol),

@@ -103,3 +103,17 @@ export function scanContexts(
     rejected: results.flatMap((result) => result.rejectedSetups)
   };
 }
+
+// Telegram parity gate: an alert may only fire for a READY signal the site actually lists.
+// hiddenSignals hold what the rules/cap/decision-class deliberately rejected — alerting on
+// them produces "the bot pinged but the site shows nothing".
+export function alertableReadySignals(result: ScanRuntimeResult): TradingSignal[] {
+  const seen = new Set<string>();
+  return result.signals
+    .filter((signal) => signal.stage === "ready")
+    .filter((signal) => {
+      if (seen.has(signal.id)) return false;
+      seen.add(signal.id);
+      return true;
+    });
+}
