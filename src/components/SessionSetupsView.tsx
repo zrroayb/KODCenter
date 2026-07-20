@@ -1,40 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Clock3, Eye, Filter, Route, Sparkles } from "lucide-react";
+import { Brain, Clock3, Eye, Sparkles } from "lucide-react";
 import { fetchSessionAnalysis, type SessionAnalysisResponse } from "../lib/session/sessionAnalysis";
 import { buildSessionStatistics } from "../lib/session/sessionConfluenceEngine";
 import type { SessionSetup, SessionSetupLifecycle, SessionSetupLog } from "../lib/session/types";
 
-type SessionTab = "live" | "developing" | "confirmed" | "history";
+type SessionMode = "active" | "history";
 
-const CONFIRMED: SessionSetupLifecycle[] = ["CONFIRMED", "ACTIVE", "TARGET_1_REACHED", "TARGET_2_REACHED", "COMPLETED"];
+const READY: SessionSetupLifecycle[] = ["CONFIRMED", "ACTIVE", "TARGET_1_REACHED", "TARGET_2_REACHED"];
 const TERMINAL: SessionSetupLifecycle[] = ["INVALIDATED", "LATE", "EXPIRED", "COMPLETED"];
 
-function shortModel(model: string): string {
-  return model
-    .replace("ASIA_RANGE_LONDON_", "Asia → London · ")
-    .replace("LONDON_RANGE_NY_", "London → NY · ")
-    .replace("LONDON_EXPANSION_NY_", "London → NY · ")
-    .replace("PREV_HTF_", "HTF · ")
-    .replace("PDH_SESSION_", "PDH · ")
-    .replace("PDL_SESSION_", "PDL · ")
-    .replace("_BULLISH_CRT", " bullish")
-    .replace("_BEARISH_CRT", " bearish")
-    .replace("_BULLISH_CONTINUATION", " bullish devam")
-    .replace("_BEARISH_CONTINUATION", " bearish devam")
-    .replace(/_/g, " ");
-}
-
 function lifecycleLabel(status: SessionSetupLifecycle): string {
-  if (status === "CONFIRMED" || status === "ACTIVE") return "Hazır";
+  if (READY.includes(status)) return "Hazır";
   if (status === "WAITING_FOR_SWEEP") return "Sweep bekle";
   if (status === "WAITING_FOR_RECLAIM") return "İçeri dönüş bekle";
-  if (status === "WAITING_FOR_DISPLACEMENT") return "Displacement bekle";
-  if (status === "WAITING_FOR_LTF_CONFIRMATION") return "LTF onay bekle";
+  if (status === "WAITING_FOR_DISPLACEMENT") return "Güçlü hareket bekle";
+  if (status === "WAITING_FOR_LTF_CONFIRMATION") return "Kapanış bekle";
   if (status === "INVALIDATED") return "Geçersiz";
-  if (status === "EXPIRED") return "Süresi bitti";
-  if (status === "LATE") return "Geç";
+  if (status === "EXPIRED" || status === "LATE") return "Geç kaldı";
   if (status === "COMPLETED") return "Tamamlandı";
-  return "Gelişiyor";
+  return "İzle";
+}
+
+function nextStep(setup: SessionSetup): string {
+  if (TERMINAL.includes(setup.lifecycleStatus)) {
+    return setup.blockers[0] ?? setup.warnings[0] ?? "Bu setup artık işlem için geçerli değil.";
+  }
+  if (READY.includes(setup.lifecycleStatus)) {
+    return setup.plan ? "Plan hazır. Giriş, stop ve hedefi chartta kontrol et." : "Session onayı tamam; ana CRT planını kontrol et.";
+  }
+  return setup.blockers[0] ?? setup.events.find((event) => event.status === "pending")?.detail ?? "Sıradaki yapı adımı bekleniyor.";
 }
 
 function timeLabel(timestamp: number): string {
@@ -43,13 +37,6 @@ function timeLabel(timestamp: number): string {
     minute: "2-digit",
     timeZone: "Europe/Istanbul"
   });
-}
-
-function setupVisibleInTab(setup: SessionSetup, tab: SessionTab): boolean {
-  if (tab === "confirmed") return CONFIRMED.includes(setup.lifecycleStatus);
-  if (tab === "history") return TERMINAL.includes(setup.lifecycleStatus);
-  if (tab === "developing") return !CONFIRMED.includes(setup.lifecycleStatus) && !TERMINAL.includes(setup.lifecycleStatus);
-  return !TERMINAL.includes(setup.lifecycleStatus);
 }
 
 function SessionRangeMap({ setup }: { setup: SessionSetup }) {
@@ -67,7 +54,7 @@ function SessionRangeMap({ setup }: { setup: SessionSetup }) {
         <span className={`session-price-marker ${setup.direction}`} style={{ bottom: `${currentPct}%` }}>
           {setup.currentPrice.toFixed(5)}
         </span>
-        {entryPct !== undefined && <span className="session-entry-marker" style={{ bottom: `${entryPct}%` }}>Entry</span>}
+        {entryPct !== undefined && <span className="session-entry-marker" style={{ bottom: `${entryPct}%` }}>Giriş</span>}
       </div>
       <div className="session-range-label low"><span>Low</span><strong>{low.toFixed(5)}</strong></div>
     </div>
@@ -83,50 +70,31 @@ export function SessionSetupsView({
   logs: SessionSetupLog[];
   onOpenSignal: (signalId: string) => void;
 }) {
-  const [tab, setTab] = useState<SessionTab>("live");
-  const [symbol, setSymbol] = useState("ALL");
-  const [model, setModel] = useState("ALL");
+  const [mode, setMode] = useState<SessionMode>("active");
   const [selectedId, setSelectedId] = useState<string | null>(setups[0]?.id ?? null);
-  const [analysis, setAnalysis] = useState<SessionAnalysisResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
+  const [analysis, setAnalysis] = useState<SessionAnalysisResponse>({ status: "disabled", reason: "" });
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const stats = useMemo(() => buildSessionStatistics(setups), [setups]);
-  // Gün çizelgesi bugünü anlatır; 400 kayıtlık geçmiş store'u değil. Profil başına en yeni
-  // trading gününde kalan setup'lara daraltılır (tradingDayId = `${profil}:${YYYY-MM-DD}`).
-  const currentDaySetups = useMemo(() => {
-    const newestByProfile = new Map<string, string>();
-    for (const setup of setups) {
-      const splitAt = setup.tradingDayId.lastIndexOf(":");
-      if (splitAt <= 0) continue;
-      const profile = setup.tradingDayId.slice(0, splitAt);
-      const date = setup.tradingDayId.slice(splitAt + 1);
-      const known = newestByProfile.get(profile);
-      if (!known || date > known) newestByProfile.set(profile, date);
-    }
-    return setups.filter((setup) => {
-      const splitAt = setup.tradingDayId.lastIndexOf(":");
-      if (splitAt <= 0) return true;
-      return newestByProfile.get(setup.tradingDayId.slice(0, splitAt)) === setup.tradingDayId.slice(splitAt + 1);
-    });
-  }, [setups]);
-  const symbols = useMemo(() => [...new Set(setups.map((setup) => setup.symbol))], [setups]);
-  const models = useMemo(() => [...new Set(setups.map((setup) => setup.setupModel))], [setups]);
-  const filtered = useMemo(() =>
-    setups.filter((setup) =>
-      setupVisibleInTab(setup, tab) &&
-      (symbol === "ALL" || setup.symbol === symbol) &&
-      (model === "ALL" || setup.setupModel === model)
-    ), [model, setups, symbol, tab]);
-  const selected = setups.find((setup) => setup.id === selectedId) ?? filtered[0] ?? setups[0];
+  const active = useMemo(
+    () => setups
+      .filter((setup) => !TERMINAL.includes(setup.lifecycleStatus))
+      .sort((a, b) => Number(READY.includes(b.lifecycleStatus)) - Number(READY.includes(a.lifecycleStatus)) || b.score - a.score),
+    [setups]
+  );
+  const history = useMemo(
+    () => setups.filter((setup) => TERMINAL.includes(setup.lifecycleStatus)).sort((a, b) => b.updatedAt - a.updatedAt),
+    [setups]
+  );
+  const displayed = mode === "active" ? active : history;
+  const selected = displayed.find((setup) => setup.id === selectedId) ?? displayed[0];
   const selectedLogs = selected ? logs.filter((log) => log.setupId === selected.id) : [];
 
   useEffect(() => {
-    if (filtered.length && !filtered.some((setup) => setup.id === selectedId)) {
-      setSelectedId(filtered[0].id);
-    }
-  }, [filtered, selectedId]);
+    if (displayed.length && !displayed.some((setup) => setup.id === selectedId)) setSelectedId(displayed[0].id);
+  }, [displayed, selectedId]);
 
   useEffect(() => {
-    setAnalysis({ status: "disabled", reason: "AI yorumu yalnız seçili setup için alınır." });
+    setAnalysis({ status: "disabled", reason: "" });
   }, [selected?.id]);
 
   const requestAnalysis = async () => {
@@ -140,63 +108,30 @@ export function SessionSetupsView({
   };
 
   return (
-    <section className="session-setups-page">
-      <article className="panel session-summary-strip">
+    <section className="session-setups-page simple-session-page">
+      <article className="panel session-summary-strip simple-session-summary">
         <div>
-          <span className="eyebrow">CRT × Session</span>
-          <h2>{stats.confirmed ? `${stats.confirmed} hazır setup` : `${stats.developing} setup gelişiyor`}</h2>
-          <p>Session range → sweep/acceptance → displacement → CRT onayı.</p>
+          <span className="eyebrow">Session radar</span>
+          <h2>{stats.confirmed ? `${stats.confirmed} hazır setup` : active.length ? `${active.length} setup izleniyor` : "Aktif session setup yok"}</h2>
+          <p>Önce session likiditesi, sonra ana CRT onayı.</p>
         </div>
         <div className="session-summary-metrics">
           <span><strong>{stats.confirmed}</strong> hazır</span>
-          <span><strong>{stats.developing}</strong> gelişiyor</span>
-          <span><strong>{stats.averageScore.toFixed(0)}</strong> ort. skor</span>
+          <span><strong>{active.length}</strong> aktif</span>
         </div>
       </article>
 
-      <div className="session-day-timeline" aria-label="Session akışı">
-        {(["ASIA", "LONDON", "NY_AM", "NY_PM"] as const).map((session) => {
-          const related = currentDaySetups.filter((setup) => setup.referenceSession === session || setup.triggerSession === session);
-          const active = related.some((setup) => !TERMINAL.includes(setup.lifecycleStatus));
-          return (
-            <div className={active ? "active" : related.length ? "completed" : "empty"} key={session}>
-              <span>{session.replace("_", " ")}</span>
-              <strong>{related.length || "—"}</strong>
-            </div>
-          );
-        })}
+      <div className="simple-mode-switch" role="tablist" aria-label="Session setup görünümü">
+        <button className={mode === "active" ? "active" : ""} onClick={() => setMode("active")} type="button">Aktif ({active.length})</button>
+        <button className={mode === "history" ? "active" : ""} onClick={() => setMode("history")} type="button">Geçmiş ({history.length})</button>
       </div>
 
-      <div className="session-workspace">
+      <div className="session-workspace simple-session-workspace">
         <article className="panel session-list-panel">
-          <header className="session-filterbar">
-            <div className="session-tabs" role="tablist">
-              {([
-                ["live", "Canlı"],
-                ["developing", "Gelişiyor"],
-                ["confirmed", "Hazır"],
-                ["history", "Geçmiş"]
-              ] as Array<[SessionTab, string]>).map(([value, label]) => (
-                <button className={tab === value ? "active" : ""} key={value} onClick={() => setTab(value)} type="button">{label}</button>
-              ))}
-            </div>
-            <label className="session-symbol-filter">
-              <Filter size={14} />
-              <select value={symbol} onChange={(event) => setSymbol(event.target.value)}>
-                <option value="ALL">Tüm marketler</option>
-                {symbols.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-              <select aria-label="Setup modeli" value={model} onChange={(event) => setModel(event.target.value)}>
-                <option value="ALL">Tüm modeller</option>
-                {models.map((item) => <option key={item} value={item}>{shortModel(item)}</option>)}
-              </select>
-            </label>
-          </header>
-
           <div className="session-setup-list">
-            {filtered.map((setup) => (
+            {displayed.map((setup) => (
               <button
-                className={`session-setup-row ${selected?.id === setup.id ? "selected" : ""} ${setup.lifecycleStatus.toLowerCase()}`}
+                className={`session-setup-row simple-session-row ${selected?.id === setup.id ? "selected" : ""} ${setup.lifecycleStatus.toLowerCase()}`}
                 key={setup.id}
                 onClick={() => setSelectedId(setup.id)}
                 type="button"
@@ -204,75 +139,74 @@ export function SessionSetupsView({
                 <span className={`session-direction-dot ${setup.direction}`} />
                 <span className="session-row-main">
                   <strong>{setup.symbol} {setup.direction.toUpperCase()}</strong>
-                  <small><Route size={13} /> {setup.referenceSession} → {setup.triggerSession}</small>
+                  <small>{setup.referenceSession} → {setup.triggerSession}</small>
                 </span>
-                <span className="session-row-model">{shortModel(setup.setupModel)}</span>
-                <span className="session-row-score"><strong>{setup.score}</strong><small>{setup.grade}</small></span>
+                <span className="session-row-score"><strong>{setup.grade}</strong><small>{setup.score} kalite</small></span>
                 <span className="session-row-status">{lifecycleLabel(setup.lifecycleStatus)}</span>
               </button>
             ))}
-            {!filtered.length && (
+            {!displayed.length && (
               <div className="empty-decision-state">
-                <strong>Bu filtrede setup yok.</strong>
-                <span>Range etkileşimi oluşunca burada görünür.</span>
+                <strong>{mode === "active" ? "Şu an setup yok." : "Geçmiş boş."}</strong>
+                <span>{mode === "active" ? "Session sweep oluşunca burada görünür." : "Biten setuplar burada tutulur."}</span>
               </div>
             )}
           </div>
         </article>
 
-        <aside className="panel session-detail-panel">
+        <aside className="panel session-detail-panel simple-session-detail">
           {selected ? (
             <>
               <header>
                 <div>
                   <span className="eyebrow">{selected.referenceSession} → {selected.triggerSession}</span>
                   <h2>{selected.symbol} {selected.direction.toUpperCase()}</h2>
-                  <p>{shortModel(selected.setupModel)}</p>
                 </div>
                 <span className={`session-state-badge ${selected.lifecycleStatus.toLowerCase()}`}>{lifecycleLabel(selected.lifecycleStatus)}</span>
               </header>
 
               <SessionRangeMap setup={selected} />
 
-              <div className="session-decision">
-                <strong>{selected.summary}</strong>
-                <p>{selected.blockers[0] ?? "Deterministik sequence tamam."}</p>
-              </div>
-
-              <div className="session-evidence-list">
-                {selected.events.map((event) => (
-                  <div className={event.status} key={event.id}>
-                    <span>{event.status === "pass" ? "✓" : "·"}</span>
-                    <p><strong>{event.label}</strong><small>{event.detail}</small></p>
-                    {event.timestampUtc && <time>{timeLabel(event.timestampUtc)}</time>}
-                  </div>
-                ))}
+              <div className="session-decision simple-next-step">
+                <span>Tek beklenen</span>
+                <strong>{nextStep(selected)}</strong>
+                {selected.plan && <p>Giriş {selected.plan.entry.toFixed(5)} · Stop {selected.plan.stopLoss.toFixed(5)} · Hedef {selected.plan.targets[0]?.toFixed(5)}</p>}
               </div>
 
               <div className="session-detail-actions">
                 {selected.signalId && <button className="primary-btn" onClick={() => onOpenSignal(selected.signalId!)} type="button"><Eye size={15} /> Chart</button>}
-                <button className="ghost-btn" onClick={requestAnalysis} disabled={analysisLoading} type="button"><Brain size={15} /> {analysisLoading ? "AI okuyor" : "AI yorumla"}</button>
+                <button className="ghost-btn" onClick={requestAnalysis} disabled={analysisLoading} type="button"><Brain size={15} /> {analysisLoading ? "Okuyor" : "AI yorum"}</button>
               </div>
 
-              <div className="session-ai-note">
-                <span><Sparkles size={14} /> Session mentor</span>
-                {analysis.status === "ready"
-                  ? <><strong>{analysis.analysis.verdict} · {analysis.model === "local-deterministic-fallback" ? "local" : "Gemini"}</strong><p>{analysis.analysis.summary}</p></>
-                  : <p>{analysis.status === "error" ? analysis.error : analysis.reason}</p>}
-              </div>
+              {(analysis.status === "ready" || analysis.status === "error") && (
+                <div className="session-ai-note">
+                  <span><Sparkles size={14} /> AI notu</span>
+                  {analysis.status === "ready"
+                    ? <><strong>{analysis.analysis.verdict}</strong><p>{analysis.analysis.summary}</p></>
+                    : <p>{analysis.error}</p>}
+                </div>
+              )}
 
-              <details className="compact-details">
-                <summary><Clock3 size={14} /> Setup geçmişi</summary>
+              <details className="compact-details session-technical-details">
+                <summary><Clock3 size={14} /> Teknik detay</summary>
+                <div className="session-evidence-list">
+                  {selected.events.map((event) => (
+                    <div className={event.status} key={event.id}>
+                      <span>{event.status === "pass" ? "✓" : event.status === "fail" ? "×" : "·"}</span>
+                      <p><strong>{event.label}</strong><small>{event.detail}</small></p>
+                      {event.timestampUtc && <time>{timeLabel(event.timestampUtc)}</time>}
+                    </div>
+                  ))}
+                </div>
                 <div className="session-log-list">
                   {selectedLogs.map((log) => (
                     <div key={log.id}><strong>{lifecycleLabel(log.lifecycleStatus)}</strong><span>{log.detail}</span><time>{timeLabel(log.eventTimestampUtc)}</time></div>
                   ))}
-                  {!selectedLogs.length && <p className="muted-note">Henüz lifecycle logu yok.</p>}
                 </div>
               </details>
             </>
           ) : (
-            <div className="empty-decision-state"><strong>Setup seç.</strong><span>Detay ve kanıt zinciri burada görünür.</span></div>
+            <div className="empty-decision-state"><strong>Setup yok.</strong><span>Aktif bir session yapısı oluşunca detayı burada görünür.</span></div>
           )}
         </aside>
       </div>

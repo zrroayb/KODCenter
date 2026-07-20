@@ -4766,6 +4766,93 @@ button {
   color: var(--text);
 }
 
+.simple-session-page {
+  gap: 12px;
+}
+
+.simple-session-summary {
+  padding: 18px 20px;
+}
+
+.simple-session-summary .session-summary-metrics span {
+  min-width: 78px;
+}
+
+.simple-mode-switch {
+  display: inline-flex;
+  justify-self: start;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.simple-mode-switch button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.simple-mode-switch button.active {
+  background: var(--surface-soft);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.simple-session-workspace {
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  min-height: 0;
+}
+
+.simple-session-row {
+  grid-template-columns: 10px minmax(0, 1fr) 72px 110px;
+  min-height: 64px;
+  padding: 10px 14px;
+}
+
+.simple-session-row .session-row-main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simple-session-detail .session-range-map {
+  grid-template-rows: auto 145px auto;
+  margin: 14px 18px;
+}
+
+.session-plan-details .sb-plan-chart {
+  margin-top: 10px;
+}
+
+.simple-next-step {
+  display: grid;
+  gap: 5px;
+}
+
+.simple-next-step > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.simple-next-step > strong {
+  line-height: 1.4;
+}
+
+.session-technical-details .session-evidence-list {
+  margin: 8px 0 0;
+}
+
 @media (max-width: 1080px) {
   .session-workspace {
     grid-template-columns: 1fr;
@@ -4817,6 +4904,10 @@ button {
     grid-template-columns: 8px minmax(0, 1fr) 52px;
   }
 
+  .simple-session-row {
+    grid-template-columns: 8px minmax(0, 1fr) 52px;
+  }
+
   /* Every child needs an explicit slot: auto-placement drops the score into the
      8px dot column once model/status claim `2 / -1`. */
   .session-setup-row .session-direction-dot {
@@ -4844,5 +4935,15 @@ button {
     grid-column: 2 / -1;
     grid-row: 3;
     justify-self: start;
+  }
+
+  .simple-session-row .session-row-status {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .simple-session-row .session-row-score {
+    grid-column: 3;
+    grid-row: 1 / span 2;
   }
 }

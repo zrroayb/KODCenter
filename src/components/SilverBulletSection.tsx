@@ -1,41 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Clock3, Crosshair, Sparkles } from "lucide-react";
+import { Brain, Clock3, Sparkles } from "lucide-react";
 import { fetchSilverBulletAnalysis, type SbAnalysisResponse } from "../lib/gemini/silverBulletInterpretation";
 import { tzOffsetHours } from "../lib/session/sessionClock";
 import type { SbLifecycle, SilverBulletLog, SilverBulletSetup } from "../lib/strategies/silverBullet/types";
 import { SilverBulletPlanChart } from "./SilverBulletPlanChart";
 
+type SilverMode = "active" | "history";
+
+const READY: SbLifecycle[] = ["ENTRY_FILLED", "ACTIVE", "TARGET_1_REACHED", "TARGET_2_REACHED"];
 const TERMINAL: SbLifecycle[] = ["STOPPED", "INVALIDATED", "LATE", "EXPIRED", "NO_TRADE", "COMPLETED", "BOTH_SIDES_SWEPT", "BREAK_ACCEPTED_OUTSIDE"];
 
 function lifecycleLabel(status: SbLifecycle): string {
-  switch (status) {
-    case "REFERENCE_BUILDING": return "09:00 mumu oluşuyor";
-    case "WAITING_FOR_SWEEP": return "Sweep bekleniyor";
-    case "WAITING_FOR_RECLAIM": return "Reclaim bekleniyor";
-    case "WAITING_FOR_DISPLACEMENT": return "Displacement bekleniyor";
-    case "WAITING_FOR_STRUCTURE_SHIFT": return "MSS/CISD bekleniyor";
-    case "WAITING_FOR_ENTRY_ARRAY": return "Entry array bekleniyor";
-    case "ORDER_PENDING": return "Emir bekliyor";
-    case "ENTRY_FILLED": return "Entry doldu";
-    case "ACTIVE": return "Aktif";
-    case "TARGET_1_REACHED": return "TP1 görüldü";
-    case "TARGET_2_REACHED": return "TP2 görüldü";
-    case "STOPPED": return "Stop";
-    case "BOTH_SIDES_SWEPT": return "İki taraf süpürüldü";
-    case "BREAK_ACCEPTED_OUTSIDE": return "Dışarıda kabul";
-    case "INVALIDATED": return "Geçersiz";
-    case "LATE": return "Geç";
-    case "EXPIRED": return "Süre doldu";
-    case "NO_TRADE": return "No-trade";
-    case "COMPLETED": return "Tamamlandı";
-    default: return "Gelişiyor";
+  if (READY.includes(status)) return "Hazır";
+  if (status === "REFERENCE_BUILDING" || status === "REFERENCE_LOCKED" || status === "WINDOW_OPEN") return "Range hazırlanıyor";
+  if (status === "WAITING_FOR_SWEEP") return "Sweep bekle";
+  if (status === "WAITING_FOR_RECLAIM" || status === "HIGH_SWEPT" || status === "LOW_SWEPT") return "İçeri dönüş bekle";
+  if (status === "WAITING_FOR_DISPLACEMENT") return "Güçlü hareket bekle";
+  if (status === "WAITING_FOR_STRUCTURE_SHIFT") return "Kapanış bekle";
+  if (status === "WAITING_FOR_ENTRY_ARRAY" || status === "ORDER_PENDING") return "Giriş bekle";
+  if (status === "STOPPED") return "Stop";
+  if (status === "COMPLETED") return "Tamamlandı";
+  if (status === "NO_TRADE") return "İşlem yok";
+  return "Geçersiz";
+}
+
+function nextStep(setup: SilverBulletSetup): string {
+  if (TERMINAL.includes(setup.lifecycleStatus)) {
+    return setup.noTradeReasons[0] ?? setup.invalidationReasons[0] ?? setup.lateReason ?? "Bu pencere işlem üretmeden kapandı.";
   }
+  if (READY.includes(setup.lifecycleStatus)) return "Plan aktif. Stop ve hedefi takip et.";
+  if (setup.lifecycleStatus === "REFERENCE_BUILDING" || setup.lifecycleStatus === "REFERENCE_LOCKED" || setup.lifecycleStatus === "WINDOW_OPEN") return "09:00 NY range tamamlansın.";
+  if (setup.lifecycleStatus === "WAITING_FOR_SWEEP") return "09:00 range high veya low alınsın.";
+  if (setup.lifecycleStatus === "WAITING_FOR_RECLAIM" || setup.lifecycleStatus === "HIGH_SWEPT" || setup.lifecycleStatus === "LOW_SWEPT") return "Fiyat range içine geri dönsün.";
+  if (setup.lifecycleStatus === "WAITING_FOR_DISPLACEMENT") return "Sweep yönünün tersine güçlü hareket gelsin.";
+  if (setup.lifecycleStatus === "WAITING_FOR_STRUCTURE_SHIFT") return "5m mum yön değişimini kapanışla onaylasın.";
+  if (setup.lifecycleStatus === "WAITING_FOR_ENTRY_ARRAY") return "Yön değişimi sonrası FVG oluşsun.";
+  if (setup.lifecycleStatus === "ORDER_PENDING") return "Fiyat giriş alanına dokunsun.";
+  return setup.summary;
 }
 
 function nyClock(now: number): string {
   const offset = tzOffsetHours("America/New_York", now);
   const local = new Date(now + offset * 60 * 60 * 1000);
-  return `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")} NY (UTC${offset >= 0 ? "+" : ""}${offset})`;
+  return `${String(local.getUTCHours()).padStart(2, "0")}:${String(local.getUTCMinutes()).padStart(2, "0")} NY`;
 }
 
 function timeLabel(timestamp: number): string {
@@ -43,29 +50,34 @@ function timeLabel(timestamp: number): string {
 }
 
 export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetup[]; logs: SilverBulletLog[] }) {
+  const [mode, setMode] = useState<SilverMode>("active");
   const [selectedId, setSelectedId] = useState<string | null>(setups[0]?.setupId ?? null);
-  const [analysis, setAnalysis] = useState<SbAnalysisResponse>({ status: "disabled", reason: "AI yorumu yalnız seçili setup için alınır." });
+  const [analysis, setAnalysis] = useState<SbAnalysisResponse>({ status: "disabled", reason: "" });
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const now = Date.now();
-
-  const ordered = useMemo(
-    () => [...setups].sort((a, b) => Number(TERMINAL.includes(a.lifecycleStatus)) - Number(TERMINAL.includes(b.lifecycleStatus)) || b.updatedAtUtc - a.updatedAtUtc),
+  const active = useMemo(
+    () => setups
+      .filter((setup) => !TERMINAL.includes(setup.lifecycleStatus))
+      .sort((a, b) => Number(READY.includes(b.lifecycleStatus)) - Number(READY.includes(a.lifecycleStatus)) || b.score - a.score),
     [setups]
   );
-  const selected = ordered.find((setup) => setup.setupId === selectedId) ?? ordered[0];
+  const history = useMemo(
+    () => setups.filter((setup) => TERMINAL.includes(setup.lifecycleStatus)).sort((a, b) => b.updatedAtUtc - a.updatedAtUtc),
+    [setups]
+  );
+  const displayed = mode === "active" ? active : history;
+  const selected = displayed.find((setup) => setup.setupId === selectedId) ?? displayed[0];
   const selectedLogs = selected ? logs.filter((log) => log.setupId === selected.setupId) : [];
-  const live = ordered.find((setup) => !TERMINAL.includes(setup.lifecycleStatus));
-  const windowActive = live ? now >= live.windowStartUtc && now < live.windowEndUtc : false;
+  const live = active[0];
+  const windowActive = Boolean(live && now >= live.windowStartUtc && now < live.windowEndUtc);
   const remainingMin = live && windowActive ? Math.max(0, Math.round((live.windowEndUtc - now) / 60000)) : null;
 
   useEffect(() => {
-    if (ordered.length && !ordered.some((setup) => setup.setupId === selectedId)) {
-      setSelectedId(ordered[0].setupId);
-    }
-  }, [ordered, selectedId]);
+    if (displayed.length && !displayed.some((setup) => setup.setupId === selectedId)) setSelectedId(displayed[0].setupId);
+  }, [displayed, selectedId]);
 
   useEffect(() => {
-    setAnalysis({ status: "disabled", reason: "AI yorumu yalnız seçili setup için alınır." });
+    setAnalysis({ status: "disabled", reason: "" });
   }, [selected?.setupId]);
 
   const requestAnalysis = async () => {
@@ -79,29 +91,30 @@ export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetu
   };
 
   return (
-    <div className="silver-bullet-section">
-      <article className="panel session-summary-strip">
+    <section className="silver-bullet-section simple-session-page">
+      <article className="panel session-summary-strip simple-session-summary">
         <div>
-          <span className="eyebrow">ICT Silver Bullet · NY AM 09:00 range</span>
-          <h2>{windowActive ? `Pencere AÇIK · ${remainingMin} dk kaldı` : "Pencere kapalı (10:00–11:00 NY)"}</h2>
-          <p>{nyClock(now)} · 09:00 mumu sweep → reclaim → displacement → MSS/CISD → FVG → 11:00'dan önce fill.</p>
+          <span className="eyebrow">Silver Bullet</span>
+          <h2>{windowActive ? `Pencere açık · ${remainingMin} dk` : "Pencere kapalı"}</h2>
+          <p>{nyClock(now)} · İşlem penceresi 10:00–11:00 NY.</p>
         </div>
         <div className="session-summary-metrics">
-          <span><strong>{ordered.filter((setup) => !TERMINAL.includes(setup.lifecycleStatus)).length}</strong> canlı</span>
-          <span><strong>{ordered.filter((setup) => setup.lifecycleStatus === "NO_TRADE").length}</strong> no-trade</span>
-          <span><strong>{ordered.filter((setup) => setup.plan?.entryFilledUtc).length}</strong> fill</span>
+          <span><strong>{active.filter((setup) => READY.includes(setup.lifecycleStatus)).length}</strong> hazır</span>
+          <span><strong>{active.length}</strong> aktif</span>
         </div>
       </article>
 
-      <div className="session-workspace">
+      <div className="simple-mode-switch" role="tablist" aria-label="Silver Bullet görünümü">
+        <button className={mode === "active" ? "active" : ""} onClick={() => setMode("active")} type="button">Aktif ({active.length})</button>
+        <button className={mode === "history" ? "active" : ""} onClick={() => setMode("history")} type="button">Geçmiş ({history.length})</button>
+      </div>
+
+      <div className="session-workspace simple-session-workspace">
         <article className="panel session-list-panel">
-          <header className="session-filterbar">
-            <div className="session-tabs"><button className="active" type="button"><Crosshair size={14} /> NY_AM_09_HOURLY_RANGE_REVERSAL_V1</button></div>
-          </header>
           <div className="session-setup-list">
-            {ordered.map((setup) => (
+            {displayed.map((setup) => (
               <button
-                className={`session-setup-row ${selected?.setupId === setup.setupId ? "selected" : ""} ${setup.lifecycleStatus.toLowerCase()}`}
+                className={`session-setup-row simple-session-row ${selected?.setupId === setup.setupId ? "selected" : ""} ${setup.lifecycleStatus.toLowerCase()}`}
                 key={setup.setupId}
                 onClick={() => setSelectedId(setup.setupId)}
                 type="button"
@@ -109,93 +122,81 @@ export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetu
                 <span className={`session-direction-dot ${setup.direction === "none" ? "neutral" : setup.direction}`} />
                 <span className="session-row-main">
                   <strong>{setup.symbol} {setup.direction === "none" ? "" : setup.direction.toUpperCase()}</strong>
-                  <small>{setup.referenceRange.low.toFixed(2)} – {setup.referenceRange.high.toFixed(2)} · {setup.referenceRange.quality}</small>
+                  <small>{nextStep(setup)}</small>
                 </span>
-                <span className="session-row-model">{setup.triggerType ?? setup.sweep?.side ?? "—"}</span>
-                <span className="session-row-score"><strong>{setup.score}</strong><small>{setup.grade}</small></span>
+                <span className="session-row-score"><strong>{setup.grade}</strong><small>{setup.score} kalite</small></span>
                 <span className="session-row-status">{lifecycleLabel(setup.lifecycleStatus)}</span>
               </button>
             ))}
-            {!ordered.length && (
+            {!displayed.length && (
               <div className="empty-decision-state">
-                <strong>Bugün Silver Bullet verisi yok.</strong>
-                <span>09:00 NY referans mumu oluşunca burada görünür.</span>
+                <strong>{mode === "active" ? "Şu an setup yok." : "Geçmiş boş."}</strong>
+                <span>{mode === "active" ? "10:00 NY sonrası range sweep oluşursa burada görünür." : "Kapanan pencereler burada tutulur."}</span>
               </div>
             )}
           </div>
         </article>
 
-        <aside className="panel session-detail-panel">
+        <aside className="panel session-detail-panel simple-session-detail">
           {selected ? (
             <>
               <header>
                 <div>
-                  <span className="eyebrow">{selected.setupModel ?? "SILVER BULLET"} · {selected.tradingDayId}</span>
+                  <span className="eyebrow">10:00–11:00 NY</span>
                   <h2>{selected.symbol} {selected.direction === "none" ? "" : selected.direction.toUpperCase()}</h2>
-                  <p>Skor {selected.score} / {selected.grade} · HTF {selected.htfAlignment}</p>
                 </div>
                 <span className={`session-state-badge ${selected.lifecycleStatus.toLowerCase()}`}>{lifecycleLabel(selected.lifecycleStatus)}</span>
               </header>
 
-              <SilverBulletPlanChart setup={selected} />
-
-              {selected.plan && (
-                <div className="session-decision">
-                  <strong>Entry {selected.plan.entry.toFixed(4)} · Stop {selected.plan.stopLoss.toFixed(4)} · TP {selected.plan.targets.map((target) => target.toFixed(4)).join(" / ")}</strong>
-                  <p>Planlanan R:R {selected.plan.plannedRR} {selected.plan.entryFilledUtc ? `· fill ${timeLabel(selected.plan.entryFilledUtc)} (kalan ${Math.round((selected.plan.remainingSecondsAtEntry ?? 0) / 60)} dk)` : "· emir dolmadı"}</p>
-                </div>
-              )}
-              {!selected.plan && <div className="session-decision"><strong>{selected.summary}</strong></div>}
-
-              {(selected.noTradeReasons.length > 0 || selected.invalidationReasons.length > 0) && (
-                <div className="session-decision">
-                  <strong>{selected.noTradeReasons.length ? "NO-TRADE" : "GEÇERSİZ"}</strong>
-                  <p>{[...selected.noTradeReasons, ...selected.invalidationReasons].join(" · ")}</p>
-                </div>
-              )}
-
-              <div className="session-evidence-list">
-                {selected.events.map((event) => (
-                  <div className={event.status} key={event.id}>
-                    <span>{event.status === "pass" ? "✓" : event.status === "fail" ? "×" : "·"}</span>
-                    <p><strong>{event.label}</strong><small>{event.detail}</small></p>
-                    {event.timestampUtc && <time>{timeLabel(event.timestampUtc)}</time>}
-                  </div>
-                ))}
+              <div className="session-decision simple-next-step">
+                <span>Tek beklenen</span>
+                <strong>{nextStep(selected)}</strong>
+                {selected.plan && <p>Giriş {selected.plan.entry.toFixed(4)} · Stop {selected.plan.stopLoss.toFixed(4)} · Hedef {selected.plan.targets[0]?.toFixed(4)} · RR 1:{selected.plan.plannedRR.toFixed(2)}</p>}
               </div>
 
               <div className="session-detail-actions">
                 <button className="ghost-btn" onClick={requestAnalysis} disabled={analysisLoading} type="button">
-                  <Brain size={15} /> {analysisLoading ? "AI okuyor" : "AI yorumla"}
+                  <Brain size={15} /> {analysisLoading ? "Okuyor" : "AI yorum"}
                 </button>
               </div>
 
-              <div className="session-ai-note">
-                <span><Sparkles size={14} /> Silver Bullet mentor</span>
-                {analysis.status === "ready"
-                  ? (() => {
-                      const strategy = analysis.analysis.strategy_analysis as { status?: string } | undefined;
-                      const summary = String(analysis.analysis.plain_language_summary ?? "");
-                      return <><strong>{strategy?.status ?? "?"} · Gemini</strong><p>{summary}</p></>;
-                    })()
-                  : <p>{analysis.status === "error" ? analysis.error : analysis.reason}</p>}
-              </div>
+              {(analysis.status === "ready" || analysis.status === "error") && (
+                <div className="session-ai-note">
+                  <span><Sparkles size={14} /> AI notu</span>
+                  {analysis.status === "ready"
+                    ? <p>{String(analysis.analysis.plain_language_summary ?? "Özet yok.")}</p>
+                    : <p>{analysis.error}</p>}
+                </div>
+              )}
 
-              <details className="compact-details">
-                <summary><Clock3 size={14} /> Setup geçmişi</summary>
+              <details className="compact-details session-plan-details">
+                <summary>Plan haritası</summary>
+                <SilverBulletPlanChart setup={selected} />
+              </details>
+
+              <details className="compact-details session-technical-details">
+                <summary><Clock3 size={14} /> Teknik detay</summary>
+                <div className="session-evidence-list">
+                  {selected.events.map((event) => (
+                    <div className={event.status} key={event.id}>
+                      <span>{event.status === "pass" ? "✓" : event.status === "fail" ? "×" : "·"}</span>
+                      <p><strong>{event.label}</strong><small>{event.detail}</small></p>
+                      {event.timestampUtc && <time>{timeLabel(event.timestampUtc)}</time>}
+                    </div>
+                  ))}
+                </div>
                 <div className="session-log-list">
                   {selectedLogs.map((log) => (
                     <div key={log.id}><strong>{lifecycleLabel(log.statusAfter)}</strong><span>{log.reason}</span><time>{timeLabel(log.eventTimestampUtc)}</time></div>
                   ))}
-                  {!selectedLogs.length && <p className="muted-note">Henüz lifecycle logu yok.</p>}
                 </div>
               </details>
             </>
           ) : (
-            <div className="empty-decision-state"><strong>Setup seç.</strong><span>09:00 range, sweep ve onay zinciri burada görünür.</span></div>
+            <div className="empty-decision-state"><strong>Setup yok.</strong><span>Geçerli pencere yapısı oluşunca burada görünür.</span></div>
           )}
         </aside>
       </div>
-    </div>
+    </section>
   );
 }

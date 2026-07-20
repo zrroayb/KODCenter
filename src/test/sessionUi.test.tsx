@@ -52,13 +52,16 @@ const fixture = {
 } as SessionSetup;
 
 describe("Session Setups UI", () => {
-  it("renders a compact decision row, range map and missing step", () => {
+  it("renders one active decision, range map and the missing step", () => {
     const html = renderToStaticMarkup(<SessionSetupsView logs={[]} onOpenSignal={() => undefined} setups={[fixture]} />);
-    expect(html).toContain("CRT × Session");
+    expect(html).toContain("Session radar");
+    expect(html).toContain("Aktif (1)");
     expect(html).toContain("ASIA");
     expect(html).toContain("LONDON");
-    expect(html).toContain("LTF onay bekle");
+    expect(html).toContain("Kapanış bekle");
+    expect(html).toContain("Tek beklenen");
     expect(html).toContain("15m confirmation pending");
     expect(html).toContain("session-range-map");
+    expect(html).toContain("Teknik detay");
   });
 });
