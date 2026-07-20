@@ -137,6 +137,8 @@ describe("BacktestView replay visibility", () => {
     expect(markup).toContain("Filtre denemesi");
     expect(markup).toContain("Sadece canlı READY");
     expect(markup).toContain("Setup kırılımı");
+    expect(markup).toContain("Ön sonuç · 0/20");
+    expect(markup).toContain("Bu veriyle sembol kapatılmaz");
     expect(markup).toContain("12 WATCH");
     expect(markup).toContain("GBPUSD SHORT");
     expect(markup).toContain("15m mum kapanış onayı bekleniyor.");

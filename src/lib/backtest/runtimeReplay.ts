@@ -31,6 +31,9 @@ const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const REPLAY_MAX_SYMBOL_DAILY_TRADES = 1;
 const REPLAY_MAX_ENTRIES_PER_SCAN = 1;
 const REPLAY_DAILY_STOP_R = -2;
+const MIN_REPLAY_RULE_TRADES = 20;
+const MIN_REPLAY_BUCKET_TRADES = 8;
+const MIN_REPLAY_SCENARIO_TRADES = 12;
 
 type SetupState = {
   lastSeen: number;
@@ -778,10 +781,22 @@ function replayEntryRank(signal: TradingSignal): number {
   return signal.score + Math.min(signal.plan.rr, 5) * 5 + gradeBonus + actionBonus;
 }
 
+function replayPlanGeometryValid(signal: TradingSignal): boolean {
+  const target = signal.plan.targets[1] ?? signal.plan.targets[0];
+  if (typeof target !== "number") return false;
+  if (![signal.plan.entry, signal.plan.stopLoss, target, signal.plan.riskDistance, signal.plan.rr].every(Number.isFinite)) return false;
+  if (signal.plan.riskDistance <= 0) return false;
+  const stopValid = signal.direction === "short"
+    ? signal.plan.stopLoss > signal.plan.entry
+    : signal.plan.stopLoss < signal.plan.entry;
+  const targetValid = signal.direction === "short" ? target < signal.plan.entry : target > signal.plan.entry;
+  return stopValid && targetValid;
+}
+
 function replayEligibleSignal(signal: TradingSignal): boolean {
   // Replay and live alerts must evaluate the exact same event-time decision. Promoting a WATCH
   // after seeing later candles measures a different strategy and inflates the apparent sample.
-  return signal.stage === "ready";
+  return signal.stage === "ready" && replayPlanGeometryValid(signal);
 }
 
 function bestSymbol(trades: RuntimeReplayTrade[], candidates: RuntimeReplayCandidate[]): string {
@@ -846,7 +861,7 @@ function scenarioStats(
   const winRate = triggered.length ? (wins.length / triggered.length) * 100 : 0;
   const profitFactor = grossLoss ? grossWin / grossLoss : grossWin;
   const drawdown = maxDrawdown(equityCurveFromReturns(sample.map((trade) => trade.rMultiple)));
-  const verdict: RuntimeReplayFilterScenario["verdict"] = triggered.length < 4
+  const verdict: RuntimeReplayFilterScenario["verdict"] = triggered.length < MIN_REPLAY_SCENARIO_TRADES
     ? "needs-data"
     : expectancyR <= -0.15 || profitFactor < 0.9
       ? "avoid"
@@ -883,7 +898,7 @@ function managementScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayManagem
     const grossLoss = Math.abs(returns.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
     const profitFactor = Number((grossLoss ? grossWin / grossLoss : grossWin).toFixed(2));
     const deltaR = Number((expectancyR - modelExpectancy).toFixed(2));
-    const verdict: RuntimeReplayManagementScenario["verdict"] = sample.length < 4
+    const verdict: RuntimeReplayManagementScenario["verdict"] = sample.length < MIN_REPLAY_SCENARIO_TRADES
       ? "needs-data"
       : id === "model" || Math.abs(deltaR) < 0.05
         ? "similar"
@@ -980,7 +995,7 @@ function tagLabel(tag: string): string {
   if (group === "smt") return value === "none" ? "SMT yok" : "SMT aligned";
   if (group === "crt") return `CRT ${value}`;
   if (group === "pullback") return value === "valid" ? "Valid pullback" : "Pullback invalid";
-  if (group === "poi") return value === "touched" ? "POI touched" : "POI missing";
+  if (group === "poi") return value === "mapped" || value === "touched" ? "POI var" : "POI yok";
   if (group === "manipulation") return value === "yes" ? "Manipulation var" : "Manipulation yok";
   if (group === "choch") return value === "yes" ? "ChoCH var" : "ChoCH yok";
   if (group === "rr") return value === "2plus" ? "RR 2+" : value === "ok" ? "RR uygun" : "RR düşük";
@@ -990,7 +1005,8 @@ function tagLabel(tag: string): string {
 
 function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number): RuntimeReplayCalibration[] {
   const insights: RuntimeReplayCalibration[] = [];
-  if (!trades.length) {
+  const triggered = trades.filter((trade) => trade.status !== "not-triggered");
+  if (!triggered.length) {
     insights.push({
       label: "READY üretimi",
       value: "0",
@@ -1001,10 +1017,37 @@ function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number
     });
     return insights;
   }
+  if (triggered.length < MIN_REPLAY_RULE_TRADES) {
+    return [{
+      label: "Örneklem",
+      value: `${triggered.length}/${MIN_REPLAY_RULE_TRADES}`,
+      detail: "Kural değiştirmek için veri az. Aynı kurallarla örnek biriktir; sembol veya setup kapatma kararı çıkarma.",
+      verdict: "investigate"
+    }];
+  }
 
   const tagStats = new Map<string, { count: number; totalR: number; wins: number }>();
-  for (const trade of trades) {
-    for (const tag of trade.tags) {
+  const keepTags = new Set([
+    "pullback:valid",
+    "poi:mapped",
+    "retest:yes",
+    "manipulation:yes",
+    "choch:yes",
+    "pd:aligned",
+    "htf:aligned",
+    "smt:aligned",
+    "rr:ok",
+    "rr:2plus",
+    "governance:allow"
+  ]);
+  const isPreEntryTag = (tag: string) => {
+    const [group, value] = tag.split(":");
+    if (["reason", "replay", "risk", "entry-fill"].includes(group)) return false;
+    if (group === "crt" && ["eq", "eq-full", "partial", "dol"].includes(value)) return false;
+    return true;
+  };
+  for (const trade of triggered) {
+    for (const tag of trade.tags.filter(isPreEntryTag)) {
       const current = tagStats.get(tag) ?? { count: 0, totalR: 0, wins: 0 };
       current.count += 1;
       current.totalR += trade.rMultiple;
@@ -1013,7 +1056,7 @@ function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number
     }
   }
 
-  for (const [tag, stat] of [...tagStats.entries()].filter(([, stat]) => stat.count >= 2)) {
+  for (const [tag, stat] of [...tagStats.entries()].filter(([, stat]) => stat.count >= MIN_REPLAY_BUCKET_TRADES)) {
     const avgR = stat.totalR / stat.count;
     if (avgR <= -0.35) {
       insights.push({
@@ -1022,7 +1065,7 @@ function calibrationFromTrades(trades: RuntimeReplayTrade[], watchAlerts: number
         detail: `${stat.count} örnekte negatif. Bu koşul READY'i WATCH'a düşürmek için aday.`,
         verdict: "tighten"
       });
-    } else if (avgR >= 0.45) {
+    } else if (avgR >= 0.45 && keepTags.has(tag)) {
       insights.push({
         label: tagLabel(tag),
         value: `${avgR.toFixed(2)}R`,
@@ -1118,7 +1161,7 @@ function setupBreakdowns(trades: RuntimeReplayTrade[]): RuntimeReplaySetupBreakd
       const winRate = triggered.length ? (wins.length / triggered.length) * 100 : 0;
       const avgMfeR = sample.reduce((sum, trade) => sum + trade.maxFavorableR, 0) / sample.length;
       const avgMaeR = sample.reduce((sum, trade) => sum + trade.maxAdverseR, 0) / sample.length;
-      const verdict: RuntimeReplaySetupBreakdown["verdict"] = sample.length < 4
+      const verdict: RuntimeReplaySetupBreakdown["verdict"] = triggered.length < MIN_REPLAY_BUCKET_TRADES
         ? "needs-data"
         : expectancyR <= -0.25 || (stopped.length >= wins.length * 2 && losses.length > 0)
           ? "avoid"
@@ -1438,5 +1481,7 @@ export function runMonthlyRuntimeReplay({
 
 export const __runtimeReplayInternals = {
   evaluateForwardOutcome,
-  timeframesAt
+  timeframesAt,
+  replayPlanGeometryValid,
+  calibrationFromTrades
 };

@@ -1,5 +1,8 @@
 import type { BacktestResult, RuntimeReplaySummary } from "../analytics/performance";
 
+const MIN_REPLAY_RULE_TRADES = 20;
+const MIN_REPLAY_BUCKET_TRADES = 8;
+
 export type GeminiReplayReviewPayload = {
   strategyId: string;
   windowDays: number;
@@ -62,7 +65,7 @@ const REASON_LABELS: Record<string, string> = {
 function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string): GeminiReplayReviewResponse {
   // Mentor rules: small samples get no verdict and no rule changes; losers are named concretely.
   const triggered = payload.totals.triggeredTrades;
-  const smallSample = triggered < 8;
+  const smallSample = triggered < MIN_REPLAY_RULE_TRADES;
   const karar = triggered === 0
     ? "Karar: Tetiklenen trade yok; disiplin kapıları çalışıyor, hüküm için veri yok."
     : smallSample
@@ -79,7 +82,7 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
       ? `Ana sorun: ${REASON_LABELS[topFailure.reason] ?? topFailure.reason} ${topFailure.count} kez / ${topFailure.totalR.toFixed(2)}R.`
       : "Ana sorun: kayıp bucket'ı yok.";
 
-  const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid" && item.triggered >= 3);
+  const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid" && item.triggered >= MIN_REPLAY_BUCKET_TRADES);
   // Management counterfactuals are measured in the replay itself: same entries, same
   // candles, only the exit rule differs — report the comparison instead of asking for it.
   const model = payload.managementScenarios.find((item) => item.id === "model");
@@ -99,7 +102,7 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
         ? `Değiştir: yönetimi "${betterMgmt.label}" varyantına kaydırmayı düşün (Δ${betterMgmt.deltaR >= 0 ? "+" : ""}${betterMgmt.deltaR.toFixed(2)}R); önce bir replay penceresi daha doğrula.`
         : "Değiştir: Tek bir setup bucket'ı suçlu değil; yönetim ölçümü de modeli aklıyor, aynı kurallarla devam.";
 
-  const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge" && item.triggered >= 3);
+  const bestFilter = payload.filterScenarios.find((item) => item.verdict === "edge" && item.triggered >= MIN_REPLAY_BUCKET_TRADES);
   const sonraki = bestFilter
     ? `Sonraki test: ${bestFilter.label} filtresini öne al (${bestFilter.expectancyR.toFixed(2)}R, PF ${bestFilter.profitFactor.toFixed(2)}).`
     : `Sonraki test: ${smallSample ? "1-2 hafta daha canlı veri biriktirip aynı replay'i tekrar çalıştır." : "live READY / HTF uyumlu / session içi filtrelerini ayrı ayrı ölç."}`;
@@ -154,6 +157,9 @@ export async function fetchGeminiReplayReview(result: BacktestResult): Promise<G
   const payload = buildGeminiReplayReviewPayload(result);
   if (!payload) {
     return { status: "disabled", reason: "Replay sonucu yok; önce son 1 ay replay çalıştır." };
+  }
+  if (payload.totals.triggeredTrades < MIN_REPLAY_RULE_TRADES) {
+    return localReplayReview(payload, `Minimum örneklem ${MIN_REPLAY_RULE_TRADES} tetiklenen trade.`);
   }
   try {
     const response = await fetch("/api/gemini/replay-review", {

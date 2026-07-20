@@ -499,6 +499,9 @@ Bu otomatik emir sistemi değildir; yatırım tavsiyesi verme, kesinlik konuşma
 Türkçe yaz. Az ama öz ol. Replay datasına göre setup mantığını düzeltmeye odaklan.
 WATCH-promoted ile live READY aynı şey değildir; bunu özellikle ayır.
 Eğer istatistik kötüyse net söyle, yumuşatma.
+Hard guardrail: Toplam tetiklenen trade 20'nin altındaysa hiçbir kural değişikliği, sembol durdurma veya setup kapatma önerme; yalnızca örneklem yetersiz de.
+Bir sembol/setup/filtre hakkında hüküm vermek için o bucket'ta en az 8 tetiklenen trade olmalı.
+NOT-TRIGGERED kayıtları performans örneklemine katma. EQ/TP gibi sonuç etiketlerini giriş filtresi sanma.
 
 Format:
 Karar: ...
@@ -1074,7 +1077,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
   const triggered = typeof totals.triggeredTrades === "number" ? totals.triggeredTrades : 0;
   const liveReady = typeof totals.liveReadyEntries === "number" ? totals.liveReadyEntries : 0;
   const watchPromoted = typeof totals.watchPromotedEntries === "number" ? totals.watchPromotedEntries : 0;
-  const smallSample = triggered < 8;
+  const smallSample = triggered < 20;
 
   const karar = triggered === 0
     ? "Karar: Replay'de tetiklenen trade yok; disiplin kapıları çalışıyor, hüküm için veri yok."
@@ -1094,7 +1097,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
       ? `Ana problem: ${REPLAY_REASON_LABELS[String(topFailure.reason)] ?? String(topFailure.reason)} ${String(topFailure.count)} kez / ${String(topFailure.totalR)}R; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`
       : `Ana problem: kayıp bucket'ı yok; live READY ${liveReady}, WATCH-promoted ${watchPromoted}.`;
 
-  const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid" && Number(item.triggered ?? 0) >= 3);
+  const worstSetup = setupBreakdowns.find((item) => item.verdict === "avoid" && Number(item.triggered ?? 0) >= 8);
   // Management counterfactuals arrive measured (same entries, different exit rule): report
   // the comparison instead of recommending "measure BE/partial" as a to-do.
   const modelMgmt = managementScenarios.find((item) => item.id === "model");
@@ -1111,7 +1114,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
           ? `Kural değişikliği: Yok — BE/partial varyantları ölçüldü, mevcut model (${String(modelMgmt.expectancyR)}R) en iyisi ya da farkı anlamsız.`
           : "Kural değişikliği: Tek bir setup bucket'ı suçlu değil; yönetim (BE/partial) senaryolarını ölç.";
 
-  const bestFilter = filterScenarios.find((item) => item.verdict === "edge" && Number(item.triggered ?? 0) >= 3);
+  const bestFilter = filterScenarios.find((item) => item.verdict === "edge" && Number(item.triggered ?? 0) >= 8);
   const olcum = bestFilter
     ? `Sonraki ölçüm: ${String(bestFilter.label)} filtresini tekrar ölç (${String(bestFilter.expectancyR)}R, PF ${String(bestFilter.profitFactor)}).`
     : `Sonraki ölçüm: ${smallSample ? "1-2 hafta daha canlı veri biriktirip aynı replay'i tekrar çalıştır." : "Live READY / HTF aligned / session içi filtrelerini ayrı ayrı ölç."}`;

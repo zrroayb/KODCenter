@@ -288,6 +288,9 @@ function replayPrompt(payload: unknown) {
   return `Sen kıdemli bir CRT strateji kalibrasyon analistisin.
 Replay verisine göre overfit yapmadan kısa bir değerlendirme yaz.
 WATCH-promoted ile live READY'yi ayır. Kötü sonucu açıkça söyle.
+Hard guardrail: Toplam tetiklenen trade 20'nin altındaysa hiçbir kural değişikliği, sembol durdurma veya setup kapatma önerme; yalnızca "örneklem yetersiz" de.
+Bir sembol/setup/filtre hakkında hüküm vermek için o bucket'ta en az 8 tetiklenen trade olmalı.
+NOT-TRIGGERED kayıtları performans örneklemine dahil etme. Pozitif sonuç etiketi (EQ/TP) giriş filtresi gibi yorumlanamaz.
 Format:
 Karar: ...
 Ana problem: ...

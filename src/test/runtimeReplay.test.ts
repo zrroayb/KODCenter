@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createDemoMarkets } from "../data/demoData";
+import type { RuntimeReplayTrade } from "../lib/analytics/performance";
 import { __runtimeReplayInternals, runMonthlyRuntimeReplay } from "../lib/backtest/runtimeReplay";
+import type { TradingSignal } from "../lib/ict/types";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
@@ -12,6 +14,47 @@ describe("monthly runtime replay", () => {
     const sliced = __runtimeReplayInternals.timeframesAt(market, latestH4.time + 60 * 60 * 1000);
 
     expect(sliced.h4.some((candle) => candle.time === latestH4.time)).toBe(false);
+  });
+
+  it("rejects a READY plan whose stop is on the profit side", () => {
+    const baseSignal = kodStrategy.scan({
+      context: createStructureContext(),
+      settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
+    }).signals[0];
+    const invalid = {
+      ...baseSignal,
+      direction: "long" as const,
+      stage: "ready" as const,
+      plan: {
+        ...baseSignal.plan,
+        entry: 100,
+        stopLoss: 101,
+        targets: [102, 103],
+        riskDistance: 1,
+        rr: 3
+      }
+    } as TradingSignal;
+
+    expect(__runtimeReplayInternals.replayPlanGeometryValid(invalid)).toBe(false);
+  });
+
+  it("does not calibrate rules from a tiny sample and labels a mapped POI correctly", () => {
+    const trade = (index: number): RuntimeReplayTrade => ({
+      id: `trade-${index}`,
+      status: "tp1",
+      rMultiple: 0.5,
+      tags: ["poi:mapped"],
+      origin: "live-ready",
+      outcomeReason: "clean-model"
+    } as RuntimeReplayTrade);
+
+    expect(__runtimeReplayInternals.calibrationFromTrades(Array.from({ length: 9 }, (_, index) => trade(index)), 0)).toEqual([
+      expect.objectContaining({ label: "Örneklem", value: "9/20", verdict: "investigate" })
+    ]);
+
+    const calibrated = __runtimeReplayInternals.calibrationFromTrades(Array.from({ length: 20 }, (_, index) => trade(index)), 0);
+    expect(calibrated).toContainEqual(expect.objectContaining({ label: "POI var", verdict: "keep" }));
+    expect(calibrated.some((item) => item.label.includes("missing"))).toBe(false);
   });
 
   it("walks historical candles and records replay diagnostics without faking READY trades", () => {

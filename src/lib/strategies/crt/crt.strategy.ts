@@ -18,6 +18,8 @@ import { evaluateDirectionalBias, type DirectionalBias } from "./directionalBias
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
+const RISK_FLOOR_ATR_MULTIPLIER = 1;
+const RISK_FLOOR_AVERAGE_RANGE_MULTIPLIER = 0.8;
 // Freshness windows in confirmation-TF candles: a sweep older than ~24 bars no longer
 // validates a setup. ChoCH stays valid for ~48 bars — staleness is guarded by the
 // retest-distance blocker and missed-detection, not by a tight expiry that closes the
@@ -923,10 +925,24 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     : undefined;
   const manipulationStopValid = typeof manipulationStop === "number"
     && (direction === "short" ? manipulationStop > entry : manipulationStop < entry);
-  const stopSource: StopSource = manipulationStopValid ? "manipulation" : "swing";
-  const stopLoss = manipulationStopValid && typeof manipulationStop === "number"
+  const structuralStopSource: StopSource = manipulationStopValid ? "manipulation" : "swing";
+  const structuralStop = manipulationStopValid && typeof manipulationStop === "number"
     ? manipulationStop
     : direction === "short" ? anchor.range.high + buffer : anchor.range.low - buffer;
+  const structuralStopValid = direction === "short" ? structuralStop > entry : structuralStop < entry;
+  const minimumRiskFloor = Math.max(
+    anchor.atr * RISK_FLOOR_ATR_MULTIPLIER,
+    anchor.averageRange * RISK_FLOOR_AVERAGE_RANGE_MULTIPLIER,
+    SYMBOL_MIN_BUFFER[context.symbol] * 2
+  );
+  const useRiskFloor = structuralStopValid && Math.abs(entry - structuralStop) < minimumRiskFloor;
+  // Widen away from the entry only. This preserves a valid manipulation/structure stop; an
+  // already-invalid structural stop is deliberately left untouched so geometry validation can
+  // reject the setup instead of manufacturing a plausible-looking plan.
+  const stopLoss = useRiskFloor
+    ? direction === "short" ? entry + minimumRiskFloor : entry - minimumRiskFloor
+    : structuralStop;
+  const stopSource: StopSource = useRiskFloor ? "volatility-floor" : structuralStopSource;
   const riskDistance = Math.max(Math.abs(entry - stopLoss), 0.000001);
   // CRT management is deterministic: TP1 is the anchor range equilibrium (0.5), never a
   // synthetic "POC" inferred from candle touches.
@@ -938,7 +954,9 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     ...(turtleSoup ? [`${anchor.spec.confirmTf} Turtle Soup ek kalite teyidi var.`] : []),
     `CRT ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}; confirmation ${anchor.spec.confirmTf}.`,
     `TP1/EQ yönetim seviyesi ${formatPrice(tp1)}; TP2/DOL ${formatPrice(tp2)}.`,
-    `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
+    ...(useRiskFloor
+      ? [`Structure stop gürültü bandında kaldı; risk tabanı ${formatPrice(minimumRiskFloor)} uygulandı.`]
+      : [`Stop ${structuralStopSource === "manipulation" ? "manipulation wick" : "CRT structure"} dışına ${formatPrice(buffer)} buffer ile kondu.`]),
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
     ...(choch && entryStatus === "confirmed" && !entryDecision.retested ? [`Entry kapalı ChoCH mumundan ${formatPrice(entry)}; POI retest gelirse daha iyi fiyat bonusudur.`] : [])
@@ -975,6 +993,15 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     executionCosts: costs,
     planWarnings
   };
+}
+
+export function isCrtPlanGeometryValid(direction: TradeDirection, plan: TradePlan): boolean {
+  const finalTarget = plan.targets[1] ?? plan.targets[0];
+  if (![plan.entry, plan.stopLoss, finalTarget, plan.riskDistance, plan.rr].every(Number.isFinite)) return false;
+  if (plan.riskDistance <= 0 || typeof finalTarget !== "number") return false;
+  const stopValid = direction === "short" ? plan.stopLoss > plan.entry : plan.stopLoss < plan.entry;
+  const targetValid = direction === "short" ? finalTarget < plan.entry : finalTarget > plan.entry;
+  return stopValid && targetValid;
 }
 
 // STEP 8: after the raid, price must reprice aggressively. Scans every confirmation candle
@@ -1377,6 +1404,17 @@ function m15StartIndex(context: MarketContext, anchor: AnchorCtx, setup: CrtSetu
 }
 
 function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, readyCandidate: boolean): { stage: TradingSignal["stage"]; outcome: SignalOutcome; actionWindow: SignalActionWindow } {
+  if (setup.plan.entryStatus !== "fallback" && !isCrtPlanGeometryValid(setup.direction, setup.plan)) {
+    const outcome: SignalOutcome = {
+      status: "not-triggered",
+      entryTouched: false,
+      maxFavorableR: 0,
+      maxAdverseR: 0,
+      candlesTracked: 0,
+      summary: "Plan geometrisi geçersiz: stop veya DOL entry'nin yanlış tarafında. Setup işlem adayı değildir."
+    };
+    return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
+  }
   if (setup.eqConsumed) {
     const outcome: SignalOutcome = {
       status: "missed",

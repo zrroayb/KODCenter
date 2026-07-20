@@ -41,26 +41,34 @@ function managementVerdictText(item: { id: string; verdict: string; deltaR: numb
   return "Benzer";
 }
 
+function plainAiCommentary(value: string): string {
+  return value
+    .replace(/\*\*/g, "")
+    .replace(/^\s*[-*]\s+/gm, "")
+    .trim();
+}
+
 export function BacktestView({ result, onRun, loading = false }: { result: BacktestResult; onRun: () => void; loading?: boolean }) {
   const [aiReview, setAiReview] = useState<GeminiReplayReviewResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
   const [aiLoading, setAiLoading] = useState(false);
   const replay = result.replay;
-  const metrics = [
-    [replay ? "Tetiklenen trade" : "Toplam işlem", result.totalTrades],
+  const minimumReliableSample = 20;
+  const sampleReliable = Boolean(replay && replay.triggeredTrades >= minimumReliableSample);
+  const metrics = replay ? [
+    ["Ölçülen trade", `${replay.triggeredTrades}`],
+    ["Expectancy", `${replay.expectancyR.toFixed(2)}R`],
+    ["Profit factor", result.profitFactor.toFixed(2)],
+    ["Max drawdown", `${result.maxDrawdown.toFixed(2)}R`],
     ["Win rate", `${result.winRate.toFixed(1)}%`],
-    [replay ? "Expectancy" : "Ortalama RR", replay ? `${replay.expectancyR.toFixed(2)}R` : result.averageRR.toFixed(2)],
+    ["Veri güveni", sampleReliable ? "Ölçülebilir" : "Ön sonuç"]
+  ] : [
+    ["Toplam işlem", result.totalTrades],
+    ["Win rate", `${result.winRate.toFixed(1)}%`],
+    ["Ortalama RR", result.averageRR.toFixed(2)],
     ["Profit factor", result.profitFactor.toFixed(2)],
     ["Max drawdown", `${result.maxDrawdown.toFixed(2)}R`],
     ["En iyi symbol", result.bestSymbol]
   ];
-  const replayMetrics = replay ? [
-    ["Pencere", `${replay.availableDays.toFixed(1)} / ${replay.windowDays} gün · ${replay.scanEveryCandles}x15m`],
-    ["Runtime scan", replay.scannedWindows],
-    ["Gerçek READY", replay.liveReadyEntries],
-    ["WATCH setup", replay.watchAlerts],
-    ["EQ/DOL / SL", `${replay.tp1Trades}/${replay.tp2Trades} / ${replay.stoppedTrades}`],
-    ["Toplam R", `${replay.totalR.toFixed(2)}R`]
-  ] : [];
   const runAiReview = async () => {
     if (!replay || aiLoading) return;
     setAiLoading(true);
@@ -86,14 +94,22 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       {replay && (
         <>
-          <div className="metric-grid replay-metric-grid">
-            {replayMetrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+          <div className={`replay-confidence-strip ${sampleReliable ? "reliable" : "building"}`}>
+            <strong>{sampleReliable ? "Örneklem yeterli" : `Ön sonuç · ${replay.triggeredTrades}/${minimumReliableSample}`}</strong>
+            <span>{sampleReliable ? "Kural karşılaştırmaları değerlendirilebilir." : "Bu veriyle sembol kapatılmaz veya strateji kuralı değiştirilmez."}</span>
+          </div>
+          <div className="replay-run-strip" aria-label="Replay çalışma özeti">
+            <span><strong>{replay.availableDays.toFixed(0)} gün</strong> pencere</span>
+            <span><strong>{replay.liveReadyEntries}</strong> READY</span>
+            <span><strong>{replay.watchAlerts}</strong> WATCH</span>
+            <span><strong>{replay.tp1Trades + replay.tp2Trades}/{replay.stoppedTrades}</strong> hedef/stop</span>
+            <span><strong>{replay.totalR.toFixed(2)}R</strong> toplam</span>
           </div>
           {replay.sampleWarning && <p className="provider-warning">{replay.sampleWarning}</p>}
           <div className="strategy-learning-list replay-ai-review">
             <strong>AI replay yorumu</strong>
             {aiReview.commentary
-              ? <p>{aiReview.commentary}</p>
+              ? <p>{plainAiCommentary(aiReview.commentary)}</p>
               : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
           </div>
           <details className="replay-deep-dive">
@@ -209,8 +225,10 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             {replay.candidates.slice(0, 18).map((candidate) => (
               <div key={candidate.id}>
                 <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · Kalite {candidate.grade}/{candidate.score}</strong>
-                <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · {candidate.sessionReference ?? "NONE"}→{candidate.sessionTrigger ?? "OUTSIDE"} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
-                <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · DOL {formatPrice(candidate.target)} · {candidate.decision}</small>
+                <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · {candidate.sessionReference ?? "NONE"}→{candidate.sessionTrigger ?? "OUTSIDE"} · {candidate.governance}/{candidate.actionWindow}</span>
+                {candidate.entryStatus === "fallback"
+                  ? <small>Henüz plan yok · {candidate.decision}</small>
+                  : <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · DOL {formatPrice(candidate.target)} · RR {candidate.rr.toFixed(2)} · {candidate.decision}</small>}
                 {candidate.reasons.length > 0 && <small>Eksik: {candidate.reasons.slice(0, 3).join(" · ")}</small>}
               </div>
             ))}
