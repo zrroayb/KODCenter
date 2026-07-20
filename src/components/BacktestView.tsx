@@ -56,8 +56,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
   const replayMetrics = replay ? [
     ["Pencere", `${replay.availableDays.toFixed(1)} / ${replay.windowDays} gün · ${replay.scanEveryCandles}x15m`],
     ["Runtime scan", replay.scannedWindows],
-    ["Replay entry", replay.readyAlerts],
-    ["Live / promoted", `${replay.liveReadyEntries} / ${replay.watchPromotedEntries}`],
+    ["Gerçek READY", replay.liveReadyEntries],
     ["WATCH setup", replay.watchAlerts],
     ["EQ/DOL / SL", `${replay.tp1Trades}/${replay.tp2Trades} / ${replay.stoppedTrades}`],
     ["Toplam R", `${replay.totalR.toFixed(2)}R`]
@@ -90,11 +89,6 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
           <div className="metric-grid replay-metric-grid">
             {replayMetrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
           </div>
-          {replay.liveReadyEntries === 0 && replay.watchPromotedEntries > 0 && (
-            <p className="provider-warning" style={{ borderColor: "var(--border-warning, #ba7517)" }}>
-              Canlı READY girişi yok. Bu sonuçlar WATCH adaylarının geçmişte nasıl davranacağını ölçer; canlı performans değildir.
-            </p>
-          )}
           {replay.sampleWarning && <p className="provider-warning">{replay.sampleWarning}</p>}
           <div className="strategy-learning-list replay-ai-review">
             <strong>AI replay yorumu</strong>
@@ -140,7 +134,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
               <div key={row.symbol}>
                 <span>{row.symbol}</span>
                 <b>{row.watchAlerts} WATCH · {row.readyAlerts} replay entry</b>
-                <small>{row.triggeredTrades} tetik · {row.totalR.toFixed(2)}R · avg score {row.avgScore.toFixed(0)} · win {row.winRate.toFixed(1)}%</small>
+                <small>{row.triggeredTrades} tetik · {row.totalR.toFixed(2)}R · ort. kalite {row.avgScore.toFixed(0)} · win {row.winRate.toFixed(1)}%</small>
               </div>
             ))}
             {!replay.bySymbol.length && <p className="muted-note">Bu ay hiç setup adayı oluşmadı; veri/saat aralığı veya strateji filtresi kontrol edilmeli.</p>}
@@ -192,7 +186,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             <strong>Patlayan örnekler</strong>
             {replay.failureCases.slice(0, 8).map((trade) => (
               <div key={trade.id}>
-                <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE" : "WATCH→ENTRY"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
+                <strong>{trade.symbol} {trade.direction.toUpperCase()} · READY · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
                 <span>{new Date(trade.signalTime).toLocaleString()} · {trade.entrySource}/{trade.entryStatus} · {trade.sessionReference ?? "NONE"}→{trade.sessionTrigger ?? trade.session} · PD {trade.premiumDiscount} · HTF {trade.dailyBias}/{trade.h4Bias}</span>
                 <small>MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · RR {trade.rr.toFixed(2)} · {reasonText(trade.outcomeReason)}</small>
                 <small>{trade.diagnosis}</small>
@@ -203,8 +197,8 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
           <div className="journal-entry-list replay-trade-list">
             {replay.trades.slice(0, 8).map((trade) => (
               <div key={trade.id}>
-                <strong>{trade.symbol} {trade.direction.toUpperCase()} · {trade.origin === "live-ready" ? "LIVE READY" : "WATCH PROMOTED"} · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
-                <span>{new Date(trade.signalTime).toLocaleString()} · grade {trade.grade} · score {trade.score} · {trade.entrySource}/{trade.stopSource}</span>
+                <strong>{trade.symbol} {trade.direction.toUpperCase()} · LIVE READY · {trade.status.toUpperCase()} · {trade.rMultiple.toFixed(2)}R</strong>
+                <span>{new Date(trade.signalTime).toLocaleString()} · kalite {trade.grade}/{trade.score} · {trade.entrySource}/{trade.stopSource}</span>
                 <small>Entry {formatPrice(trade.entry)} · SL {formatPrice(trade.stopLoss)} · DOL {formatPrice(trade.target)} · MFE {trade.maxFavorableR.toFixed(2)}R · MAE {trade.maxAdverseR.toFixed(2)}R · {reasonText(trade.outcomeReason)} · {trade.note}</small>
               </div>
             ))}
@@ -214,7 +208,7 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             <strong>Aylık setup akışı</strong>
             {replay.candidates.slice(0, 18).map((candidate) => (
               <div key={candidate.id}>
-                <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · {candidate.grade} · Score {candidate.score}</strong>
+                <strong>{candidate.symbol} {candidate.direction.toUpperCase()} · {candidate.stage.toUpperCase()} · Kalite {candidate.grade}/{candidate.score}</strong>
                 <span>{new Date(candidate.signalTime).toLocaleString()} · {candidate.entrySource}/{candidate.entryStatus} · {candidate.sessionReference ?? "NONE"}→{candidate.sessionTrigger ?? "OUTSIDE"} · RR {candidate.rr.toFixed(2)} · {candidate.governance}/{candidate.actionWindow}</span>
                 <small>Entry {formatPrice(candidate.entry)} · SL {formatPrice(candidate.stopLoss)} · DOL {formatPrice(candidate.target)} · {candidate.decision}</small>
                 {candidate.reasons.length > 0 && <small>Eksik: {candidate.reasons.slice(0, 3).join(" · ")}</small>}

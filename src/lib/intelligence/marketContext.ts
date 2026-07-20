@@ -51,7 +51,7 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     source: feed,
     executionPrice: feed === "broker-bid-ask" || feed === "synthetic-bid-ask" ? "bid-ask" as const : "mid" as const,
     note: feed === "synthetic-bid-ask"
-      ? "Yahoo mid candles with modeled bid/ask spread."
+      ? "Yahoo proxy mid candles with modeled bid/ask spread; broker execution feed değildir."
       : feed === "broker-bid-ask"
         ? "Broker bid/ask candles."
         : feed === "demo"

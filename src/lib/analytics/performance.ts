@@ -252,27 +252,28 @@ export type RuntimeReplaySummary = {
 };
 
 export function performanceFromSignals(signals: TradingSignal[]): BacktestResult {
-  const returns = signals.map((signal, index) => {
-    const pass = signal.stage === "ready" && signal.score >= 70;
-    if (pass) return signal.plan.rr;
-    return index % 3 === 0 ? -1 : 0.25;
+  const measuredSignals = signals.filter((signal) => signal.outcome.status === "stopped" || signal.outcome.status === "tp1" || signal.outcome.status === "tp2");
+  const returns = measuredSignals.map((signal) => {
+    if (signal.outcome.status === "stopped") return -1;
+    if (signal.outcome.status === "tp2") return signal.plan.rr;
+    return Math.max(0, signal.outcome.maxFavorableR);
   });
   const wins = returns.filter((value) => value > 0).length;
   const losses = returns.filter((value) => value < 0).length;
   const grossWin = returns.filter((value) => value > 0).reduce((sum, value) => sum + value, 0);
   const grossLoss = Math.abs(returns.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
   return {
-    totalTrades: signals.length,
-    winRate: signals.length ? (wins / signals.length) * 100 : 0,
-    lossRate: signals.length ? (losses / signals.length) * 100 : 0,
-    averageRR: signals.length ? signals.reduce((sum, signal) => sum + signal.plan.rr, 0) / signals.length : 0,
+    totalTrades: measuredSignals.length,
+    winRate: measuredSignals.length ? (wins / measuredSignals.length) * 100 : 0,
+    lossRate: measuredSignals.length ? (losses / measuredSignals.length) * 100 : 0,
+    averageRR: measuredSignals.length ? measuredSignals.reduce((sum, signal) => sum + signal.plan.rr, 0) / measuredSignals.length : 0,
     profitFactor: grossLoss ? grossWin / grossLoss : grossWin,
     maxDrawdown: maxDrawdown(equityCurveFromReturns(returns)),
     maxWinStreak: streak(returns, true),
     maxLossStreak: streak(returns, false),
     bestKillzone: "London",
-    bestSymbol: bestSymbol(signals),
-    bestSetupGrade: bestGrade(signals),
+    bestSymbol: bestSymbol(measuredSignals),
+    bestSetupGrade: bestGrade(measuredSignals),
     bestPremiumDiscountLocation: "Premium / Discount aligned",
     worstCondition: "Outside killzone",
     equityCurve: equityCurveFromReturns(returns)

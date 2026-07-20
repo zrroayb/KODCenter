@@ -228,7 +228,7 @@ export function ScannerView({
   const dataLabel = dataLoading
     ? "Yükleniyor"
     : dataSource === "yahoo-live"
-      ? "Yahoo live"
+      ? "Yahoo proxy"
       : dataSource === "mixed"
         ? "Live + fallback"
         : "Demo fallback";
@@ -246,7 +246,7 @@ export function ScannerView({
           <>
             <div className="trade-now-main">
               <strong>{best.symbol} · {best.direction.toUpperCase()}</strong>
-              <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · {best.grade} · Score {best.score}</span>
+              <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · Kalite {best.grade}/{best.score}</span>
             </div>
             <div className="simple-plan-grid">
               <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
@@ -368,7 +368,7 @@ export function ScannerView({
             >
               <span className={`status-dot ${signal.stage}`} />
               <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
-              <b>{signal.grade} · {signal.score}</b>
+              <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (
                 <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "Daha temiz confirmation bekleniyor."}</em>
@@ -409,7 +409,7 @@ export function ScannerView({
             >
               <span className={`status-dot ${signal.stage}`} />
               <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
-              <b>{signal.grade} · {signal.score}</b>
+              <b>Kalite {signal.grade}/{signal.score}</b>
               <small>Erken aday · {signalDecisionLabel(signal)} · Net RR {formatR(signal.plan.rr)}</small>
               <em>{signalDecisionReason(signal)}</em>
             </button>

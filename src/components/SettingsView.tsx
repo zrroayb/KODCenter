@@ -66,7 +66,7 @@ export function SettingsView({
             </select>
           </label>
           <label>Minimum RR<input type="number" step="0.1" value={rules.minimumRR} onChange={(event) => updateNumber("minimumRR", Number(event.target.value))} /></label>
-          <label>Minimum score (C altı gizli)<input type="number" min={MIN_VISIBLE_SIGNAL_SCORE} max="100" value={rules.minimumScore} onChange={(event) => updateNumber("minimumScore", Number(event.target.value))} /></label>
+          <label>Minimum kalite (olasılık değil)<input type="number" min={MIN_VISIBLE_SIGNAL_SCORE} max="100" value={rules.minimumScore} onChange={(event) => updateNumber("minimumScore", Number(event.target.value))} /></label>
           <label>Max sinyal<input type="number" min="1" value={rules.maxSignalsPerScan} onChange={(event) => updateNumber("maxSignalsPerScan", Number(event.target.value))} /></label>
           <label>BE tetikleyici R<input type="number" step="0.25" min="0" value={rules.moveToBreakevenAtR} onChange={(event) => updateNumber("moveToBreakevenAtR", Number(event.target.value))} /></label>
         </div>

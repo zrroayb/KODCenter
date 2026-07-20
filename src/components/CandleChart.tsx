@@ -133,15 +133,15 @@ function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirm
         : closeRequirement.reference === "last-closed-high" ? "son kapalı mum high" : "son kapalı mum low";
     return compactDecisionText(`TEK KARAR: ${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${sideText} kapanmalı (${refText}).`);
   }
-  if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
+  if (signal.stage === "ready") {
+    return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`);
+  }
+  if (signal.plan.entryStatus === "pending") {
     const gap = signal.plan.entryModel.fairValueGap;
     const entryText = gap
       ? `${formatPrice(gap.low)}-${formatPrice(gap.high)} entry kutusuna`
       : `${formatPrice(signal.plan.entry)} entry seviyesine`;
     return compactDecisionText(`TEK KARAR: fiyat ${entryText} dokunsun. Mitigation kapanışı şart değil.`);
-  }
-  if (signal.stage === "ready") {
-    return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`);
   }
   return compactDecisionText(signal.plan.planWarnings[0]
     ? `TEK KARAR: bekle. ${signal.plan.planWarnings[0]}`

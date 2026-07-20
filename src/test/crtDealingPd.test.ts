@@ -6,7 +6,12 @@ import type { MarketContext, PremiumDiscountContext } from "../lib/ict/types";
 // A textbook CRT short that sits correctly in the PREMIUM half of its own 4h range, but where
 // the broader GLOBAL dealing range reads discount. The CRT-range PD (pdAligned) is the setup's
 // own logic and must stay the hard gate; the global dealing-range PD may only note/size-down.
-function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: Partial<MarketContext["bias"]> = {}, extraObjectives: MarketContext["liquidityObjectives"] = []) {
+function shortSignal(
+  globalZone: PremiumDiscountContext["zone"],
+  biasOverrides: Partial<MarketContext["bias"]> = {},
+  extraObjectives: MarketContext["liquidityObjectives"] = [],
+  useHtfAlignmentFilter = false
+) {
   const base = createStructureContext();
   const h4 = base.timeframes.h4.map((candle, index) =>
     index === 21
@@ -75,7 +80,7 @@ function shortSignal(globalZone: PremiumDiscountContext["zone"], biasOverrides: 
   });
   return crtStrategy.scan({
     context,
-    settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+    settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, useHtfAlignmentFilter }
   }).signals.find((signal) => signal.crtAnchor?.rangeTf === "4h" && signal.direction === "short")!;
 }
 
@@ -94,12 +99,19 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(conflicting.decisionSummary.warnings.some((w) => w.includes("dealing range PD ters"))).toBe(true);
   });
 
-  it("keeps an otherwise valid setup at WATCH when its anchor-specific HTF direction conflicts", () => {
+  it("keeps HTF conflict as quality context when the optional alignment filter is off", () => {
     const signal = shortSignal("premium", { weekly: "bullish" });
 
-    expect(signal.stage).toBe("watch");
-    expect(signal.governance.blockers.join(" ")).toContain("HTF yönü karşı");
+    expect(signal.stage).toBe("ready");
+    expect(signal.governance.blockers.join(" ")).not.toContain("HTF yön filtresi");
     expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
+  });
+
+  it("honors the user setting when the optional HTF alignment filter is enabled", () => {
+    const signal = shortSignal("premium", { weekly: "bullish" }, [], true);
+
+    expect(signal.stage).toBe("watch");
+    expect(signal.governance.blockers.join(" ")).toContain("HTF yön filtresi açık");
   });
 
   it("checks the correct higher-timeframe chain for every CRT anchor", () => {

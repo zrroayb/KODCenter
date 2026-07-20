@@ -26,8 +26,6 @@ const DEFAULT_WINDOW_DAYS = 30;
 const DEFAULT_MAX_HOLD_CANDLES = 96;
 const DEFAULT_SCAN_EVERY_CANDLES = 4;
 const SETUP_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-const REPLAY_READY_MIN_SCORE = 50;
-const REPLAY_READY_MIN_RR = 1;
 // No daily trade-count cap: the only daily risk brake is the -2R stop. A symbol still
 // takes at most one entry per day to avoid re-entering the same setup.
 const REPLAY_MAX_SYMBOL_DAILY_TRADES = 1;
@@ -774,35 +772,16 @@ function replayCandidate(signal: TradingSignal, time: number, stage: RuntimeRepl
   };
 }
 
-function evidencePassed(signal: TradingSignal, id: string): boolean {
-  return signal.evidence.find((item) => item.id === id)?.status === "pass";
-}
-
 function replayEntryRank(signal: TradingSignal): number {
   const gradeBonus = signal.grade === "A+" ? 20 : signal.grade === "A" ? 12 : signal.grade === "B" ? 5 : 0;
   const actionBonus = signal.actionWindow.status === "valid" ? 12 : signal.actionWindow.status === "waiting" ? 4 : -10;
   return signal.score + Math.min(signal.plan.rr, 5) * 5 + gradeBonus + actionBonus;
 }
 
-function replayEligibleSignal(signal: TradingSignal, minimumRR: number): boolean {
-  if (signal.stage === "ready") return true;
-  if (signal.stage !== "watch") return false;
-  if (signal.crtAnchor?.setupPhase !== "model") return false;
-  if (signal.governance.status === "block") return false;
-  if (signal.context.eventRisk.level !== "clear") return false;
-  if (signal.context.regime.tradeability === "blocked") return false;
-  if (signal.context.dataConfidence.score < 68) return false;
-  if (signal.score < REPLAY_READY_MIN_SCORE) return false;
-  if (signal.plan.rr < Math.max(minimumRR, REPLAY_READY_MIN_RR)) return false;
-  if (signal.plan.entryStatus !== "confirmed") return false;
-  if (!signal.plan.entryModel.retested || !signal.plan.entryModel.cisdConfirmed) return false;
-  if (signal.plan.entrySource !== "choch-close" && signal.plan.entrySource !== "poi-retest") return false;
-  if (signal.plan.stopSource === "volatility-floor") return false;
-  if (signalAnchorZone(signal) !== expectedPd(signal)) return false;
-  if (!evidencePassed(signal, "manipulation") && !evidencePassed(signal, "sweep")) return false;
-  if (!evidencePassed(signal, "choch") && !evidencePassed(signal, "mss")) return false;
-  if (signal.actionWindow.status === "expired" || signal.actionWindow.status === "inactive") return false;
-  return true;
+function replayEligibleSignal(signal: TradingSignal): boolean {
+  // Replay and live alerts must evaluate the exact same event-time decision. Promoting a WATCH
+  // after seeing later candles measures a different strategy and inflates the apparent sample.
+  return signal.stage === "ready";
 }
 
 function bestSymbol(trades: RuntimeReplayTrade[], candidates: RuntimeReplayCandidate[]): string {
@@ -1295,12 +1274,11 @@ export function runMonthlyRuntimeReplay({
   const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
   const trades: RuntimeReplayTrade[] = [];
   const candidates: RuntimeReplayCandidate[] = [];
-  const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : 1.5;
   let scannedWindows = 0;
   let watchAlerts = 0;
   let readyAlerts = 0;
   let liveReadyEntries = 0;
-  let watchPromotedEntries = 0;
+  const watchPromotedEntries = 0;
 
   for (const time of replayTimes(markets, startedAt, endedAt, scanEveryCandles)) {
     const contexts = attachSmtDivergences(
@@ -1331,7 +1309,7 @@ export function runMonthlyRuntimeReplay({
         state.countedWatch = true;
       }
 
-      const replayEligible = replayEligibleSignal(signal, minimumRR);
+      const replayEligible = replayEligibleSignal(signal);
       if (replayEligible && !state.countedReady) {
         entryCandidates.push({ signal, time, state, rank: replayEntryRank(signal) });
       }
@@ -1347,10 +1325,8 @@ export function runMonthlyRuntimeReplay({
 
       candidates.push(replayCandidate(candidate.signal, candidate.time, "ready"));
       const market = marketBySymbol.get(candidate.signal.symbol);
-      const origin: RuntimeReplayTrade["origin"] = candidate.signal.stage === "ready" ? "live-ready" : "watch-promoted";
-      const baseTags = origin === "live-ready"
-        ? ["replay:live-ready", "risk:daily-capped"]
-        : ["replay:watch-promoted", "risk:daily-capped"];
+      const origin: RuntimeReplayTrade["origin"] = "live-ready";
+      const baseTags = ["replay:live-ready", "risk:daily-capped"];
       const adjustedFuture = confirmationAdjustedFuture(
         candidate.signal,
         market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles * confirmTfFactor(candidate.signal)) : []
@@ -1379,8 +1355,7 @@ export function runMonthlyRuntimeReplay({
       });
       applyReplayRisk(dayState, candidate.signal, measuredOutcome);
       readyAlerts += 1;
-      if (origin === "live-ready") liveReadyEntries += 1;
-      else watchPromotedEntries += 1;
+      liveReadyEntries += 1;
       entriesThisScan += 1;
       candidate.state.countedReady = true;
     }

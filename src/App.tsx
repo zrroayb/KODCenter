@@ -89,9 +89,9 @@ function aiCardHint(signal: TradingSignal, rank: number) {
   if (signal.stage === "ready" && rank === 0) return "Öncelik";
   if (signal.stage === "ready") return "Plan var";
   if (signal.governance.blockers.length === 1 && signal.plan.rr >= 1.5) return "1 adım kaldı";
-  if (signal.score >= 75) return "Onay bekle";
-  if (signal.score >= 55) return "Radar";
-  return "Zayıf";
+  if (signal.crtAnchor?.setupPhase === "raid") return "Onay bekle";
+  if (signal.crtAnchor?.setupPhase === "model") return "Planı kontrol et";
+  return "Radar";
 }
 
 function shortReason(text: string | undefined, fallback = "Bekle"): string {
@@ -251,8 +251,8 @@ export function FinanceDashboard({
                   <small>{signal.direction.toUpperCase()} · {aiCardHint(signal, index)}</small>
                 </span>
                 <span className="decision-meta">
-                  <strong>{signal.score}</strong>
-                  <small>{signal.grade} · {stageText(signal)}</small>
+                  <strong>{signal.grade}</strong>
+                  <small>{signal.score} kalite · {stageText(signal)}</small>
                 </span>
                 <span className="decision-reason">{signalReason(signal)}</span>
               </button>
@@ -266,8 +266,8 @@ export function FinanceDashboard({
                     <small>{signal.direction.toUpperCase()} · Erken aday</small>
                   </span>
                   <span className="decision-meta">
-                    <strong>{signal.score}</strong>
-                    <small>{signal.grade} · İzle</small>
+                    <strong>{signal.grade}</strong>
+                    <small>{signal.score} kalite · İzle</small>
                   </span>
                   <span className="decision-reason">{signalReason(signal)}</span>
                 </button>
@@ -280,7 +280,7 @@ export function FinanceDashboard({
                   </span>
                   <span className="decision-meta">
                     <strong>{setup.score}</strong>
-                    <small>Aday</small>
+                    <small>kalite · aday</small>
                   </span>
                   <span className="decision-reason">{shortReason(setup.reason)}</span>
                 </div>
@@ -292,6 +292,27 @@ export function FinanceDashboard({
               )
             )}
           </div>
+          {ranked.length > 0 && lowQualitySignals.length > 0 && (
+            <details className="compact-details low-quality-details">
+              <summary>Erken adaylar ({lowQualitySignals.length})</summary>
+              <div className="decision-signal-list">
+                {lowQualitySignals.map((signal) => (
+                  <button className={`decision-signal-card low-quality ${signal.stage}`} key={signal.id} type="button" onClick={() => onOpenChart(signal)}>
+                    <span className="decision-rank">?</span>
+                    <span className="decision-main">
+                      <strong>{signal.symbol}</strong>
+                      <small>{signal.direction.toUpperCase()} · Erken aday</small>
+                    </span>
+                    <span className="decision-meta">
+                      <strong>{signal.grade}</strong>
+                      <small>{signal.score} kalite · İzle</small>
+                    </span>
+                    <span className="decision-reason">{signalReason(signal)}</span>
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
         </article>
 
         <aside className="dashboard-brief">
@@ -880,7 +901,7 @@ export default function App() {
                   : dataState.background
                     ? "Canlı bot"
                     : dataState.source === "yahoo-live"
-                      ? "Yahoo"
+                    ? "Yahoo proxy"
                       : dataState.source === "mixed"
                         ? "Karma"
                         : "Demo"}

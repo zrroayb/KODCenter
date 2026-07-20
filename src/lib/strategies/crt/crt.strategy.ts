@@ -23,14 +23,14 @@ const DEFAULT_MINIMUM_RR = 1.5;
 // retest-distance blocker and missed-detection, not by a tight expiry that closes the
 // entry window before the retest can arrive. The HTF raid itself does not expire this
 // way — it stays valid while the range candle is the reference and distribution is incomplete.
-const SWEEP_FRESHNESS_CANDLES = 24;
-const CHOCH_FRESHNESS_CANDLES = 48;
+const SWEEP_FRESHNESS_CANDLES = 16;
+const CHOCH_FRESHNESS_CANDLES = 16;
 const CHOCH_SWING_WING = 3;
 const CHOCH_REFERENCE_LOOKBACK = 24;
 // Sweep -> shift is ONE delivery sequence (SMC: "sweep + ChoCH handshake"). The first close
 // through the protecting swing must land within this many confirmation candles of the
 // manipulation; a break that comes later belongs to a new trend leg (BOS), not the raid.
-const CHOCH_MAX_DELAY_CANDLES = 24;
+const CHOCH_MAX_DELAY_CANDLES = 12;
 // How many closed range candles back an accepted raid can keep being the anchor's reference.
 const RAID_PERSISTENCE_LOOKBACK = 6;
 // A tapped 4H FVG can create an origin-CRT read, but only while the tap is fresh. Old gaps
@@ -506,6 +506,29 @@ function confirmIndexAtTime(candles: Candle[], time: number): number {
   return index >= 0 ? index : Math.max(0, candles.length - 1);
 }
 
+export function findFirstCrtConfirmSweepIndex(
+  candles: Candle[],
+  raidTime: number,
+  direction: TradeDirection,
+  level: number
+): number | undefined {
+  const index = candles.findIndex((candle) =>
+    candle.time >= raidTime
+    && (direction === "short" ? candle.high > level : candle.low < level)
+  );
+  return index >= 0 ? index : undefined;
+}
+
+function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number | undefined {
+  if (!anchor.raid) return undefined;
+  return findFirstCrtConfirmSweepIndex(
+    anchor.liveConfirmCandles,
+    anchor.raid.time,
+    direction,
+    direction === "short" ? anchor.range.high : anchor.range.low
+  );
+}
+
 function anchorBias(anchor: AnchorCtx) {
   if (anchor.origin?.kind === "active-crt") return anchor.origin.bias;
   return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
@@ -568,10 +591,12 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
   // The HTF raid IS the manipulation — it stays valid while the reclaim holds, it does not
   // expire on an LTF freshness window. Confirmation-TF sweeps are the fine-grained variant.
   if (anchor.raid && anchor.raid.direction === direction) {
+    const candleIndex = confirmSweepIndex(anchor, direction);
+    if (typeof candleIndex !== "number") return undefined;
     return {
       side: expectedSweepSide(direction),
       level: anchor.raid.level,
-      candleIndex: confirmIndexAtTime(anchor.confirmCandles, anchor.raid.time),
+      candleIndex,
       reclaimed: true
     };
   }
@@ -855,7 +880,7 @@ export function selectCrtEntry(input: {
   entryStatus: TradePlan["entryStatus"];
   retested: boolean;
 } {
-  const { choch, poi, plannedRetestEntry, retestIndex } = input;
+  const { choch, poi, plannedRetestEntry, retestIndex, confirmationClose } = input;
   if (choch && typeof retestIndex === "number") {
     return {
       entry: plannedRetestEntry,
@@ -865,11 +890,19 @@ export function selectCrtEntry(input: {
     };
   }
 
-  // A ChoCH close WITHOUT a retest never confirms the entry (input.confirmationClose is
-  // deliberately ignored). Measured 2026-07-15 (12 symbols, 30d): direct-from-close entries ran
-  // -0.46R over 5 trades while retest-based entries made +0.56R over 6 — and the doctrine says
-  // the displaced close is never chased. The plan stays visible (WATCH) at the retest level and
-  // confirms only when price actually returns to it.
+  // The core CRT model ends at the CLOSED lower-timeframe character shift. A later POI/FVG
+  // retest can improve the price, but it is a separate execution variant and cannot erase an
+  // otherwise valid confirmation. Keeping both variants under one mandatory-retest gate was the
+  // main reason live scans saw the same CRT as the trader but never emitted READY.
+  if (choch && typeof confirmationClose === "number" && Number.isFinite(confirmationClose)) {
+    return {
+      entry: confirmationClose,
+      entrySource: "choch-close",
+      entryStatus: "confirmed",
+      retested: false
+    };
+  }
+
   return {
     entry: plannedRetestEntry,
     entrySource: choch || poi ? (poi ? "poi-retest" : "choch-close") : "fallback-close",
@@ -908,7 +941,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     `Stop manipulation wick dışına ${formatPrice(buffer)} buffer ile kondu.`,
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
-    ...(choch && entryStatus === "confirmed" && !entryDecision.retested && poi ? [`POI retest gelmedi; plan kapalı ChoCH mumundan ${formatPrice(entry)} entry kullanıyor.`] : [])
+    ...(choch && entryStatus === "confirmed" && !entryDecision.retested ? [`Entry kapalı ChoCH mumundan ${formatPrice(entry)}; POI retest gelirse daha iyi fiyat bonusudur.`] : [])
   ];
 
   return {
@@ -1107,10 +1140,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const blockers = [
     // CRT core: closed range -> one-side wick raid -> LTF character-shift close ->
     // opposite range edge. Everything else belongs in quality warnings, not this gate list.
-    anchor.origin?.kind === "active-crt" && !anchor.origin.closed ? `${anchor.spec.rangeTf.toUpperCase()} CRT origin mumu henüz kapanmadı; gelişen bağlam READY olamaz.` : undefined,
+    anchor.origin ? `${anchor.origin.kind === "fvg-origin" ? "FVG-origin" : "Active CRT"} deneysel model; ana CRT ile ayrı ölçülene kadar yalnızca WATCH.` : undefined,
     !manipulation ? `Manipulation yok: ${anchor.spec.rangeTf.toUpperCase()} CRT high/low henüz alınmadı.` : undefined,
     !choch ? `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.` : undefined,
-    !htfAlignment.aligned && !reversalAtExternalHtf ? `HTF yönü karşı: ${htfAlignment.summary}` : undefined,
+    settings.useHtfAlignmentFilter === true && !htfAlignment.aligned && !reversalAtExternalHtf ? `HTF yön filtresi açık ve yön karşı: ${htfAlignment.summary}` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
@@ -1124,7 +1157,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     reversalAtExternalHtf ? `Karşı-HTF dönüş setup'ı: haftalık/aylık external likidite süpürüldü (draw tüketildi), HTF henüz dönmedi — geçerli ama boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
-    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; entry retest gelene kadar PENDING (kapanıştan girilmez)." : undefined,
+    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; ChoCH kapanışı geçerli, retest yalnızca daha iyi fiyat bonusu." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !pdAligned ? `${direction.toUpperCase()} entry CRT range ${crtZone}; ideal ${expectedPd(direction)} ama RR/geometri uygunsa hard gate değil.` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
@@ -1193,7 +1226,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     && blockers.length === 0
     && Boolean(manipulation) && !eqConsumed
     && hasRealTarget && stopValid && !retestFar
-    && (htfAlignment.aligned || reversalAtExternalHtf)
+    && (settings.useHtfAlignmentFilter !== true || htfAlignment.aligned || reversalAtExternalHtf)
     && modelReady
     && context.dataConfidence.score >= 35;
   const setupPhase: CrtSetup["setupPhase"] = readyEligible
@@ -1417,7 +1450,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
         rangeAtr: setup.choch?.rangeAtr
       }
     },
-    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `Kapalı ChoCH mumundan ${formatPrice(setup.plan.entry)} entry aktif.` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
+    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `Kapalı ChoCH mumundan ${formatPrice(setup.plan.entry)} entry aktif; retest şart değil.` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
     { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `Tam çıkış hedefi EQ ${formatPrice(setup.plan.targets[0])}; DOL beklenmez (Hepsi-EQ yönetimi).`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
     { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
@@ -1554,6 +1587,7 @@ export const crtStrategy: StrategyModule = {
     useExecutionCosts: true,
     slippageStress: "normal",
     noAutoExecution: true,
+    useHtfAlignmentFilter: false,
     exitModel: "eq-full"
   },
   scan(input: StrategyInput): StrategyResult {

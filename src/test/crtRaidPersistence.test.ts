@@ -3,7 +3,7 @@ import type { Candle } from "../lib/ict/types";
 import { createDemoMarkets } from "../data/demoData";
 import { buildMarketContext } from "../lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
-import { crtStrategy, detectAnchorRaid } from "../lib/strategies/crt/crt.strategy";
+import { crtStrategy, detectAnchorRaid, findFirstCrtConfirmSweepIndex } from "../lib/strategies/crt/crt.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 function bar(high: number, low: number, close: number): Candle {
@@ -11,6 +11,17 @@ function bar(high: number, low: number, close: number): Candle {
 }
 
 describe("CRT delayed manipulation", () => {
+  it("starts LTF confirmation at the candle that actually sweeps the HTF edge", () => {
+    const candles = [
+      { ...bar(100, 99, 99.5), time: 10 },
+      { ...bar(100.8, 99.4, 100), time: 20 },
+      { ...bar(101.2, 99.8, 100.4), time: 30 }
+    ];
+
+    expect(findFirstCrtConfirmSweepIndex(candles, 10, "short", 101)).toBe(2);
+    expect(findFirstCrtConfirmSweepIndex(candles, 10, "long", 98.8)).toBeUndefined();
+  });
+
   it("accepts a raid that sweeps the range candle several bars later, not only the adjacent one", () => {
     // idx1 is the meaningful range candle (110/100). idx2 and idx3 trade INSIDE it
     // (accumulation), and idx4 sweeps its high three bars on. The manipulation is not the
@@ -82,8 +93,16 @@ function patchCandles<T extends { open: number; high: number; low: number; close
 function scanWithH4(patches: Record<number, CandlePatch>, executionClose = 98) {
   const base = createStructureContext();
   const h4 = patchCandles(base.timeframes.h4, patches);
+  const liveH4 = h4[h4.length - 1];
   // Keep the confirmation TF's last close consistent with the h4 story.
-  const m15 = base.timeframes.m15.map((candle) => ({ ...candle, open: executionClose, high: executionClose + 0.4, low: executionClose - 0.4, close: executionClose }));
+  const m15 = base.timeframes.m15.map((candle, index) => ({
+    ...candle,
+    open: executionClose,
+    high: index === base.timeframes.m15.length - 1 ? Math.max(executionClose + 0.4, liveH4.high) : executionClose + 0.4,
+    low: index === base.timeframes.m15.length - 1 ? Math.min(executionClose - 0.4, liveH4.low) : executionClose - 0.4,
+    close: executionClose,
+    closed: index === base.timeframes.m15.length - 1 ? false : true
+  }));
   const context = createStructureContext({
     timeframes: { ...base.timeframes, h4, m15, m5: m15 },
     liquidityObjectives: [
@@ -200,6 +219,7 @@ describe("CRT direction sources", () => {
     expect(signal?.direction).toBe("long");
     expect(signal?.stage).toBe("watch");
     expect(signal?.crtAnchor?.originLabel).toBe("4H FVG origin CRT");
+    expect(signal?.governance.blockers.join(" ")).toContain("deneysel model");
     expect(signal?.evidence.find((item) => item.id === "crt-range")?.detail).toContain("FVG origin candle");
     expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("CRT yine geçerlidir");
     expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
@@ -253,7 +273,7 @@ describe("CRT raid persistence", () => {
       20: { open: 98, high: 102, low: 94, close: 98 },
       21: { open: 98, high: 102, low: 94, close: 98 },
       22: { open: 98, high: 101, low: 95, close: 98, closed: true },
-      23: { open: 98, high: 101.2, low: 97, close: 101.1, closed: false }
+      23: { open: 100, high: 101.2, low: 99, close: 101.1, closed: false }
     }, 101.1);
 
     expect(signal.direction).toBe("short");
@@ -274,7 +294,7 @@ describe("CRT raid persistence", () => {
       20: { open: 98, high: 102, low: 94, close: 98 },
       21: { open: 98, high: 102, low: 94, close: 98 },
       22: { open: 98, high: 101, low: 95, close: 98, closed: true },
-      23: { open: 98, high: 99, low: 94.8, close: 94.9, closed: false }
+      23: { open: 96, high: 97.5, low: 94.8, close: 94.9, closed: false }
     }, 94.9);
 
     expect(signal.direction).toBe("long");

@@ -67,7 +67,8 @@ export function scanContexts(
         partialTpEnabled: rules.partialTpEnabled,
         moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
-        avoidNews: rules.avoidNews
+        avoidNews: rules.avoidNews,
+        useHtfAlignmentFilter: rules.useHtfAlignmentFilter
       }
     }));
 

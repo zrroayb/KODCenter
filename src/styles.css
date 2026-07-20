@@ -3377,6 +3377,14 @@ button {
   opacity: 0.92;
 }
 
+.low-quality-details {
+  margin-top: 10px;
+}
+
+.low-quality-details[open] > summary {
+  margin-bottom: 8px;
+}
+
 .decision-signal-card.rejected {
   border-left-color: var(--line-strong);
   opacity: 0.88;

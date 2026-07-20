@@ -173,7 +173,7 @@ export function signalLifecycleState(signal: TradingSignal): SignalLifecycleStat
     };
   }
 
-  if (!signal.plan.entryModel.retested || signal.plan.entryStatus === "pending") {
+  if (signal.plan.entryStatus === "pending") {
     return {
       status: "entry-wait",
       label: "ENTRY BEKLE",
