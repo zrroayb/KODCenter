@@ -8,6 +8,7 @@ import { YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { type CompactSignal } from "../src/lib/runtime/cloudSnapshot";
 import { compareSignalsByDecision } from "../src/lib/runtime/scanRuntime";
 import {
+  telegramAlertRecordFromPayload,
   type TelegramReadyAlertPayload
 } from "../src/lib/telegram/alertPayload";
 
@@ -36,6 +37,10 @@ type StoredScanRow = {
 
 type StoredStateRow = {
   value: string;
+};
+
+type StoredAlertRow = {
+  payload: string | null;
 };
 
 const SESSION_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic CRT and trading-session system.
@@ -156,7 +161,8 @@ async function ensureSchema(env: CloudflareEnv) {
         status TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        error TEXT
+        error TEXT,
+        payload TEXT
       )
     `),
     env.DB.prepare(`
@@ -321,14 +327,34 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
 async function claimAlert(env: CloudflareEnv, payload: TelegramReadyAlertPayload) {
   const now = Date.now();
   const dedupeKey = payload.dedupeKey || `payload|${payload.id}`;
+  const alertRecord = telegramAlertRecordFromPayload({ ...payload, dedupeKey }, now);
   const result = await env.DB.prepare(`
-    INSERT OR IGNORE INTO alert_log (dedupe_key, signal_id, status, created_at, updated_at)
-    VALUES (?, ?, 'pending', ?, ?)
-  `).bind(dedupeKey, payload.id, now, now).run();
+    INSERT OR IGNORE INTO alert_log (dedupe_key, signal_id, status, created_at, updated_at, payload)
+    VALUES (?, ?, 'pending', ?, ?, ?)
+  `).bind(dedupeKey, payload.id, now, now, JSON.stringify(alertRecord)).run();
   return {
     claimed: Number(result.meta.changes ?? 0) > 0,
     dedupeKey
   };
+}
+
+async function liveAlertsResponse(env: CloudflareEnv) {
+  await ensureSchema(env);
+  const rows = await env.DB.prepare(`
+    SELECT payload FROM alert_log
+    WHERE status = 'sent' AND created_at >= ? AND payload IS NOT NULL
+    ORDER BY created_at DESC
+    LIMIT 30
+  `).bind(Date.now() - 24 * 60 * 60 * 1000).all<StoredAlertRow>();
+  const alerts = rows.results.flatMap((row) => {
+    if (!row.payload) return [];
+    try {
+      return [JSON.parse(row.payload)];
+    } catch {
+      return [];
+    }
+  });
+  return jsonResponse({ status: "ok", alerts });
 }
 
 async function sendTelegramAlert(env: CloudflareEnv, payload: TelegramReadyAlertPayload) {
@@ -672,6 +698,7 @@ async function handleRequest(request: Request, env: CloudflareEnv) {
   }
   if (url.pathname === "/api/live-markets") return liveMarketsResponse(env);
   if (url.pathname === "/api/live-scan") return liveScanResponse(env);
+  if (url.pathname === "/api/live-alerts") return liveAlertsResponse(env);
   if (url.pathname === "/api/ingest-market") return handleMarketIngest(request, env);
   if (url.pathname === "/api/ingest-scan") return handleScanIngest(request, env);
   if (url.pathname === "/api/finalize-scan") return handleScanFinalize(request, env);

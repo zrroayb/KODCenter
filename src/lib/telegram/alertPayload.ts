@@ -1,12 +1,14 @@
 import { formatR } from "../ict/format";
-import type { TradingSignal } from "../ict/types";
+import type { SignalStage, TradingSignal } from "../ict/types";
 import { buildGeminiTradeCommentaryPayload, type GeminiTradeCommentaryPayload } from "../gemini/tradeCommentary";
 import { defaultAccountModel } from "../risk/accountModel";
 import { GRADE_RISK_FACTOR } from "../risk/positionSizing";
+import { signalSetupIdentity } from "../signals/setupIdentity";
 
 export type TelegramReadyAlertPayload = {
   id: string;
   dedupeKey?: string;
+  setupKey?: string;
   symbol: string;
   direction: string;
   grade: string;
@@ -30,6 +32,28 @@ export type TelegramReadyAlertPayload = {
   aiCommentary?: string;
   tradeContext?: GeminiTradeCommentaryPayload;
   charts?: Array<{ label?: string; dataUrl?: string }>;
+};
+
+export type TelegramAlertRecord = {
+  dedupeKey: string;
+  setupKey?: string;
+  signalId: string;
+  symbol: string;
+  direction: string;
+  grade: string;
+  score: number;
+  sentAt: number;
+  createdAt: number;
+  entry: number;
+  stopLoss: number;
+  targets: number[];
+  rr: number;
+  reasons: string[];
+  alertKind: "ready" | "raid" | "context";
+  rangeTf?: string;
+  confirmTf?: string;
+  currentStage?: SignalStage;
+  lastSeenAt?: number;
 };
 
 function priceBucket(value: number | undefined): string {
@@ -114,6 +138,7 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
   return {
     id: signal.id,
     dedupeKey: readyTelegramDedupeKey(signal),
+    setupKey: signalSetupIdentity(signal),
     symbol: signal.symbol,
     direction: signal.direction,
     grade: signal.grade,
@@ -130,4 +155,43 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     priority,
     tradeContext: buildGeminiTradeCommentaryPayload(signal)
   };
+}
+
+export function telegramAlertRecordFromPayload(
+  payload: TelegramReadyAlertPayload,
+  sentAt = Date.now()
+): TelegramAlertRecord {
+  return {
+    dedupeKey: payload.dedupeKey || `payload|${payload.id}`,
+    setupKey: payload.setupKey,
+    signalId: payload.id,
+    symbol: payload.symbol,
+    direction: payload.direction,
+    grade: payload.grade,
+    score: payload.score,
+    sentAt,
+    createdAt: payload.createdAt,
+    entry: payload.entry,
+    stopLoss: payload.stopLoss,
+    targets: payload.targets.slice(0, 2),
+    rr: payload.rr,
+    reasons: payload.reasons.slice(0, 6),
+    alertKind: payload.alertKind ?? "ready",
+    rangeTf: payload.rangeTf,
+    confirmTf: payload.confirmTf,
+    currentStage: payload.stage,
+    lastSeenAt: sentAt
+  };
+}
+
+export function telegramAlertRecordFromSignal(
+  signal: TradingSignal,
+  sentAt = Date.now()
+): TelegramAlertRecord {
+  const payload = buildTelegramReadyAlertPayload(signal);
+  return telegramAlertRecordFromPayload({
+    ...payload,
+    rangeTf: signal.crtAnchor?.rangeTf,
+    confirmTf: signal.crtAnchor?.confirmTf
+  }, sentAt);
 }

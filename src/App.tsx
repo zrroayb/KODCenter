@@ -34,6 +34,16 @@ import type { SessionSetup, SessionSetupLog } from "./lib/session/types";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
+import {
+  fetchCloudTelegramAlertHistory,
+  loadTelegramAlertHistory,
+  matchingSignalForAlert,
+  mergeTelegramAlertHistories,
+  reconcileTelegramAlertHistory,
+  saveTelegramAlertHistory,
+  upsertTelegramAlertRecord
+} from "./lib/telegram/alertHistory";
+import { telegramAlertRecordFromSignal, type TelegramAlertRecord } from "./lib/telegram/alertPayload";
 import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
@@ -126,7 +136,22 @@ function rankedDecisionSignals(signals: TradingSignal[]) {
     .sort(compareSignalsByDecision);
 }
 
-function FinanceDashboard({
+function alertStageText(record: TelegramAlertRecord) {
+  if (record.currentStage === "ready") return "Aktif";
+  if (record.currentStage === "watch") return "Şimdi bekle";
+  if (record.currentStage === "missed") return "Kaçtı";
+  if (record.currentStage === "invalidated") return "Geçersiz";
+  return "Gönderildi";
+}
+
+function alertPrice(value: number | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  if (Math.abs(value) >= 1000) return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  if (Math.abs(value) >= 10) return value.toFixed(2);
+  return value.toFixed(5);
+}
+
+export function FinanceDashboard({
   signals,
   hiddenSignals,
   rejectedSetups,
@@ -134,7 +159,9 @@ function FinanceDashboard({
   journalEntries,
   dataHealth,
   sessionName,
+  telegramAlerts,
   onOpenChart,
+  onOpenTelegramAlert,
   onRunScan,
   onRunBacktest
 }: {
@@ -145,7 +172,9 @@ function FinanceDashboard({
   journalEntries: JournalEntry[];
   dataHealth: ReturnType<typeof buildDataHealthReport>;
   sessionName: string;
+  telegramAlerts: TelegramAlertRecord[];
   onOpenChart: (signal: TradingSignal) => void;
+  onOpenTelegramAlert: (record: TelegramAlertRecord) => void;
   onRunScan: () => void;
   onRunBacktest: () => void;
 }) {
@@ -171,6 +200,38 @@ function FinanceDashboard({
           <button className="ghost-btn" onClick={onRunBacktest} type="button">Replay</button>
         </div>
       </article>
+
+      {telegramAlerts.length > 0 && (
+        <article className="panel telegram-alert-panel">
+          <header>
+            <div>
+              <span className="eyebrow">Telegram</span>
+              <h2>Son uyarılar</h2>
+            </div>
+            <small>24 saat</small>
+          </header>
+          <div className="telegram-alert-list">
+            {telegramAlerts.slice(0, 3).map((record) => (
+              <button
+                className={`telegram-alert-row ${record.currentStage ?? "sent"}`}
+                key={record.dedupeKey}
+                onClick={() => onOpenTelegramAlert(record)}
+                type="button"
+              >
+                <span className="telegram-alert-market">
+                  <strong>{record.symbol} {record.direction.toUpperCase()}</strong>
+                  <small>{new Date(record.sentAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}</small>
+                </span>
+                <span className="telegram-alert-plan">
+                  Giriş {alertPrice(record.entry)} · SL {alertPrice(record.stopLoss)} · TP {alertPrice(record.targets[0])}
+                </span>
+                <span className="telegram-alert-score">{record.grade} · 1:{record.rr.toFixed(2)}</span>
+                <span className="telegram-alert-status">{alertStageText(record)}</span>
+              </button>
+            ))}
+          </div>
+        </article>
+      )}
 
       <div className="decision-board">
         <article className="panel decision-list-card">
@@ -415,6 +476,7 @@ export default function App() {
   const [silverBulletSetups, setSilverBulletSetups] = useState<SilverBulletSetup[]>(() => loadSilverBulletSetups());
   const [silverBulletLogs, setSilverBulletLogs] = useState<SilverBulletLog[]>(() => loadSilverBulletLogs());
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => loadJournalEntries());
+  const [telegramAlerts, setTelegramAlerts] = useState<TelegramAlertRecord[]>(() => loadTelegramAlertHistory());
   const [lastScanTime, setLastScanTime] = useState(Date.now());
   const [clockNow, setClockNow] = useState(Date.now());
   const [backtestResult, setBacktestResult] = useState(runDemoBacktest(contexts));
@@ -436,6 +498,10 @@ export default function App() {
     [contexts, lastScanTime]
   );
   const selectableSignals = useMemo(() => [...chartSignals, ...inactiveSignals], [chartSignals, inactiveSignals]);
+  const allRuntimeSignals = useMemo(
+    () => [...signals, ...hiddenSignals, ...inactiveSignals],
+    [hiddenSignals, inactiveSignals, signals]
+  );
   const selectedSignal = selectableSignals.find((signal) => signal.id === selectedSignalState.selectedSignalId) ?? null;
   const readyCount = visibleSignals.filter((signal) => signal.stage === "ready").length;
   const watchCount = visibleSignals.filter((signal) => signal.stage === "watch").length;
@@ -546,6 +612,26 @@ export default function App() {
   }, [journalEntries]);
 
   useEffect(() => {
+    setTelegramAlerts((current) => {
+      const next = reconcileTelegramAlertHistory(current, allRuntimeSignals);
+      return saveTelegramAlertHistory(next);
+    });
+  }, [allRuntimeSignals]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchCloudTelegramAlertHistory().then((cloudAlerts) => {
+      if (!active || !cloudAlerts.length) return;
+      setTelegramAlerts((current) => saveTelegramAlertHistory(
+        reconcileTelegramAlertHistory(mergeTelegramAlertHistories(current, cloudAlerts), allRuntimeSignals)
+      ));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const reconciled = reconcileSessionSetupStore(sessionSetups, detectedSessionSetups, sessionSetupLogs);
     const setupChanged = JSON.stringify(reconciled.setups) !== JSON.stringify(sessionSetups);
     const logChanged = JSON.stringify(reconciled.logs) !== JSON.stringify(sessionSetupLogs);
@@ -565,6 +651,12 @@ export default function App() {
     if (dataLoading || dataState.background) return;
     for (const signal of visibleSignals.filter((item) => item.stage === "ready")) {
       void notifyReadySignalOnce(signal).then((result) => {
+        if (result.status === "sent") {
+          const record = telegramAlertRecordFromSignal(signal);
+          setTelegramAlerts((current) => saveTelegramAlertHistory(
+            upsertTelegramAlertRecord(current, record)
+          ));
+        }
         if (result.status === "error") {
           console.warn("Telegram ready alert failed", result.error);
         }
@@ -671,6 +763,18 @@ export default function App() {
       focusedTimeRange: focusChartOnSignal(signal),
       showSelectedSignalOnly: current.showSelectedSignalOnly
     }));
+    setActiveView("charts");
+  };
+
+  const openTelegramAlert = (record: TelegramAlertRecord) => {
+    const signal = matchingSignalForAlert(record, selectableSignals);
+    if (signal) {
+      selectSignal(signal);
+      return;
+    }
+    const market = markets.find((item) => item.symbol === record.symbol);
+    if (market) setActiveSymbol(market.symbol);
+    clearSelection();
     setActiveView("charts");
   };
 
@@ -801,7 +905,9 @@ export default function App() {
             journalEntries={journalEntries}
             dataHealth={dataHealth}
             sessionName={sessionClock.activeSession}
+            telegramAlerts={telegramAlerts}
             onOpenChart={selectSignal}
+            onOpenTelegramAlert={openTelegramAlert}
             onRunScan={runScan}
             onRunBacktest={runBacktest}
           />

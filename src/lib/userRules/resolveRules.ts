@@ -8,15 +8,17 @@ import type { UserRules } from "./userRules";
 export function resolveStoredRules(raw: unknown): UserRules {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return defaultRules;
   const parsed = raw as Partial<UserRules>;
+  const allowedSymbols = Array.isArray(parsed.allowedSymbols)
+    ? parsed.allowedSymbols.filter((symbol) => defaultRules.allowedSymbols.includes(symbol))
+    : [];
+  const allowedKillzones = Array.isArray(parsed.allowedKillzones)
+    ? parsed.allowedKillzones.filter((zone) => defaultRules.allowedKillzones.includes(zone))
+    : [];
   const merged: UserRules = {
     ...defaultRules,
     ...parsed,
-    allowedSymbols: Array.isArray(parsed.allowedSymbols) && parsed.allowedSymbols.length
-      ? parsed.allowedSymbols.filter((symbol) => defaultRules.allowedSymbols.includes(symbol))
-      : defaultRules.allowedSymbols,
-    allowedKillzones: Array.isArray(parsed.allowedKillzones) && parsed.allowedKillzones.length
-      ? parsed.allowedKillzones.filter((zone) => defaultRules.allowedKillzones.includes(zone))
-      : defaultRules.allowedKillzones
+    allowedSymbols: allowedSymbols.length ? allowedSymbols : defaultRules.allowedSymbols,
+    allowedKillzones: allowedKillzones.length ? allowedKillzones : defaultRules.allowedKillzones
   };
   return { ...merged, minimumScore: effectiveMinimumScore(merged.minimumScore) };
 }

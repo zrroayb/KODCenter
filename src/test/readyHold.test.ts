@@ -54,4 +54,39 @@ describe("ready signal hold", () => {
     expect(second.signals[0].stage).toBe("invalidated");
     expect(Object.keys(second.records)).toHaveLength(0);
   });
+
+  it("uses the CRT range and raid as the stable identity when confirmation details refresh", () => {
+    const ready = kodStrategy.scan({
+      context: structureContext(),
+      settings: { ...kodStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+    }).signals[0];
+    const crtReady = {
+      ...ready,
+      strategyId: "crt",
+      crtAnchor: {
+        rangeTf: "4h" as const,
+        confirmTf: "15m" as const,
+        raidActive: true,
+        raidClosed: true,
+        rangeHigh: 101.3,
+        rangeLow: 97,
+        origin: "standard" as const
+      },
+      evidence: [
+        ...ready.evidence,
+        { id: "manipulation", label: "Raid", detail: "Range high alındı", status: "pass" as const, time: 10_000, price: 101.3 }
+      ]
+    };
+    const refreshed = {
+      ...crtReady,
+      id: `${crtReady.id}-refresh`,
+      evidence: [
+        ...crtReady.evidence.filter((item) => item.id !== "choch"),
+        { id: "choch", label: "ChoCH", detail: "Internal low altında kapandı", status: "pass" as const, time: 20_000, price: 99.4 }
+      ],
+      plan: { ...crtReady.plan, entry: crtReady.plan.entry + 0.1 }
+    };
+
+    expect(readyHoldSignature(refreshed)).toBe(readyHoldSignature(crtReady));
+  });
 });

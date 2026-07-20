@@ -3228,6 +3228,98 @@ button {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
+.telegram-alert-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.telegram-alert-panel > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.telegram-alert-panel h2 {
+  margin-top: 2px;
+  font-size: 20px;
+}
+
+.telegram-alert-panel > header small {
+  color: var(--muted);
+}
+
+.telegram-alert-list {
+  display: grid;
+  gap: 7px;
+}
+
+.telegram-alert-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(260px, 1.5fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #10b981;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+
+.telegram-alert-row.watch,
+.telegram-alert-row.missed {
+  border-left-color: #f59e0b;
+}
+
+.telegram-alert-row.invalidated {
+  border-left-color: #ef4444;
+}
+
+.telegram-alert-market {
+  display: grid;
+  gap: 2px;
+}
+
+.telegram-alert-market small,
+.telegram-alert-plan,
+.telegram-alert-score {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.telegram-alert-plan {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telegram-alert-score {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.telegram-alert-status {
+  justify-self: end;
+  color: #10b981;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.telegram-alert-row.watch .telegram-alert-status,
+.telegram-alert-row.missed .telegram-alert-status {
+  color: #f59e0b;
+}
+
+.telegram-alert-row.invalidated .telegram-alert-status {
+  color: #ef4444;
+}
+
 .decision-board {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -4022,6 +4114,15 @@ button {
 
   .dashboard-brief {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .telegram-alert-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .telegram-alert-plan {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 }
 

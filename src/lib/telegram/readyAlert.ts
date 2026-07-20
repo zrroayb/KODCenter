@@ -7,6 +7,7 @@ import {
   readyTelegramDedupeKey,
   type TelegramReadyAlertPayload
 } from "./alertPayload";
+import { SENT_READY_ALERTS_KEY } from "./alertHistory";
 
 export {
   buildTelegramReadyAlertPayload,
@@ -16,7 +17,6 @@ export {
 } from "./alertPayload";
 export type { TelegramReadyAlertPayload } from "./alertPayload";
 
-const SENT_READY_ALERTS_KEY = "tradebot.telegram.sentReadyIds";
 const pendingReadyAlerts = new Set<string>();
 
 // Screenshot capture is best-effort: an alert must never be delayed or dropped because a

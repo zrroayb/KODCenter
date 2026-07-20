@@ -1,4 +1,5 @@
 import type { TradingSignal } from "../ict/types";
+import { signalSetupIdentity } from "./setupIdentity";
 
 export const READY_HOLD_MS = 30 * 60 * 1000;
 
@@ -8,19 +9,8 @@ export type ReadyHoldRecord = {
   expiresAt: number;
 };
 
-function priceBucket(value: number | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "na";
-  if (Math.abs(value) >= 1000) return value.toFixed(0);
-  if (Math.abs(value) >= 10) return value.toFixed(2);
-  return value.toFixed(5);
-}
-
 export function readyHoldSignature(signal: TradingSignal): string {
-  const anchors = ["sweep", "mss", "fvg"].map((id) => {
-    const evidence = signal.evidence.find((item) => item.id === id);
-    return `${id}:${evidence?.time ?? evidence?.candleIndex ?? "na"}:${priceBucket(evidence?.price)}`;
-  });
-  return [signal.strategyId, signal.symbol, signal.direction, ...anchors].join("|");
+  return signalSetupIdentity(signal);
 }
 
 function heldReadySignal(record: ReadyHoldRecord, current: TradingSignal): TradingSignal {
