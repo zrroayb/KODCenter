@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Brain, Clock3, Eye, Sparkles } from "lucide-react";
 import { fetchSessionAnalysis, type SessionAnalysisResponse } from "../lib/session/sessionAnalysis";
-import { buildSessionStatistics } from "../lib/session/sessionConfluenceEngine";
 import type { SessionSetup, SessionSetupLifecycle, SessionSetupLog } from "../lib/session/types";
 
 type SessionMode = "active" | "history";
@@ -39,6 +38,18 @@ function timeLabel(timestamp: number): string {
   });
 }
 
+function uniqueActiveSetups(setups: SessionSetup[]): SessionSetup[] {
+  const unique = new Map<string, SessionSetup>();
+  for (const setup of setups) {
+    const key = [setup.symbol, setup.direction, setup.referenceSession, setup.triggerSession, setup.setupModel].join(":");
+    const current = unique.get(key);
+    if (!current || setup.updatedAt > current.updatedAt || (setup.updatedAt === current.updatedAt && setup.score > current.score)) {
+      unique.set(key, setup);
+    }
+  }
+  return [...unique.values()];
+}
+
 function SessionRangeMap({ setup }: { setup: SessionSetup }) {
   const { high, low } = setup.referenceRange;
   const span = Math.max(high - low, 0.000001);
@@ -74,10 +85,8 @@ export function SessionSetupsView({
   const [selectedId, setSelectedId] = useState<string | null>(setups[0]?.id ?? null);
   const [analysis, setAnalysis] = useState<SessionAnalysisResponse>({ status: "disabled", reason: "" });
   const [analysisLoading, setAnalysisLoading] = useState(false);
-  const stats = useMemo(() => buildSessionStatistics(setups), [setups]);
   const active = useMemo(
-    () => setups
-      .filter((setup) => !TERMINAL.includes(setup.lifecycleStatus))
+    () => uniqueActiveSetups(setups.filter((setup) => !TERMINAL.includes(setup.lifecycleStatus)))
       .sort((a, b) => Number(READY.includes(b.lifecycleStatus)) - Number(READY.includes(a.lifecycleStatus)) || b.score - a.score),
     [setups]
   );
@@ -86,6 +95,7 @@ export function SessionSetupsView({
     [setups]
   );
   const displayed = mode === "active" ? active : history;
+  const readyCount = active.filter((setup) => READY.includes(setup.lifecycleStatus)).length;
   const selected = displayed.find((setup) => setup.id === selectedId) ?? displayed[0];
   const selectedLogs = selected ? logs.filter((log) => log.setupId === selected.id) : [];
 
@@ -112,11 +122,11 @@ export function SessionSetupsView({
       <article className="panel session-summary-strip simple-session-summary">
         <div>
           <span className="eyebrow">Session radar</span>
-          <h2>{stats.confirmed ? `${stats.confirmed} hazır setup` : active.length ? `${active.length} setup izleniyor` : "Aktif session setup yok"}</h2>
+          <h2>{readyCount ? `${readyCount} hazır setup` : active.length ? `${active.length} setup izleniyor` : "Aktif session setup yok"}</h2>
           <p>Önce session likiditesi, sonra ana CRT onayı.</p>
         </div>
         <div className="session-summary-metrics">
-          <span><strong>{stats.confirmed}</strong> hazır</span>
+          <span><strong>{readyCount}</strong> hazır</span>
           <span><strong>{active.length}</strong> aktif</span>
         </div>
       </article>

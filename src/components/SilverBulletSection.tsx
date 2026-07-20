@@ -49,6 +49,18 @@ function timeLabel(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" });
 }
 
+function uniqueActiveSetups(setups: SilverBulletSetup[]): SilverBulletSetup[] {
+  const unique = new Map<string, SilverBulletSetup>();
+  for (const setup of setups) {
+    const key = [setup.symbol, setup.direction, setup.tradingDayId].join(":");
+    const current = unique.get(key);
+    if (!current || setup.updatedAtUtc > current.updatedAtUtc || (setup.updatedAtUtc === current.updatedAtUtc && setup.score > current.score)) {
+      unique.set(key, setup);
+    }
+  }
+  return [...unique.values()];
+}
+
 export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetup[]; logs: SilverBulletLog[] }) {
   const [mode, setMode] = useState<SilverMode>("active");
   const [selectedId, setSelectedId] = useState<string | null>(setups[0]?.setupId ?? null);
@@ -56,8 +68,7 @@ export function SilverBulletSection({ setups, logs }: { setups: SilverBulletSetu
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const now = Date.now();
   const active = useMemo(
-    () => setups
-      .filter((setup) => !TERMINAL.includes(setup.lifecycleStatus))
+    () => uniqueActiveSetups(setups.filter((setup) => !TERMINAL.includes(setup.lifecycleStatus)))
       .sort((a, b) => Number(READY.includes(b.lifecycleStatus)) - Number(READY.includes(a.lifecycleStatus)) || b.score - a.score),
     [setups]
   );
