@@ -1,4 +1,5 @@
 import { defaultRules } from "./defaultRules";
+import { resolveStoredRules } from "./resolveRules";
 import type { UserRules } from "./userRules";
 
 const STORAGE_KEY = "tradebot-user-rules-v1";
@@ -15,17 +16,7 @@ export function loadUserRules(): UserRules {
   try {
     const raw = storage()?.getItem(STORAGE_KEY);
     if (!raw) return defaultRules;
-    const parsed = JSON.parse(raw) as Partial<UserRules>;
-    return {
-      ...defaultRules,
-      ...parsed,
-      allowedSymbols: Array.isArray(parsed.allowedSymbols) && parsed.allowedSymbols.length
-        ? parsed.allowedSymbols.filter((symbol) => defaultRules.allowedSymbols.includes(symbol))
-        : defaultRules.allowedSymbols,
-      allowedKillzones: Array.isArray(parsed.allowedKillzones) && parsed.allowedKillzones.length
-        ? parsed.allowedKillzones.filter((zone) => defaultRules.allowedKillzones.includes(zone))
-        : defaultRules.allowedKillzones
-    };
+    return resolveStoredRules(JSON.parse(raw));
   } catch {
     return defaultRules;
   }

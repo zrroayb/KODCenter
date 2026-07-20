@@ -9,6 +9,7 @@ import {
 import { alertableReadySignals, scanContexts } from "../src/lib/runtime/scanRuntime";
 import { buildTelegramReadyAlertPayload } from "../src/lib/telegram/alertPayload";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
+import { resolveStoredRules } from "../src/lib/userRules/resolveRules";
 
 const cloudUrl = process.env.CLOUD_SCAN_URL?.replace(/\/+$/, "");
 const scanToken = process.env.SCAN_TOKEN;
@@ -57,6 +58,20 @@ function chunks<T>(items: T[], size: number): T[][] {
   return result;
 }
 
+// Site ile aynı kurallar: Ayar ekranı /api/rules'a yazar, bot buradan okur. Erişilemezse
+// defaultRules'a düşer — kural senkronu hiçbir zaman taramayı durduramaz.
+async function fetchCloudRules(): Promise<{ rules: typeof defaultRules; source: "cloud" | "default" }> {
+  try {
+    const response = await fetch(`${cloudUrl}/api/rules`, { headers });
+    if (!response.ok) return { rules: defaultRules, source: "default" };
+    const body = await response.json() as { rules?: unknown } | null;
+    if (!body?.rules) return { rules: defaultRules, source: "default" };
+    return { rules: resolveStoredRules(body.rules), source: "cloud" };
+  } catch {
+    return { rules: defaultRules, source: "default" };
+  }
+}
+
 async function run() {
   const scannedAt = Date.now();
   const markets = [];
@@ -81,7 +96,8 @@ async function run() {
   const contexts = attachSmtDivergences(
     markets.map((market) => buildMarketContext(market.symbol, market.timeframes))
   );
-  const result = scanContexts(contexts, "crt", defaultRules);
+  const { rules, source: rulesSource } = await fetchCloudRules();
+  const result = scanContexts(contexts, "crt", rules);
 
   for (const market of markets) {
     await postSnapshot("/api/ingest-market", market.symbol, scannedAt, leanMarketForStorage(market));
@@ -99,6 +115,7 @@ async function run() {
   console.log(JSON.stringify({
     status: "ok",
     scannedAt,
+    rulesSource,
     markets: markets.length,
     ready: readySignals.length,
     watch: result.signals.filter((signal) => signal.stage === "watch").length,

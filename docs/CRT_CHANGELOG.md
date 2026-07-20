@@ -2,6 +2,19 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-19 — user rules sync to D1; the cloud bot scans with the site's rules
+- Closes the "bot runs on defaultRules" gap from the alert-parity fix: the Ayar screen now
+  mirrors every rule change to the worker (`POST /api/rules`, debounced 1s, fire-and-forget;
+  vite dev has no endpoint and the sync silently no-ops). The 5-minute cloud scan fetches the
+  mirror (`GET /api/rules`, SCAN_TOKEN) and falls back to defaultRules if unreachable —
+  rules sync can never block a scan. Scan log gains `rulesSource: cloud|default`.
+- One shared sanitizer `resolveStoredRules` (defaults merge + symbol/killzone whitelist +
+  minimum-score floor) now backs BOTH localStorage loading and the cloud path — divergent
+  sanitize was itself a parity risk. D1 table `user_rules` (migration 0002 + ensureSchema).
+- POST is deliberately tokenless (same-origin page cannot hold the scan token; worst case is
+  a prefs overwrite that the sanitizer clamps). GET stays token-gated.
+- Direction is one-way browser → D1: the browser owns the rules, D1 is the bot's mirror.
+
 ## 2026-07-19 — Telegram alerts now respect site visibility (owner: gold alert, site empty)
 - Owner got a XAUUSD READY alert on Telegram while the site listed nothing. Cause: the cloud
   scan alerted from `[...signals, ...hiddenSignals]` — hiddenSignals is precisely what the

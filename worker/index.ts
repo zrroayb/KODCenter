@@ -158,6 +158,13 @@ async function ensureSchema(env: CloudflareEnv) {
         updated_at INTEGER NOT NULL,
         error TEXT
       )
+    `),
+    env.DB.prepare(`
+      CREATE TABLE IF NOT EXISTS user_rules (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
     `)
   ]);
 }
@@ -615,6 +622,42 @@ async function handleScanFinalize(request: Request, env: CloudflareEnv) {
   });
 }
 
+// Site → D1 kural aynası. POST bilinçli olarak token'sız: sayfa aynı origin'den, elinde scan
+// token'ı olmadan yazar (token'ı tarayıcıya gömmek daha büyük risk). Ham JSON saklanır; asıl
+// sanitize her okuyucuda resolveStoredRules ile yapılır. GET yalnız bot içindir (token).
+async function handleUserRules(request: Request, env: CloudflareEnv) {
+  await ensureSchema(env);
+  if (request.method === "POST") {
+    const payload = await request.text();
+    if (!payload.startsWith("{") || payload.length > 8_192) {
+      return jsonResponse({ status: "error", error: "Invalid rules payload" }, 400);
+    }
+    try {
+      JSON.parse(payload);
+    } catch {
+      return jsonResponse({ status: "error", error: "Invalid rules payload" }, 400);
+    }
+    const now = Date.now();
+    await env.DB.prepare(`
+      INSERT INTO user_rules (id, payload, updated_at) VALUES ('default', ?, ?)
+      ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+    `).bind(payload, now).run();
+    return jsonResponse({ status: "stored", updatedAt: now });
+  }
+  if (request.method === "GET") {
+    if (!hasScanAccess(request, env)) return jsonResponse({ status: "error", error: "Unauthorized" }, 401);
+    const row = await env.DB.prepare("SELECT payload, updated_at FROM user_rules WHERE id = 'default'")
+      .first<{ payload: string; updated_at: number }>();
+    if (!row) return jsonResponse({ status: "empty", rules: null });
+    try {
+      return jsonResponse({ status: "ok", rules: JSON.parse(row.payload), updatedAt: row.updated_at });
+    } catch {
+      return jsonResponse({ status: "empty", rules: null });
+    }
+  }
+  return jsonResponse({ status: "error", error: "Method not allowed" }, 405);
+}
+
 async function handleRequest(request: Request, env: CloudflareEnv) {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/yahoo/")) return handleYahooProxy(request);
@@ -632,6 +675,7 @@ async function handleRequest(request: Request, env: CloudflareEnv) {
   if (url.pathname === "/api/ingest-market") return handleMarketIngest(request, env);
   if (url.pathname === "/api/ingest-scan") return handleScanIngest(request, env);
   if (url.pathname === "/api/finalize-scan") return handleScanFinalize(request, env);
+  if (url.pathname === "/api/rules") return handleUserRules(request, env);
   if (url.pathname === "/api/telegram/ready-alert") {
     if (request.method !== "POST") return jsonResponse({ status: "error", error: "Method not allowed" }, 405);
     if (!hasScanAccess(request, env)) return jsonResponse({ status: "error", error: "Unauthorized" }, 401);

@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS user_rules (
+  id TEXT PRIMARY KEY,
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);

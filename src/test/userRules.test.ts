@@ -3,6 +3,7 @@ import { createDemoContexts } from "../data/demoData";
 import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
 import { ruleAllowsContext, ruleAllowsSignal } from "../lib/userRules/applyRules";
 import { defaultRules } from "../lib/userRules/defaultRules";
+import { resolveStoredRules } from "../lib/userRules/resolveRules";
 import { createStructureContext } from "./strategyFixtures";
 
 function visibleSequenceSignal() {
@@ -71,5 +72,27 @@ describe("user rule visibility policy", () => {
 
     expect(ruleAllowsContext(outsideContext, { ...defaultRules, allowedKillzones: ["London"] })).toBe(true);
     expect(ruleAllowsContext({ ...outsideContext, symbol: "EURUSD" }, { ...defaultRules, allowedKillzones: ["London"] })).toBe(false);
+  });
+});
+
+describe("stored rule resolution (site + cloud bot parity)", () => {
+  it("merges partial payloads over defaults, filters whitelists and applies the score floor", () => {
+    const resolved = resolveStoredRules({
+      minimumRR: 2,
+      minimumScore: 30,
+      allowedSymbols: ["XAUUSD", "FAKEUSD"],
+      allowedKillzones: ["nonsense"]
+    });
+    expect(resolved.minimumRR).toBe(2);
+    expect(resolved.minimumScore).toBe(50);
+    expect(resolved.allowedSymbols).toEqual(["XAUUSD"]);
+    expect(resolved.allowedKillzones).toEqual(defaultRules.allowedKillzones);
+    expect(resolved.maxSignalsPerScan).toBe(defaultRules.maxSignalsPerScan);
+  });
+
+  it("falls back to defaults for garbage payloads", () => {
+    expect(resolveStoredRules(null)).toEqual({ ...defaultRules, minimumScore: 50 });
+    expect(resolveStoredRules([1, 2])).toEqual({ ...defaultRules, minimumScore: 50 });
+    expect(resolveStoredRules("x")).toEqual({ ...defaultRules, minimumScore: 50 });
   });
 });

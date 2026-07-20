@@ -36,6 +36,7 @@ import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
 import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
+import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
@@ -452,6 +453,7 @@ export default function App() {
 
   useEffect(() => {
     saveUserRules(rules);
+    queueCloudRulesSync(rules);
   }, [rules]);
 
   useEffect(() => () => replayWorkerRef.current?.terminate(), []);
