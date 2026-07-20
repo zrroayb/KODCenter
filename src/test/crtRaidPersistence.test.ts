@@ -30,6 +30,29 @@ describe("CRT delayed manipulation", () => {
     expect(raid?.level).toBe(115);
   });
 
+  it("tracks the raid leg's running extreme so the stop anchor never sits inside a printed wick", () => {
+    // idx2 raids the range high at 115 and closes back inside. idx3 pokes 118 while its close
+    // still holds the reclaim — same raid leg. The manipulation extreme (stop anchor) must be
+    // 118; anchoring to the first wick (115) would leave the stop inside proven liquidity.
+    const candles: Candle[] = [
+      { ...bar(100, 90, 95), time: 0 },
+      { ...bar(110, 100, 104), time: 1 },
+      { ...bar(115, 103, 108), time: 2 },
+      { ...bar(118, 104, 107), time: 3 }
+    ];
+    const { raid } = detectAnchorRaid(candles, { rangeTf: "4h", confirmTf: "15m" });
+    expect(raid?.direction).toBe("short");
+    expect(raid?.level).toBe(118);
+
+    // Live-raid parity: the forming candle's wick extends the same leg.
+    const withForming: Candle[] = [
+      ...candles,
+      { ...bar(119, 105, 108), time: 4, closed: false }
+    ];
+    const formingRead = detectAnchorRaid(withForming, { rangeTf: "4h", confirmTf: "15m" });
+    expect(formingRead.raid?.level).toBe(119);
+  });
+
   it("does not pair the range candle with an intervening candle that stayed inside it", () => {
     // If manipulation HAD to be adjacent, this would report idx3 (107) as the range. It must
     // report idx1 (110) — the candle whose liquidity was actually taken.

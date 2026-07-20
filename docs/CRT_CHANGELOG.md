@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-19 — stop anchors to the raid leg's running extreme (owner: "stop doğru durmuyor")
+- Owner screenshot (AUDUSD 1D short): stop 0.70050 sat INSIDE later raid wicks (~0.7013) with a
+  bloated 1:7.12 RR. Root cause: `raidFromPair` froze `raid.level` at the FIRST raid candle's
+  wick, while `raidStillActive` deliberately tolerates later wick pokes (distribution/noise) as
+  long as closes hold the reclaim — so the same raid leg could print higher wicks the stop
+  never followed.
+- Fix in `detectAnchorRaid`: while the raid is active, the manipulation extreme is the leg's
+  running extreme (later closed candles + the forming wick, live-raid parity). Same rule applied
+  to the confirmation-TF sweep variants in `manipulationForAnchor` (range + swing sweeps).
+- Effect: stops can only WIDEN to sit beyond printed liquidity; RR drops accordingly (honest
+  direction). `raid.level` had no other consumers. Regression test added (running extreme incl.
+  forming wick). 191 tests pass; verified in the app — AUDUSD stop now sits above the highest
+  printed wick with RR 1:1.22 instead of inside the wick at 1:7.12.
+
 ## 2026-07-17 — session confluence: past sessions can no longer masquerade as live (owner complaint)
 - Owner: the Session view listed setups from long-finished sessions (and previous days) as
   "Canlı" — ASIA 84 / LONDON 227 counters, "81 gelişiyor". Root causes, both fixed:

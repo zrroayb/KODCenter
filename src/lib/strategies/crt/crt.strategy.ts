@@ -313,7 +313,18 @@ export function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { ra
     const raidIndex = firstSweepIndex(closed, rangeIndex, range);
     if (raidIndex === -1) continue;
     const raid = raidFromPair(range, closed[raidIndex], true);
-    if (raid && raidStillActive(closed, raidIndex, range, raid.direction)) return { range, raid };
+    if (raid && raidStillActive(closed, raidIndex, range, raid.direction)) {
+      // The manipulation extreme is the raid LEG's running extreme, not the first raid
+      // candle's wick: raidStillActive deliberately tolerates later wick pokes (distribution
+      // leg / noise) as long as every close holds the reclaim, so those pokes belong to the
+      // same raid. A stop anchored to the first wick would sit inside already-printed
+      // liquidity once a later poke prints higher (live-raid parity: the forming wick counts).
+      const legCandles = [...closed.slice(raidIndex + 1), ...(forming ? [forming] : [])];
+      const level = raid.direction === "short"
+        ? legCandles.reduce((max, candle) => Math.max(max, candle.high), raid.level)
+        : legCandles.reduce((min, candle) => Math.min(min, candle.low), raid.level);
+      return { range, raid: { ...raid, level } };
+    }
   }
   // Forming raid: the most recent closed range candle every later closed candle respected,
   // now swept by the still-forming candle.
@@ -576,10 +587,15 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
       ? candle.high > rangeLevel && candle.close < rangeLevel
       : candle.low < rangeLevel && candle.close > rangeLevel)
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
+  // Same running-extreme rule as the HTF raid: later wick pokes past the sweep candle while
+  // the closes keep holding are the same raid leg, and the stop anchor must sit above them.
+  const legExtremeSince = (fromIndex: number, seed: number): number => candles
+    .slice(fromIndex + 1)
+    .reduce((extreme, candle) => direction === "short" ? Math.max(extreme, candle.high) : Math.min(extreme, candle.low), seed);
   if (rangeSweep) {
     return {
       side: expectedSweepSide(direction),
-      level: direction === "short" ? rangeSweep.candle.high : rangeSweep.candle.low,
+      level: legExtremeSince(rangeSweep.candleIndex, direction === "short" ? rangeSweep.candle.high : rangeSweep.candle.low),
       candleIndex: rangeSweep.candleIndex,
       reclaimed: true
     };
@@ -596,7 +612,12 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
         : candle.low < point.level && candle.close > point.level))
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
   return swingSweep
-    ? { side: expectedSweepSide(direction), level: direction === "short" ? swingSweep.candle.high : swingSweep.candle.low, candleIndex: swingSweep.candleIndex, reclaimed: true }
+    ? {
+        side: expectedSweepSide(direction),
+        level: legExtremeSince(swingSweep.candleIndex, direction === "short" ? swingSweep.candle.high : swingSweep.candle.low),
+        candleIndex: swingSweep.candleIndex,
+        reclaimed: true
+      }
     : undefined;
 }
 
