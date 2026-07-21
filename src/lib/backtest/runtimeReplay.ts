@@ -55,7 +55,7 @@ type ReplayEntryCandidate = {
   rank: number;
 };
 
-type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note" | "managementVariants">;
+type ReplayOutcome = Pick<RuntimeReplayTrade, "status" | "rMultiple" | "maxFavorableR" | "maxAdverseR" | "candlesHeld" | "outcomeReason" | "tags" | "note" | "managementVariants" | "unfilledCounterfactualR">;
 
 // A retest limit order that has not filled within ~16 confirmation-TF bars is cancelled.
 // Future candles are m15, so patience and hold duration scale with the signal's
@@ -401,12 +401,60 @@ function buildReviewMeasurements(trades: RuntimeReplayTrade[]): RuntimeReplayRev
       .sort((a, b) => b.trades - a.trades);
   };
 
+  const unfilledTrades = trades.filter((trade) => trade.status === "not-triggered");
+  const withCf = unfilledTrades.filter((trade) => typeof trade.unfilledCounterfactualR === "number");
+  const cfTotalR = withCf.reduce((sum, trade) => sum + (trade.unfilledCounterfactualR ?? 0), 0);
+  const unfilled = {
+    count: unfilledTrades.length,
+    withCounterfactual: withCf.length,
+    cfTotalR: Number(cfTotalR.toFixed(2)),
+    cfAvgR: withCf.length ? Number((cfTotalR / withCf.length).toFixed(2)) : 0,
+    cfWins: withCf.filter((trade) => (trade.unfilledCounterfactualR ?? 0) > 0).length
+  };
+
   return {
     eqRr,
     clusterDays,
     gradeBuckets: bucketize((trade) => trade.grade).map(({ key, ...rest }) => ({ grade: key, ...rest })),
-    killzoneBuckets: bucketize((trade) => trade.session).map(({ key, ...rest }) => ({ session: key, ...rest }))
+    killzoneBuckets: bucketize((trade) => trade.session).map(({ key, ...rest }) => ({ session: key, ...rest })),
+    unfilled
   };
+}
+
+// Çekirdek ve 1H izleme hattının ortak trade kurucusu: gelecek mumlar, sonuç değerlendirmesi
+// ve trade kaydı tek yerden — iki hat farklı alan setiyle ayrışamaz.
+function buildMeasuredReplayTrade(
+  signal: TradingSignal,
+  time: number,
+  market: DemoMarket | undefined,
+  maxHoldCandles: number,
+  settings: StrategySettings,
+  baseTags: string[]
+): { trade: RuntimeReplayTrade; outcome: ReplayOutcome } {
+  const adjustedFuture = confirmationAdjustedFuture(
+    signal,
+    market ? futureCandlesForSignal(market, time, maxHoldCandles * confirmTfFactor(signal)) : []
+  );
+  const outcome = evaluateForwardOutcome(signal, adjustedFuture.candles, [...baseTags, ...adjustedFuture.tags], settings);
+  const measuredOutcome = adjustedFuture.missingNote
+    ? noTriggerOutcome(signal, [...baseTags, ...adjustedFuture.tags], adjustedFuture.missingNote)
+    : outcome;
+  const trade: RuntimeReplayTrade = {
+    id: `${signal.id}-${time}-replay`,
+    symbol: signal.symbol,
+    direction: signal.direction,
+    signalTime: time,
+    ...tradeProfile(signal, "live-ready"),
+    grade: signal.grade,
+    score: signal.score,
+    entry: signal.plan.entry,
+    stopLoss: signal.plan.stopLoss,
+    target: signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry,
+    eqRR: Number((Math.abs(signal.plan.entry - (signal.plan.targets[0] ?? signal.plan.entry))
+      / Math.max(signal.plan.riskDistance, 1e-9)).toFixed(2)),
+    ...measuredOutcome
+  };
+  return { trade, outcome: measuredOutcome };
 }
 
 function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"]) {
@@ -660,6 +708,22 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
   };
 }
 
+// Dolmayan/geciken retest emrinin karşı-olgusu: sinyal anındaki ilk mumun açılışından, aynı
+// stop ve hedeflerle girilseydi ne öderdi. %48 dolmama sızıntısının maliyetini ölçer; hiçbir
+// gerçek sonucu değiştirmez, yalnız `unfilledCounterfactualR` alanına yazılır.
+function unfilledEntryCounterfactualR(signal: TradingSignal, futureCandles: Candle[], settings: StrategySettings): number | undefined {
+  const cfEntry = futureCandles[0]?.open;
+  if (typeof cfEntry !== "number") return undefined;
+  const stop = signal.plan.stopLoss;
+  const risk = Math.abs(cfEntry - stop);
+  const stopValid = signal.direction === "short" ? stop > cfEntry : stop < cfEntry;
+  if (!stopValid || risk <= 0) return undefined;
+  const cfSignal = { ...signal, plan: { ...signal.plan, entry: cfEntry, riskDistance: risk } } as TradingSignal;
+  const outcome = evaluateCrtForwardOutcome(cfSignal, futureCandles, [], settings);
+  if (outcome.status === "not-triggered" || outcome.status === "open") return undefined;
+  return Number(outcome.rMultiple.toFixed(2));
+}
+
 function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], tagsExtra: string[] = [], settings: StrategySettings = {}): ReplayOutcome {
   const tags = Array.from(new Set([...tradeTags(signal), ...tagsExtra]));
   if (!futureCandles.length) {
@@ -680,7 +744,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
       candlesHeld: futureCandles.length,
       outcomeReason: "entry-not-filled",
       tags,
-      note: "Entry alanı sonraki mumlarda tetiklenmedi."
+      note: "Entry alanı sonraki mumlarda tetiklenmedi.",
+      unfilledCounterfactualR: isRetestEntry ? unfilledEntryCounterfactualR(signal, futureCandles, settings) : undefined
     };
   }
   const fillTimeout = ENTRY_FILL_TIMEOUT_CANDLES * confirmTfFactor(signal);
@@ -693,7 +758,8 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
       candlesHeld: entryIndex,
       outcomeReason: "entry-expired",
       tags: Array.from(new Set([...tags, "entry:expired"])),
-      note: `Retest emri ${fillTimeout} m15 mumu içinde dolmadı; emir iptal sayıldı.`
+      note: `Retest emri ${fillTimeout} m15 mumu içinde dolmadı; emir iptal sayıldı.`,
+      unfilledCounterfactualR: unfilledEntryCounterfactualR(signal, futureCandles, settings)
     };
   }
 
@@ -1028,6 +1094,13 @@ function filterScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayFilterScena
       "FX/endeks için London veya New York; BTC için session filtresi yok.",
       trades,
       sessionIsActive
+    ),
+    scenarioStats(
+      "eq-rr-floor",
+      "EQ-RR ≥ 1",
+      "Kapı DOL'a bakar ama çıkış EQ'da: EQ mesafesi en az 1R olan işlemler (30+ inceleme adayı).",
+      trades,
+      (trade) => trade.eqRR >= 1
     ),
     scenarioStats(
       "strict-core",
@@ -1396,6 +1469,10 @@ export function runMonthlyRuntimeReplay({
   const replayedDays = endedAt > startedAt ? (endedAt - startedAt) / DAY_MS : 0;
   const setupStates = new Map<string, SetupState>();
   const dayRiskStates = new Map<string, DayRiskState>();
+  // 1H anchor izleme hattı: kendi setup/risk durumu — çekirdek girişlerin gün kotasını yemez.
+  const trackingSetupStates = new Map<string, SetupState>();
+  const trackingDayRiskStates = new Map<string, DayRiskState>();
+  const trackingTrades: RuntimeReplayTrade[] = [];
   const marketBySymbol = new Map(markets.map((market) => [market.symbol, market]));
   const trades: RuntimeReplayTrade[] = [];
   const candidates: RuntimeReplayCandidate[] = [];
@@ -1418,7 +1495,30 @@ export function runMonthlyRuntimeReplay({
     const entryCandidates: ReplayEntryCandidate[] = [];
 
     for (const context of contexts) {
-      const signal = strategy.scan({ context, settings }).signals[0];
+      // 1H anchor'ı ölçüm için "live" modda taranır ama ÇEKİRDEK seçim 1h-dışı ilk sinyaldir:
+      // taban (bugünkü başlık metrikleri) birebir korunur, 1h ayrı izleme hattında ölçülür.
+      const scannedSignals = strategy.scan({ context, settings: { ...settings, intradayAnchorMode: "live" } }).signals;
+      const trackingSignal = scannedSignals.find((item) => item.crtAnchor?.rangeTf === "1h"
+        && item.stage !== "invalidated" && item.stage !== "missed");
+      if (trackingSignal && replayEligibleSignal(trackingSignal)) {
+        const trackingKey = `1h:${setupKey(trackingSignal)}`;
+        const previousTracking = trackingSetupStates.get(trackingKey);
+        const trackingState = previousTracking && time - previousTracking.lastSeen <= SETUP_COOLDOWN_MS
+          ? previousTracking
+          : { lastSeen: time, countedWatch: false, countedReady: false };
+        trackingState.lastSeen = time;
+        const trackingDay = dayStateFor(trackingDayRiskStates, time);
+        if (!trackingState.countedReady && canTakeReplayEntry(trackingDay, trackingSignal)) {
+          const market = marketBySymbol.get(trackingSignal.symbol);
+          const built = buildMeasuredReplayTrade(trackingSignal, time, market, maxHoldCandles, settings, ["replay:1h-tracking", "anchor:1h", "risk:daily-capped"]);
+          trackingTrades.push(built.trade);
+          applyReplayRisk(trackingDay, trackingSignal, built.outcome);
+          trackingState.countedReady = true;
+        }
+        trackingSetupStates.set(trackingKey, trackingState);
+      }
+
+      const signal = scannedSignals.find((item) => item.crtAnchor?.rangeTf !== "1h");
       if (!signal || signal.stage === "invalidated" || signal.stage === "missed") continue;
 
       const key = setupKey(signal);
@@ -1450,37 +1550,16 @@ export function runMonthlyRuntimeReplay({
 
       candidates.push(replayCandidate(candidate.signal, candidate.time, "ready"));
       const market = marketBySymbol.get(candidate.signal.symbol);
-      const origin: RuntimeReplayTrade["origin"] = "live-ready";
-      const baseTags = ["replay:live-ready", "risk:daily-capped"];
-      const adjustedFuture = confirmationAdjustedFuture(
+      const built = buildMeasuredReplayTrade(
         candidate.signal,
-        market ? futureCandlesForSignal(market, candidate.time, maxHoldCandles * confirmTfFactor(candidate.signal)) : []
+        candidate.time,
+        market,
+        maxHoldCandles,
+        settings,
+        ["replay:live-ready", "risk:daily-capped"]
       );
-      const outcome = evaluateForwardOutcome(
-        candidate.signal,
-        adjustedFuture.candles,
-        [...baseTags, ...adjustedFuture.tags],
-        settings
-      );
-      const measuredOutcome = adjustedFuture.missingNote
-        ? noTriggerOutcome(candidate.signal, [...baseTags, ...adjustedFuture.tags], adjustedFuture.missingNote)
-        : outcome;
-      trades.push({
-        id: `${candidate.signal.id}-${candidate.time}-replay`,
-        symbol: candidate.signal.symbol,
-        direction: candidate.signal.direction,
-        signalTime: candidate.time,
-        ...tradeProfile(candidate.signal, origin),
-        grade: candidate.signal.grade,
-        score: candidate.signal.score,
-        entry: candidate.signal.plan.entry,
-        stopLoss: candidate.signal.plan.stopLoss,
-        target: candidate.signal.plan.targets[1] ?? candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
-        eqRR: Number((Math.abs(candidate.signal.plan.entry - (candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry))
-          / Math.max(candidate.signal.plan.riskDistance, 1e-9)).toFixed(2)),
-        ...measuredOutcome
-      });
-      applyReplayRisk(dayState, candidate.signal, measuredOutcome);
+      trades.push(built.trade);
+      applyReplayRisk(dayState, candidate.signal, built.outcome);
       readyAlerts += 1;
       liveReadyEntries += 1;
       entriesThisScan += 1;
@@ -1557,6 +1636,16 @@ export function runMonthlyRuntimeReplay({
       watchReasonSummary: watchReasonSummary(candidates),
       replayDiagnosis: replayDiagnosis(trades, breakdowns),
       reviewMeasurements: buildReviewMeasurements(trades),
+      trackingScenarios: [
+        scenarioStats(
+          "anchor-1h-tracking",
+          "1H anchor (izleme)",
+          "Master §8'in 1H→5M eşlemesi ayrı ailede ölçülür; başlık metriklerine karışmaz, READY üretmez.",
+          trackingTrades,
+          () => true
+        )
+      ],
+      trackingTrades: trackingTrades.slice(-40).reverse(),
       trades: trades.slice(-80).reverse(),
       candidates: candidates.slice(-120).reverse(),
       sampleWarning

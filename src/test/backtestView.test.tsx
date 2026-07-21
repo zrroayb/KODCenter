@@ -26,8 +26,11 @@ function replayResult(): BacktestResult {
         eqRr: { sample: 0, mean: 0, below1: 0, below1_5: 0 },
         clusterDays: [],
         gradeBuckets: [],
-        killzoneBuckets: []
+        killzoneBuckets: [],
+        unfilled: { count: 0, withCounterfactual: 0, cfTotalR: 0, cfAvgR: 0, cfWins: 0 }
       },
+      trackingScenarios: [],
+      trackingTrades: [],
       windowDays: 30,
       scanEveryCandles: 4,
       availableDays: 30,

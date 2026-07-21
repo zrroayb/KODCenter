@@ -53,6 +53,9 @@ export type RuntimeReplayTrade = {
   // kapatır (0/13 DOL); 30+ işlem incelemesi "kapı EQ-RR'a mı bakmalı" sorusunu bu logla
   // cevaplayacak. Ölçüm alanıdır, hiçbir filtreye girmez.
   eqRR: number;
+  // Dolmayan/süresi geçen retest emrinin karşı-olgusu: ChoCH sonrası ilk mumun açılışından
+  // girilseydi aynı stop/hedeflerle ne öderdi. %48 dolmama sızıntısının maliyet ölçümü.
+  unfilledCounterfactualR?: number;
   entrySource: string;
   entryStatus: string;
   stopSource: string;
@@ -231,6 +234,8 @@ export type RuntimeReplayReviewMeasurements = {
   gradeBuckets: Array<{ grade: string; trades: number; totalR: number; expectancyR: number }>;
   // Killzone "konfluens, veto değil" kararının katkı doğrulaması.
   killzoneBuckets: Array<{ session: string; trades: number; totalR: number; expectancyR: number }>;
+  // Dolmayan retest emirlerinin bıraktığı para: karşı-olgu R toplamı ve kazanma oranı.
+  unfilled: { count: number; withCounterfactual: number; cfTotalR: number; cfAvgR: number; cfWins: number };
 };
 
 export type RuntimeReplaySummary = {
@@ -264,6 +269,10 @@ export type RuntimeReplaySummary = {
   watchReasonSummary: Array<{ reason: string; count: number }>;
   replayDiagnosis: string[];
   reviewMeasurements: RuntimeReplayReviewMeasurements;
+  // 1H anchor'ın izleme sonuçları — başlık metriklerine ASLA karışmaz (yeni aile,
+  // kendi kanıtını biriktirir); tek satırlık senaryo + ham işlem listesi.
+  trackingScenarios: RuntimeReplayFilterScenario[];
+  trackingTrades: RuntimeReplayTrade[];
   trades: RuntimeReplayTrade[];
   candidates: RuntimeReplayCandidate[];
   sampleWarning?: string;

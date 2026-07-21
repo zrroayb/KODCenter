@@ -50,7 +50,7 @@ export type DealingRange = {
 export type CrtBiasKind = "bullish-continuation" | "bearish-continuation" | "bullish-reversal" | "bearish-reversal" | "neutral";
 
 export type CrtBiasContext = {
-  timeframe: Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+  timeframe: Extract<Timeframe, "1M" | "1w" | "1d" | "4h" | "1h">;
   kind: CrtBiasKind;
   direction: TradeDirection | "neutral";
   drawLevel: number;

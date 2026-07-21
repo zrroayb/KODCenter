@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoMarkets } from "../data/demoData";
+import { buildMarketContext } from "../lib/intelligence/marketContext";
+import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
 import type { RuntimeReplayTrade } from "../lib/analytics/performance";
 import { __runtimeReplayInternals, runMonthlyRuntimeReplay } from "../lib/backtest/runtimeReplay";
 import type { TradingSignal } from "../lib/ict/types";
@@ -97,7 +99,30 @@ describe("monthly runtime replay", () => {
     expect(review!.eqRr.sample).toBe(result.replay?.triggeredTrades);
     expect(review!.gradeBuckets.reduce((sum, bucket) => sum + bucket.trades, 0)).toBe(result.replay?.triggeredTrades);
     expect(review!.killzoneBuckets.reduce((sum, bucket) => sum + bucket.trades, 0)).toBe(result.replay?.triggeredTrades);
+    // Dolmayan girişlerin karşı-olgu ölçümü iç tutarlı olmalı.
+    expect(review!.unfilled.count).toBe(result.replay?.notTriggered);
+    expect(review!.unfilled.withCounterfactual).toBeLessThanOrEqual(review!.unfilled.count);
+    expect(review!.unfilled.cfWins).toBeLessThanOrEqual(review!.unfilled.withCounterfactual);
+    // EQ-RR tabanı bir senaryo olarak ölçülür; işlem seçimine karışmaz.
+    expect(result.replay?.filterScenarios.map((item) => item.id)).toContain("eq-rr-floor");
+    // 1H anchor izleme hattı başlığa karışmaz: çekirdek işlemlerde anchor:1h tag'i olamaz.
+    expect(result.replay?.trackingScenarios?.[0]?.id).toBe("anchor-1h-tracking");
+    expect(result.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
+    expect((result.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
   }, 30_000);
+
+  it("keeps the 1H anchor watch-only in tracking mode so it can never page or trade live", () => {
+    const contexts = attachSmtDivergences(createDemoMarkets().map((market) => buildMarketContext(market.symbol, market.timeframes)));
+    for (const context of contexts.slice(0, 6)) {
+      const signals = crtStrategy.scan({
+        context,
+        settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
+      }).signals;
+      for (const signal of signals.filter((item) => item.crtAnchor?.rangeTf === "1h")) {
+        expect(signal.stage).not.toBe("ready");
+      }
+    }
+  });
 
   it("groups same-day same-USD-side correlated trades into cluster days for the review", () => {
     const day = Date.UTC(2026, 6, 16, 9);

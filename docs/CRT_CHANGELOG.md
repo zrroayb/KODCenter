@@ -2,6 +2,35 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — R-growth pass: 1H→5M anchor (tracking), unfilled-entry cost, EQ-RR gate scenario
+- Goal was to grow R without touching the quality gates that produce WR ~77%. Three additions,
+  all evidence-first:
+  1. **1H→5M anchor (Master §8's fifth mapping, previously missing).** New AnchorSpec 1h/5m;
+     every rangeTf conditional widened (rangeCandlesFor, confirmCandlesFor/live, crtBias TF,
+     ACTIVE_CRT_LOOKBACK, HTF_ALIGNMENT_CHAIN gains 1h→[4h,1d], RANGE_TF_RANK). Guarded by
+     `intradayAnchorMode` (default "tracking"): the 1H family CAN NEVER be READY live — it shows
+     as watch, never pages Telegram — until it earns its own 30+ trade evidence. Only
+     `intradayAnchorMode:"live"` promotes it. This is the §14 audit-first rule applied to a new
+     setup family. **Demo-window tracking result: 7/9 triggers, 0.55R/trade, PF 2.94, 3.87R,
+     WR 71.4% — higher expectancy than the 4H headline, nearly doubling N.** Strong candidate to
+     promote to live after 30 tracked trades.
+  2. **Unfilled-entry counterfactual.** CRT retest orders that never fill / expire now record
+     `unfilledCounterfactualR`: what a market entry at the next candle open (same stop/targets,
+     eq-full walk) would have paid. Aggregated in reviewMeasurements.unfilled. Measures the
+     ~48% no-fill leak's real cost — the adverse-selection question (are the strongest,
+     no-retest setups being systematically missed?). Zero in the demo window (all filled);
+     infrastructure ready for live data.
+  3. **EQ-RR ≥ 1 filter scenario.** filterScenarios gains eq-rr-floor — the gate filters on DOL
+     distance while the exit realizes at EQ. **Demo: 0.42R/trade, PF 2.26 vs headline 0.33R/PF
+     2.15 — filtering to EQ-RR ≥ 1 lifted expectancy, confirming the gate/exit tension.**
+- Replay is partitioned: 1H tracking trades run through a shared buildMeasuredReplayTrade path
+  with their own setup/day-risk state (never consume the core daily quota) and are excluded from
+  headline totals/bySymbol/reviewMeasurements; reported only as trackingScenarios + trackingTrades.
+  Nothing here changes a live rule or a headline number. 208 tests pass; UI verified in Replay
+  deep-dive; console clean.
+- Owner decisions still pending at the 30-trade review (measure now, decide then): promote the
+  1H anchor to live, switch the RR gate to EQ-RR, and act on the unfilled-entry leak.
+
 ## 2026-07-21 — review instrumentation: measure now, decide at 30+ trades (trade-logic analysis)
 - The trade-logic analysis surfaced two structural tensions that are NOT rule changes yet:
   (1) the RR gate filters on DOL distance while the exit model realizes at EQ (0/13 DOL hits

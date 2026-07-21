@@ -153,6 +153,20 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
                   <b>ort. {replay.reviewMeasurements.eqRr.mean.toFixed(2)}R · {replay.reviewMeasurements.eqRr.sample} işlem</b>
                   <small>{replay.reviewMeasurements.eqRr.below1} işlem &lt;1R · {replay.reviewMeasurements.eqRr.below1_5} işlem &lt;1.5R — inceleme sorusu: kapı EQ-RR'a mı bakmalı?</small>
                 </div>
+                {replay.reviewMeasurements.unfilled && (
+                  <div>
+                    <span>Dolmayan girişlerin bıraktığı para</span>
+                    <b>{replay.reviewMeasurements.unfilled.count} emir dolmadı · karşı-olgu {replay.reviewMeasurements.unfilled.cfTotalR.toFixed(2)}R</b>
+                    <small>{replay.reviewMeasurements.unfilled.withCounterfactual} ölçülebilir · ort. {replay.reviewMeasurements.unfilled.cfAvgR.toFixed(2)}R · {replay.reviewMeasurements.unfilled.cfWins} kazanan — retest beklerken kaçan işlemler kapanıştan girilseydi.</small>
+                  </div>
+                )}
+                {(replay.trackingScenarios ?? []).map((item) => (
+                  <div key={item.id}>
+                    <span>{item.label}</span>
+                    <b>{item.triggered}/{item.sample} tetik · {item.expectancyR.toFixed(2)}R/işlem · PF {item.profitFactor.toFixed(2)}</b>
+                    <small>toplam {item.totalR.toFixed(2)}R · WR {item.winRate.toFixed(1)}% — {item.description}</small>
+                  </div>
+                ))}
                 {replay.reviewMeasurements.clusterDays.slice(0, 5).map((group) => (
                   <div key={`${group.day}-${group.cluster}-${group.exposure}`}>
                     <span>Küme günü · {group.day} · {group.cluster} ({group.exposure})</span>

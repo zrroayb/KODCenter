@@ -60,11 +60,14 @@ const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
 // The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY); the
 // 01:00 / 05:00 / 09:00 NY opens are the doctrine's key candles — London raids Asia's
 // candle, New York raids London's.
-type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "15m" | "1h" | "4h"> };
+type AnchorSpec = { rangeTf: Extract<Timeframe, "1h" | "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
   { rangeTf: "1d", confirmTf: "1h" },
-  { rangeTf: "1w", confirmTf: "4h" }
+  { rangeTf: "1w", confirmTf: "4h" },
+  // Master §8'in beşinci eşlemesi (1H→5M). Yeni aile: intradayAnchorMode "tracking"
+  // (varsayılan) READY üretmez — canlıda watch olarak izlenir, replay kanıt biriktirir.
+  { rangeTf: "1h", confirmTf: "5m" }
 ];
 
 type AnchorRaid = { direction: TradeDirection; level: number; time: number; closed: boolean };
@@ -128,7 +131,7 @@ type CrtSetup = {
   readyEligible: boolean;
 };
 
-type CrtHtfAlignmentTimeframe = Extract<Timeframe, "1M" | "1w" | "1d">;
+type CrtHtfAlignmentTimeframe = Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
 
 export type CrtHtfAlignment = {
   aligned: boolean;
@@ -141,6 +144,7 @@ export type CrtHtfAlignment = {
 };
 
 const HTF_ALIGNMENT_CHAIN: Record<AnchorSpec["rangeTf"], CrtHtfAlignmentTimeframe[]> = {
+  "1h": ["4h", "1d"],
   "4h": ["1d", "1w"],
   "1d": ["1w"],
   "1w": ["1M"]
@@ -149,6 +153,7 @@ const HTF_ALIGNMENT_CHAIN: Record<AnchorSpec["rangeTf"], CrtHtfAlignmentTimefram
 function contextBiasForTimeframe(context: MarketContext, timeframe: CrtHtfAlignmentTimeframe) {
   if (timeframe === "1M") return context.bias.monthly;
   if (timeframe === "1w") return context.bias.weekly;
+  if (timeframe === "4h") return context.bias.h4;
   return context.bias.daily;
 }
 
@@ -201,21 +206,25 @@ function expectedSweepSide(direction: TradeDirection) {
 }
 
 function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
+  if (spec.rangeTf === "1h") return context.timeframes.h1;
   if (spec.rangeTf === "4h") return context.timeframes.h4;
   if (spec.rangeTf === "1d") return context.timeframes.daily;
   return context.timeframes.weekly;
 }
 
 function confirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
-  const candles = spec.confirmTf === "15m"
-    ? (context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5)
-    : spec.confirmTf === "1h"
-      ? context.timeframes.h1
-      : context.timeframes.h4;
+  const candles = spec.confirmTf === "5m"
+    ? (context.timeframes.m5.length ? context.timeframes.m5 : context.timeframes.m15)
+    : spec.confirmTf === "15m"
+      ? (context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5)
+      : spec.confirmTf === "1h"
+        ? context.timeframes.h1
+        : context.timeframes.h4;
   return completedCandles(candles);
 }
 
 function liveConfirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
+  if (spec.confirmTf === "5m") return context.timeframes.m5.length ? context.timeframes.m5 : context.timeframes.m15;
   if (spec.confirmTf === "15m") return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
   if (spec.confirmTf === "1h") return context.timeframes.h1;
   return context.timeframes.h4;
@@ -245,7 +254,7 @@ function rangeFromActiveCrt(candle: Candle, spec: AnchorSpec, label: string): De
 
 function crtBiasAtIndex(candles: Candle[], index: number, spec: AnchorSpec): CrtBiasContext | undefined {
   if (index < 1 || index >= candles.length) return undefined;
-  const timeframe = spec.rangeTf === "4h" ? "4h" : spec.rangeTf === "1d" ? "1d" : "1w";
+  const timeframe = spec.rangeTf === "1h" ? "1h" : spec.rangeTf === "4h" ? "4h" : spec.rangeTf === "1d" ? "1d" : "1w";
   return buildCrtBias([candles[index - 1], candles[index]], timeframe);
 }
 
@@ -422,6 +431,7 @@ function buildFvgOriginAnchorCtxs(context: MarketContext): AnchorCtx[] {
 }
 
 const ACTIVE_CRT_LOOKBACK: Record<AnchorSpec["rangeTf"], number> = {
+  "1h": 12,
   "4h": 8,
   "1d": 6,
   "1w": 3
@@ -533,7 +543,7 @@ function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number
 
 function anchorBias(anchor: AnchorCtx) {
   if (anchor.origin?.kind === "active-crt") return anchor.origin.bias;
-  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
+  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
 }
 
 // Direction comes ONLY from the pair's own structure: its anchor-candle bias or raid.
@@ -1248,7 +1258,15 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // starved the live system to zero signals. Real invalidators still veto.
   const modelFormed = Boolean(manipulation) && Boolean(choch);
   const modelReady = modelFormed && plan.entryStatus === "confirmed";
-  const readyEligible = plan.entryStatus === "confirmed"
+  // 1H anchor'ı yeni bir aile: Master §14 (audit-first) gereği önce kendi replay kanıtını
+  // biriktirir. tracking modunda (varsayılan) READY olamaz — canlıda watch olarak görünür,
+  // Telegram'a çıkmaz; yalnız intradayAnchorMode="live" bunu açar (30+ işlem kanıtı sonrası).
+  const intradayTracking = anchor.spec.rangeTf === "1h" && settings.intradayAnchorMode !== "live";
+  if (intradayTracking && modelReady) {
+    warnings.push("1H anchor tracking modunda: model hazır ama READY üretmez; replay kanıt biriktiriyor.");
+  }
+  const readyEligible = !intradayTracking
+    && plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
     && blockers.length === 0
     && Boolean(manipulation) && !eqConsumed
@@ -1586,7 +1604,7 @@ function signalPriority(signal: TradingSignal): number {
   return 1;
 }
 
-const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2 };
+const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1h": 3 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
   const signals = [
@@ -1618,7 +1636,7 @@ export const crtStrategy: StrategyModule = {
   id: CRT_STRATEGY_ID,
   name: "CRT Candle Range",
   description: "Candle Range Theory: range, tek taraflı manipulation, LTF dağılım kapanışı ve karşı range kenarı hedefi.",
-  requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m"],
+  requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m", "5m"],
   defaultSettings: {
     minimumRR: 1.5,
     mode: "watch_ready",
@@ -1626,7 +1644,8 @@ export const crtStrategy: StrategyModule = {
     slippageStress: "normal",
     noAutoExecution: true,
     useHtfAlignmentFilter: false,
-    exitModel: "eq-full"
+    exitModel: "eq-full",
+    intradayAnchorMode: "tracking"
   },
   scan(input: StrategyInput): StrategyResult {
     const signals = signalsFromContext(input.context, input.settings);

@@ -1,7 +1,7 @@
 import type { Candle, CrtBiasContext, CrtContext, CrtPoi, DealingRange, FairValueGap, MarketContext, OrderBlock, Timeframe, TradeDirection } from "../ict/types";
 import { buildDealingRange } from "./rangeEngine";
 
-type CrtRangeTimeframe = Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+type CrtRangeTimeframe = Extract<Timeframe, "1M" | "1w" | "1d" | "4h" | "1h">;
 
 function latestPair(candles: Candle[]): [Candle, Candle] | undefined {
   if (candles.length < 2) return undefined;
