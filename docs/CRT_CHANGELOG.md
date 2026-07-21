@@ -2,6 +2,22 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-21 — review instrumentation: measure now, decide at 30+ trades (trade-logic analysis)
+- The trade-logic analysis surfaced two structural tensions that are NOT rule changes yet:
+  (1) the RR gate filters on DOL distance while the exit model realizes at EQ (0/13 DOL hits
+  live), and (2) correlated same-day exposure (dollar-fx/crypto clusters) is invisible to the
+  single -2R daily brake. Per the 30+ trade rule, nothing changes now — but the review needs
+  data that must start accumulating today.
+- Replay now records per trade `eqRR` (entry→EQ distance / risk) and the summary gains
+  `reviewMeasurements`: EQ-RR distribution (mean, <1R, <1.5R), cluster days (same day + same
+  cluster + same USD/crypto-normalized side, ≥2 trades), grade buckets (does the sizing curve
+  match realized R), killzone buckets (confluence-not-veto contribution). Surfaced in the
+  Replay deep-dive as "30+ işlem incelemesi ölçümleri". None of it feeds any filter.
+- First demo-window reading: mean realized EQ-RR 0.93R with 5/8 trades under 1R — the
+  gate/exit tension is real and now visibly tracked. Cluster classifier: EURUSD short ≈
+  USDJPY long ≈ usd-long; crypto normalized to crypto-long/short. Tests added (consistency
+  against triggered counts + cluster grouping); 207 tests pass.
+
 ## 2026-07-19 — user rules sync to D1; the cloud bot scans with the site's rules
 - Closes the "bot runs on defaultRules" gap from the alert-parity fix: the Ayar screen now
   mirrors every rule change to the worker (`POST /api/rules`, debounced 1s, fire-and-forget;

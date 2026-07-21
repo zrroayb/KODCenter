@@ -49,6 +49,10 @@ export type RuntimeReplayTrade = {
   stopLoss: number;
   target: number;
   rr: number;
+  // Entry→EQ(TP1) mesafesinin riske oranı. RR kapısı DOL'a bakar ama exit modeli EQ'da
+  // kapatır (0/13 DOL); 30+ işlem incelemesi "kapı EQ-RR'a mı bakmalı" sorusunu bu logla
+  // cevaplayacak. Ölçüm alanıdır, hiçbir filtreye girmez.
+  eqRR: number;
   entrySource: string;
   entryStatus: string;
   stopSource: string;
@@ -216,6 +220,19 @@ export type RuntimeReplayFilterScenario = {
   verdict: "edge" | "avoid" | "neutral" | "needs-data";
 };
 
+// 30+ işlem incelemesi için biriktirilen ölçümler (analiz 2026-07-21). Hiçbiri bir filtre
+// veya kural DEĞİLDİR — inceleme gününde karar verdirecek veriyi şimdiden toplarlar.
+export type RuntimeReplayReviewMeasurements = {
+  // Kapı/çıkış gerilimi: DOL-RR kapısından geçen işlemlerin gerçekleşen EQ-RR dağılımı.
+  eqRr: { sample: number; mean: number; below1: number; below1_5: number };
+  // Korelasyon körlüğü: aynı gün + aynı küme + aynı normalize yön (usd-long gibi) ≥2 işlem.
+  clusterDays: Array<{ day: string; cluster: string; exposure: string; symbols: string[]; trades: number; totalR: number }>;
+  // Grade-sizing eğrisi gerçekleşen R ile örtüşüyor mu (D 0.15 risk hiç ödedi mi)?
+  gradeBuckets: Array<{ grade: string; trades: number; totalR: number; expectancyR: number }>;
+  // Killzone "konfluens, veto değil" kararının katkı doğrulaması.
+  killzoneBuckets: Array<{ session: string; trades: number; totalR: number; expectancyR: number }>;
+};
+
 export type RuntimeReplaySummary = {
   mode: "runtime-replay";
   strategyId: string;
@@ -246,6 +263,7 @@ export type RuntimeReplaySummary = {
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;
   watchReasonSummary: Array<{ reason: string; count: number }>;
   replayDiagnosis: string[];
+  reviewMeasurements: RuntimeReplayReviewMeasurements;
   trades: RuntimeReplayTrade[];
   candidates: RuntimeReplayCandidate[];
   sampleWarning?: string;

@@ -90,8 +90,45 @@ describe("monthly runtime replay", () => {
       expect(result.replay?.trades[0].origin).toBeTruthy();
       expect(result.replay?.trades[0].entrySource).toBeTruthy();
       expect(result.replay?.trades[0].tags.length).toBeGreaterThan(0);
+      expect(result.replay?.trades[0].eqRR).toBeGreaterThanOrEqual(0);
     }
+    const review = result.replay?.reviewMeasurements;
+    expect(review).toBeDefined();
+    expect(review!.eqRr.sample).toBe(result.replay?.triggeredTrades);
+    expect(review!.gradeBuckets.reduce((sum, bucket) => sum + bucket.trades, 0)).toBe(result.replay?.triggeredTrades);
+    expect(review!.killzoneBuckets.reduce((sum, bucket) => sum + bucket.trades, 0)).toBe(result.replay?.triggeredTrades);
   }, 30_000);
+
+  it("groups same-day same-USD-side correlated trades into cluster days for the review", () => {
+    const day = Date.UTC(2026, 6, 16, 9);
+    const trade = (symbol: string, direction: string, rMultiple: number, status = "tp1"): RuntimeReplayTrade => ({
+      symbol,
+      direction,
+      signalTime: day,
+      status,
+      rMultiple,
+      eqRR: 1.2,
+      grade: "A",
+      session: "London"
+    } as unknown as RuntimeReplayTrade);
+
+    // EURUSD short + USDJPY long = aynı usd-long bahsi; XAUUSD short ayrı küme (metal);
+    // not-triggered işlem hiçbir kovaya girmez.
+    const review = __runtimeReplayInternals.buildReviewMeasurements([
+      trade("EURUSD", "short", 1.4),
+      trade("USDJPY", "long", -1),
+      trade("XAUUSD", "short", 0.8),
+      trade("GBPUSD", "short", 0, "not-triggered")
+    ]);
+
+    expect(__runtimeReplayInternals.clusterExposure("EURUSD", "short")).toEqual({ cluster: "dollar-fx", exposure: "usd-long" });
+    expect(__runtimeReplayInternals.clusterExposure("USDJPY", "long")).toEqual({ cluster: "dollar-fx", exposure: "usd-long" });
+    expect(review.clusterDays).toHaveLength(1);
+    expect(review.clusterDays[0]).toMatchObject({ cluster: "dollar-fx", exposure: "usd-long", trades: 2, totalR: 0.4 });
+    expect(review.clusterDays[0].symbols).toEqual(["EURUSD", "USDJPY"]);
+    expect(review.eqRr.sample).toBe(3);
+    expect(review.gradeBuckets).toEqual([{ grade: "A", trades: 3, totalR: 1.2, expectancyR: 0.4 }]);
+  });
 
   it("scores CRT EQ management as partial profit plus breakeven instead of fake full TP", () => {
     const baseContext = createStructureContext();

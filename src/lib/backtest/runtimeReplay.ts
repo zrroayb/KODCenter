@@ -9,6 +9,7 @@ import {
   type RuntimeReplayFilterScenario,
   type RuntimeReplayManagementScenario,
   type RuntimeReplayOutcomeReason,
+  type RuntimeReplayReviewMeasurements,
   type RuntimeReplaySetupBreakdown,
   type RuntimeReplayTrade
 } from "../analytics/performance";
@@ -325,6 +326,87 @@ function tradeTags(signal: TradingSignal): string[] {
     signal.plan.rr >= 2 ? "rr:2plus" : signal.plan.rr >= 1.5 ? "rr:ok" : "rr:low",
     signal.governance.status === "allow" ? "governance:allow" : `governance:${signal.governance.status}`
   ]));
+}
+
+// ── 30+ işlem incelemesi ölçümleri (kural değil, veri toplama — analiz 2026-07-21) ──────────
+
+// Korelasyon kümeleri ve USD-normalize yön: EURUSD short ≈ USDJPY long ≈ usd-long.
+// Kripto kümesi kendi betasına normalize edilir (BTC long ≈ ETH long ≈ crypto-long).
+const SYMBOL_CLUSTERS: Record<string, { cluster: string; usdInverse: boolean }> = {
+  EURUSD: { cluster: "dollar-fx", usdInverse: true },
+  GBPUSD: { cluster: "dollar-fx", usdInverse: true },
+  AUDUSD: { cluster: "dollar-fx", usdInverse: true },
+  USDJPY: { cluster: "dollar-fx", usdInverse: false },
+  USDCHF: { cluster: "dollar-fx", usdInverse: false },
+  XAUUSD: { cluster: "metal", usdInverse: true },
+  NAS100: { cluster: "index", usdInverse: true },
+  BTCUSD: { cluster: "crypto", usdInverse: true },
+  ETHUSD: { cluster: "crypto", usdInverse: true },
+  XRPUSD: { cluster: "crypto", usdInverse: true },
+  BNBUSD: { cluster: "crypto", usdInverse: true },
+  SOLUSD: { cluster: "crypto", usdInverse: true }
+};
+
+function clusterExposure(symbol: string, direction: string): { cluster: string; exposure: string } {
+  const spec = SYMBOL_CLUSTERS[symbol] ?? { cluster: "other", usdInverse: true };
+  if (spec.cluster === "crypto") {
+    return { cluster: spec.cluster, exposure: direction === "long" ? "crypto-long" : "crypto-short" };
+  }
+  const usdLong = spec.usdInverse ? direction === "short" : direction === "long";
+  return { cluster: spec.cluster, exposure: usdLong ? "usd-long" : "usd-short" };
+}
+
+function buildReviewMeasurements(trades: RuntimeReplayTrade[]): RuntimeReplayReviewMeasurements {
+  const triggered = trades.filter((trade) => trade.status !== "not-triggered");
+  const eqRrValues = triggered.map((trade) => trade.eqRR).filter((value) => Number.isFinite(value));
+  const eqRr = {
+    sample: eqRrValues.length,
+    mean: eqRrValues.length ? Number((eqRrValues.reduce((sum, value) => sum + value, 0) / eqRrValues.length).toFixed(2)) : 0,
+    below1: eqRrValues.filter((value) => value < 1).length,
+    below1_5: eqRrValues.filter((value) => value < 1.5).length
+  };
+
+  const clusterGroups = new Map<string, { day: string; cluster: string; exposure: string; symbols: Set<string>; trades: number; totalR: number }>();
+  for (const trade of triggered) {
+    const { cluster, exposure } = clusterExposure(trade.symbol, trade.direction);
+    const day = dayKey(trade.signalTime);
+    const key = `${day}:${cluster}:${exposure}`;
+    const group = clusterGroups.get(key) ?? { day, cluster, exposure, symbols: new Set<string>(), trades: 0, totalR: 0 };
+    group.symbols.add(trade.symbol);
+    group.trades += 1;
+    group.totalR += trade.rMultiple;
+    clusterGroups.set(key, group);
+  }
+  const clusterDays = [...clusterGroups.values()]
+    .filter((group) => group.trades >= 2)
+    .sort((a, b) => b.trades - a.trades || Math.abs(b.totalR) - Math.abs(a.totalR))
+    .map((group) => ({ ...group, symbols: [...group.symbols].sort(), totalR: Number(group.totalR.toFixed(2)) }));
+
+  const bucketize = <T extends string>(keyOf: (trade: RuntimeReplayTrade) => T) => {
+    const buckets = new Map<T, { trades: number; totalR: number }>();
+    for (const trade of triggered) {
+      const key = keyOf(trade);
+      const bucket = buckets.get(key) ?? { trades: 0, totalR: 0 };
+      bucket.trades += 1;
+      bucket.totalR += trade.rMultiple;
+      buckets.set(key, bucket);
+    }
+    return [...buckets.entries()]
+      .map(([key, bucket]) => ({
+        key,
+        trades: bucket.trades,
+        totalR: Number(bucket.totalR.toFixed(2)),
+        expectancyR: Number((bucket.totalR / bucket.trades).toFixed(2))
+      }))
+      .sort((a, b) => b.trades - a.trades);
+  };
+
+  return {
+    eqRr,
+    clusterDays,
+    gradeBuckets: bucketize((trade) => trade.grade).map(({ key, ...rest }) => ({ grade: key, ...rest })),
+    killzoneBuckets: bucketize((trade) => trade.session).map(({ key, ...rest }) => ({ session: key, ...rest }))
+  };
 }
 
 function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"]) {
@@ -1394,6 +1476,8 @@ export function runMonthlyRuntimeReplay({
         entry: candidate.signal.plan.entry,
         stopLoss: candidate.signal.plan.stopLoss,
         target: candidate.signal.plan.targets[1] ?? candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry,
+        eqRR: Number((Math.abs(candidate.signal.plan.entry - (candidate.signal.plan.targets[0] ?? candidate.signal.plan.entry))
+          / Math.max(candidate.signal.plan.riskDistance, 1e-9)).toFixed(2)),
         ...measuredOutcome
       });
       applyReplayRisk(dayState, candidate.signal, measuredOutcome);
@@ -1472,6 +1556,7 @@ export function runMonthlyRuntimeReplay({
       failureReasons: failureReasonSummary(trades),
       watchReasonSummary: watchReasonSummary(candidates),
       replayDiagnosis: replayDiagnosis(trades, breakdowns),
+      reviewMeasurements: buildReviewMeasurements(trades),
       trades: trades.slice(-80).reverse(),
       candidates: candidates.slice(-120).reverse(),
       sampleWarning
@@ -1483,5 +1568,7 @@ export const __runtimeReplayInternals = {
   evaluateForwardOutcome,
   timeframesAt,
   replayPlanGeometryValid,
-  calibrationFromTrades
+  calibrationFromTrades,
+  buildReviewMeasurements,
+  clusterExposure
 };

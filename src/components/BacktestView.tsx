@@ -144,6 +144,42 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
             ))}
             {!(replay.managementScenarios ?? []).length && <p className="muted-note">Yönetim karşılaştırması için tetiklenen CRT trade'i yok.</p>}
           </div>
+          <div className="strategy-learning-list replay-review-measurements">
+            <strong>30+ işlem incelemesi ölçümleri</strong>
+            {replay.reviewMeasurements ? (
+              <>
+                <div>
+                  <span>EQ-RR (kapı DOL'a bakar, çıkış EQ'da)</span>
+                  <b>ort. {replay.reviewMeasurements.eqRr.mean.toFixed(2)}R · {replay.reviewMeasurements.eqRr.sample} işlem</b>
+                  <small>{replay.reviewMeasurements.eqRr.below1} işlem &lt;1R · {replay.reviewMeasurements.eqRr.below1_5} işlem &lt;1.5R — inceleme sorusu: kapı EQ-RR'a mı bakmalı?</small>
+                </div>
+                {replay.reviewMeasurements.clusterDays.slice(0, 5).map((group) => (
+                  <div key={`${group.day}-${group.cluster}-${group.exposure}`}>
+                    <span>Küme günü · {group.day} · {group.cluster} ({group.exposure})</span>
+                    <b>{group.trades} işlem aynı yönde · {group.totalR.toFixed(2)}R</b>
+                    <small>{group.symbols.join(", ")} — korele risk tek -2R freniyle taşındı.</small>
+                  </div>
+                ))}
+                {!replay.reviewMeasurements.clusterDays.length && (
+                  <div><span>Küme günü</span><b>yok</b><small>Aynı gün aynı yönde ≥2 korele işlem oluşmadı.</small></div>
+                )}
+                {replay.reviewMeasurements.gradeBuckets.map((bucket) => (
+                  <div key={`grade-${bucket.grade}`}>
+                    <span>Grade {bucket.grade}</span>
+                    <b>{bucket.trades} işlem · {bucket.expectancyR.toFixed(2)}R/işlem</b>
+                    <small>toplam {bucket.totalR.toFixed(2)}R — sizing eğrisi doğrulaması.</small>
+                  </div>
+                ))}
+                {replay.reviewMeasurements.killzoneBuckets.map((bucket) => (
+                  <div key={`kz-${bucket.session}`}>
+                    <span>Killzone {bucket.session}</span>
+                    <b>{bucket.trades} işlem · {bucket.expectancyR.toFixed(2)}R/işlem</b>
+                    <small>toplam {bucket.totalR.toFixed(2)}R — konfluens-değil-veto kararının katkısı.</small>
+                  </div>
+                ))}
+              </>
+            ) : <p className="muted-note">Replay çalıştırınca ölçümler burada birikir.</p>}
+          </div>
           <div className="strategy-learning-list replay-symbol-list">
             <strong>Symbol bazlı sonuç</strong>
             {replay.bySymbol.map((row) => (

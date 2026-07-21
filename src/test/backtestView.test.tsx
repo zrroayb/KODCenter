@@ -22,6 +22,12 @@ function replayResult(): BacktestResult {
     replay: {
       mode: "runtime-replay",
       strategyId: "kod",
+      reviewMeasurements: {
+        eqRr: { sample: 0, mean: 0, below1: 0, below1_5: 0 },
+        clusterDays: [],
+        gradeBuckets: [],
+        killzoneBuckets: []
+      },
       windowDays: 30,
       scanEveryCandles: 4,
       availableDays: 30,
