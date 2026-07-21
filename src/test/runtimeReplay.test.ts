@@ -105,23 +105,42 @@ describe("monthly runtime replay", () => {
     expect(review!.unfilled.cfWins).toBeLessThanOrEqual(review!.unfilled.withCounterfactual);
     // EQ-RR tabanı bir senaryo olarak ölçülür; işlem seçimine karışmaz.
     expect(result.replay?.filterScenarios.map((item) => item.id)).toContain("eq-rr-floor");
-    // 1H anchor izleme hattı başlığa karışmaz: çekirdek işlemlerde anchor:1h tag'i olamaz.
+    // anchor:1h tag'i yalnız tracking gölge hattına aittir; headline işlemleri (live default'ta
+    // 1H dahil) bu tag'i asla taşımaz. Tracking scenario satırı her zaman raporlanır.
     expect(result.replay?.trackingScenarios?.[0]?.id).toBe("anchor-1h-tracking");
     expect(result.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
     expect((result.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
   }, 30_000);
 
-  it("keeps the 1H anchor watch-only in tracking mode so it can never page or trade live", () => {
+  it("keeps the 1H anchor watch-only when intradayAnchorMode is explicitly tracking", () => {
     const contexts = attachSmtDivergences(createDemoMarkets().map((market) => buildMarketContext(market.symbol, market.timeframes)));
     for (const context of contexts.slice(0, 6)) {
       const signals = crtStrategy.scan({
         context,
-        settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
+        settings: { ...crtStrategy.defaultSettings, intradayAnchorMode: "tracking", minimumRR: 0.1, useExecutionCosts: false }
       }).signals;
       for (const signal of signals.filter((item) => item.crtAnchor?.rangeTf === "1h")) {
         expect(signal.stage).not.toBe("ready");
       }
     }
+  });
+
+  it("promotes the 1H anchor to a first-class family under the live default (owner decision)", () => {
+    // Owner promoted 1H to live on 2026-07-22; the default now lets it reach READY through
+    // the same gates. In tracking mode the replay shadow-measures it off the headline.
+    expect(crtStrategy.defaultSettings.intradayAnchorMode).toBe("live");
+
+    const tracking = runMonthlyRuntimeReplay({
+      markets: createDemoMarkets(),
+      strategy: crtStrategy,
+      settings: { ...crtStrategy.defaultSettings, intradayAnchorMode: "tracking", minimumRR: 0.1, useExecutionCosts: false },
+      windowDays: 3,
+      maxHoldCandles: 24,
+      scanEveryCandles: 12
+    });
+    // Tracking mode keeps 1H off the headline and on the shadow line.
+    expect(tracking.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
+    expect((tracking.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
   });
 
   it("groups same-day same-USD-side correlated trades into cluster days for the review", () => {

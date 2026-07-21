@@ -1495,30 +1495,38 @@ export function runMonthlyRuntimeReplay({
     const entryCandidates: ReplayEntryCandidate[] = [];
 
     for (const context of contexts) {
-      // 1H anchor'ı ölçüm için "live" modda taranır ama ÇEKİRDEK seçim 1h-dışı ilk sinyaldir:
-      // taban (bugünkü başlık metrikleri) birebir korunur, 1h ayrı izleme hattında ölçülür.
-      const scannedSignals = strategy.scan({ context, settings: { ...settings, intradayAnchorMode: "live" } }).signals;
-      const trackingSignal = scannedSignals.find((item) => item.crtAnchor?.rangeTf === "1h"
-        && item.stage !== "invalidated" && item.stage !== "missed");
-      if (trackingSignal && replayEligibleSignal(trackingSignal)) {
-        const trackingKey = `1h:${setupKey(trackingSignal)}`;
-        const previousTracking = trackingSetupStates.get(trackingKey);
-        const trackingState = previousTracking && time - previousTracking.lastSeen <= SETUP_COOLDOWN_MS
-          ? previousTracking
-          : { lastSeen: time, countedWatch: false, countedReady: false };
-        trackingState.lastSeen = time;
-        const trackingDay = dayStateFor(trackingDayRiskStates, time);
-        if (!trackingState.countedReady && canTakeReplayEntry(trackingDay, trackingSignal)) {
-          const market = marketBySymbol.get(trackingSignal.symbol);
-          const built = buildMeasuredReplayTrade(trackingSignal, time, market, maxHoldCandles, settings, ["replay:1h-tracking", "anchor:1h", "risk:daily-capped"]);
-          trackingTrades.push(built.trade);
-          applyReplayRisk(trackingDay, trackingSignal, built.outcome);
-          trackingState.countedReady = true;
+      // Replay canlı botun yaptığını birebir yansıtmalı: intradayAnchorMode "live" ise 1H
+      // birinci sınıf ailedir ve başlık metriklerine girer; "tracking" ise 1H'yi headline'a
+      // sokmadan ayrı bir gölge hatta (live modda ikinci bir tarama) ölçeriz.
+      const intradayLive = settings.intradayAnchorMode === "live";
+      const scannedSignals = strategy.scan({ context, settings }).signals;
+
+      if (!intradayLive) {
+        const trackingScan = strategy.scan({ context, settings: { ...settings, intradayAnchorMode: "live" } }).signals;
+        const trackingSignal = trackingScan.find((item) => item.crtAnchor?.rangeTf === "1h"
+          && item.stage !== "invalidated" && item.stage !== "missed");
+        if (trackingSignal && replayEligibleSignal(trackingSignal)) {
+          const trackingKey = `1h:${setupKey(trackingSignal)}`;
+          const previousTracking = trackingSetupStates.get(trackingKey);
+          const trackingState = previousTracking && time - previousTracking.lastSeen <= SETUP_COOLDOWN_MS
+            ? previousTracking
+            : { lastSeen: time, countedWatch: false, countedReady: false };
+          trackingState.lastSeen = time;
+          const trackingDay = dayStateFor(trackingDayRiskStates, time);
+          if (!trackingState.countedReady && canTakeReplayEntry(trackingDay, trackingSignal)) {
+            const market = marketBySymbol.get(trackingSignal.symbol);
+            const built = buildMeasuredReplayTrade(trackingSignal, time, market, maxHoldCandles, settings, ["replay:1h-tracking", "anchor:1h", "risk:daily-capped"]);
+            trackingTrades.push(built.trade);
+            applyReplayRisk(trackingDay, trackingSignal, built.outcome);
+            trackingState.countedReady = true;
+          }
+          trackingSetupStates.set(trackingKey, trackingState);
         }
-        trackingSetupStates.set(trackingKey, trackingState);
       }
 
-      const signal = scannedSignals.find((item) => item.crtAnchor?.rangeTf !== "1h");
+      // Live modda 1H çekirdek seçime dahildir (RANGE_TF_RANK onu en sona sıraladığı için
+      // ancak en iyi sinyal oysa görünür); tracking modda çekirdek 1h-dışı ilk sinyaldir.
+      const signal = scannedSignals.find((item) => intradayLive || item.crtAnchor?.rangeTf !== "1h");
       if (!signal || signal.stage === "invalidated" || signal.stage === "missed") continue;
 
       const key = setupKey(signal);

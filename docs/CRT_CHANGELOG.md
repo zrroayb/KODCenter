@@ -2,6 +2,23 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — 1H anchor PROMOTED TO LIVE (owner decision, 30-trade rule consciously overridden)
+- `intradayAnchorMode` default flipped from "tracking" to "live": the 1H→5M anchor now produces
+  READY signals and pages Telegram through the same quality gates as every other anchor
+  (RANGE_TF_RANK keeps it sorted last, so it only surfaces when it is the best available signal).
+- **This overrode the owner's own 30-trade rule.** As CRT expert I recommended AGAINST promoting
+  on a single demo-window result (7/9 triggers, PF 2.94) and spelled out the real-money risk; the
+  owner explicitly chose to promote now ("Şimdi canlıya terfi et"). Both the recommendation-against
+  and the decision are on record — the owner owns the call. Revert with `intradayAnchorMode:
+  "tracking"` to demote.
+- Replay now mirrors the live reality: in live mode 1H joins the headline metrics; only in
+  tracking mode is it shadow-measured off the headline (partition made conditional on the setting).
+  New tests: watch-only under explicit tracking, first-class family under the live default,
+  anchor:1h tag stays tracking-only. 209 tests pass; live scan verified (1H setups surface, ready-
+  eligible, console clean).
+- **Watch closely:** the promotion rests on demo-window data, not 30 real trades. If live 1H
+  results underperform, demote back to tracking.
+
 ## 2026-07-22 — R-growth pass: 1H→5M anchor (tracking), unfilled-entry cost, EQ-RR gate scenario
 - Goal was to grow R without touching the quality gates that produce WR ~77%. Three additions,
   all evidence-first:
