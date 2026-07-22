@@ -3,6 +3,10 @@ import type { Candle } from "../lib/ict/types";
 import { detectDriftBias } from "../lib/intelligence/biasEngine";
 import { detectEqualLevels, equalLevelObjectives } from "../lib/intelligence/equalLevels";
 import { detectStructuralBias } from "../lib/intelligence/structuralBias";
+import { createDemoMarkets } from "../data/demoData";
+import { buildMarketContext } from "../lib/intelligence/marketContext";
+import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
+import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 
 // Dönüş noktalarından zigzag seri üretir; her bacak `perLeg` mum sürer, böylece dönüşler
 // wing onaylı gerçek swing olur.
@@ -111,5 +115,30 @@ describe("equal highs/lows liquidity (Master §3)", () => {
     expect(objectives.length).toBeGreaterThan(0);
     expect(objectives.every((objective) => objective.kind === "EQH" || objective.kind === "EQL")).toBe(true);
     expect(objectives[0].source).toContain("Equal");
+  });
+});
+
+describe("Master §6 lifecycle chain", () => {
+  it("exposes the full 10-state chain on the anchor, not just a 4-state phase", () => {
+    const contexts = attachSmtDivergences(createDemoMarkets().map((market) => buildMarketContext(market.symbol, market.timeframes)));
+    const valid = new Set([
+      "CANDIDATE", "ACTIVE_RANGE", "SIDE_SWEPT", "RETURNED_INSIDE", "CONFIRMATION_PENDING",
+      "CONFIRMED", "TARGETING_MIDPOINT", "TARGETING_OPPOSITE_EXTREME", "INVALIDATED", "COMPLETED"
+    ]);
+    const seen = new Set<string>();
+    for (const context of contexts) {
+      for (const signal of crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false } }).signals) {
+        const state = signal.crtAnchor?.lifecycleState;
+        expect(state).toBeDefined();
+        expect(valid.has(String(state))).toBe(true);
+        seen.add(String(state));
+        // Zincir tutarlılığı: invalidated stage her zaman INVALIDATED lifecycle demektir.
+        if (signal.stage === "invalidated") expect(state).toBe("INVALIDATED");
+        // Lifecycle kanıt olarak da sunulur (Master §9).
+        expect(signal.evidence.some((item) => item.id === "crt-lifecycle")).toBe(true);
+      }
+    }
+    // Tek bir duruma çakılıp kalmamalı — zincir gerçekten ayrışmalı.
+    expect(seen.size).toBeGreaterThan(1);
   });
 });

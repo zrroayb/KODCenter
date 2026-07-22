@@ -103,10 +103,24 @@ type AnchorCtx = {
   origin?: AnchorOrigin;
 };
 
+// Master §6 lifecycle — 10 durum. `setupPhase` (4 durum) sıralama/UI için korunur.
+export type CrtLifecycleState =
+  | "CANDIDATE"
+  | "ACTIVE_RANGE"
+  | "SIDE_SWEPT"
+  | "RETURNED_INSIDE"
+  | "CONFIRMATION_PENDING"
+  | "CONFIRMED"
+  | "TARGETING_MIDPOINT"
+  | "TARGETING_OPPOSITE_EXTREME"
+  | "INVALIDATED"
+  | "COMPLETED";
+
 type CrtSetup = {
   direction: TradeDirection;
   directionSource: "turtle-soup" | "raid" | "bias" | "fvg-crt" | "active-crt";
   setupPhase: "context" | "raid" | "model" | "ready";
+  lifecycleState: CrtLifecycleState;
   manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
   chochReference?: { level: number; candleIndex: number };
   choch?: { level: number; candleIndex: number; referenceCandleIndex: number; bodyRatio: number; rangeAtr: number };
@@ -1281,6 +1295,28 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     : manipulation
     ? "raid"
     : "context";
+  // Master §6: lifecycle bir boolean değil, 10 durumlu bir zincirdir. `setupPhase` (4 durum)
+  // sıralama/UI için kalır; bu alan doktrinin tam zincirini deterministik olarak türetir.
+  // Yalnızca sistemin GERÇEKTEN bildiği olgulardan üretilir — pozisyon takibi yok, bu yüzden
+  // TARGETING_* durumları fiyatın plan seviyelerine göre konumundan okunur.
+  const lifecycleState: CrtLifecycleState = eqConsumed
+    ? "COMPLETED"
+    : readyEligible
+      ? (() => {
+          const past = direction === "short" ? lastClose < plan.entry : lastClose > plan.entry;
+          if (!past) return "CONFIRMED";
+          const beyondEq = direction === "short" ? lastClose <= plan.targets[0] : lastClose >= plan.targets[0];
+          return beyondEq ? "TARGETING_OPPOSITE_EXTREME" : "TARGETING_MIDPOINT";
+        })()
+      : choch
+        ? "CONFIRMATION_PENDING"
+        : manipulation?.reclaimed
+          ? "RETURNED_INSIDE"
+          : manipulation
+            ? "SIDE_SWEPT"
+            : anchor.raid
+              ? "ACTIVE_RANGE"
+              : "CANDIDATE";
   // Blockers gate READY; score remains a quality measure and must retain variation so the
   // radar can distinguish a 61-point early idea from an 89-point setup with one hard issue.
   const visibleScore = Math.max(0, score - Math.min(24, blockers.length * 4));
@@ -1288,6 +1324,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     direction,
     directionSource,
     setupPhase,
+    lifecycleState,
     manipulation,
     chochReference: chochRead.reference,
     choch,
@@ -1478,6 +1515,8 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
 function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): SignalEvidenceItem[] {
   const bias = anchorBias(anchor);
   return [
+    // Master §6: lifecycle tam zinciriyle kanıt olarak sunulur (yalnız "ready mi" değil).
+    { id: "crt-lifecycle", label: "CRT Lifecycle", status: setup.lifecycleState === "INVALIDATED" ? "fail" : setup.lifecycleState === "CONFIRMED" || setup.lifecycleState === "COMPLETED" || setup.lifecycleState.startsWith("TARGETING") ? "pass" : "neutral", detail: `${setup.lifecycleState} — Master §6 zinciri: CANDIDATE → ACTIVE_RANGE → SIDE_SWEPT → RETURNED_INSIDE → CONFIRMATION_PENDING → CONFIRMED → TARGETING_MIDPOINT/OPPOSITE → COMPLETED.`, timeframe: anchor.spec.rangeTf },
     { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "neutral", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
     { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : setup.reversalAtExternalHtf ? "warning" : "fail", detail: setup.reversalAtExternalHtf ? `${setup.htfAlignment.summary} Karşı-HTF dönüş istisnası aktif (haftalık external likidite süpürüldü).` : setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: anchor.range.source, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
@@ -1562,6 +1601,8 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       originLabel: anchor.origin?.kind === "fvg-origin" ? "4H FVG origin CRT" : anchor.origin?.kind === "active-crt" ? anchor.origin.label : undefined,
       originClosed: anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true,
       setupPhase: setup.setupPhase,
+      // Stage invalidated ise lifecycle de dürüstçe INVALIDATED olur (Master §6).
+      lifecycleState: life.stage === "invalidated" ? "INVALIDATED" : setup.lifecycleState,
       crtState: deriveCrtState(setup, life.stage, life.outcome.status, anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true),
       biasDirection: setup.directionalBias?.direction,
       biasBullishScore: setup.directionalBias?.bullishScore,

@@ -2,6 +2,32 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — the last two doctrine gaps closed: §6 lifecycle implemented, §8 direction MEASURED
+**§6 — the 10-state lifecycle now exists.** `setupPhase` only ever had 4 states
+(context/raid/model/ready) against Master §6's ten. New `lifecycleState` derives the full chain
+deterministically from facts the system already owns — CANDIDATE → ACTIVE_RANGE → SIDE_SWEPT →
+RETURNED_INSIDE → CONFIRMATION_PENDING → CONFIRMED → TARGETING_MIDPOINT /
+TARGETING_OPPOSITE_EXTREME → INVALIDATED / COMPLETED. Since there is no position tracking, the
+TARGETING_* states are read honestly from where price sits relative to entry and EQ. Exposed on
+`crtAnchor.lifecycleState` and as a `crt-lifecycle` evidence item (Master §9), so Gemini and the
+UI see the whole chain instead of "ready or not". `setupPhase` stays for sorting/UI compatibility.
+
+**§8 — direction source: measured, not flipped.** Master §8 says the two-sided bias engine
+establishes direction before the CRT evaluation; the code resolves direction per anchor and lets
+the bias engine only dock score. This is NOT an undocumented violation — the ledger rule already
+said the bias "does NOT override the per-anchor direction resolution **yet**", and the
+anchor-owns-direction rule itself came from a measured failure (a global PD read once painted
+every correlated pair the same side).
+- Rather than reverse a measured decision on doctrine grounds, the open "yet" is now instrumented:
+  every replay trade is tagged `bias:opposes` / `bias:not-opposing` and a `bias-not-opposing`
+  filter scenario reports what gating on bias would do.
+- **First real-data reading: all READY = 8 trades, 0.36R, PF 2.44, 2.89R; bias-not-opposing =
+  7 trades, 0.25R, PF 1.88, 1.76R.** The single trade whose bias opposed the anchor returned
+  **+1.13R** — gating on bias would have deleted a winner and lowered expectancy. Evidence
+  supports keeping direction anchor-resolved. Sample is one opposing trade, so this is a first
+  reading, not a verdict; revisit at the 30+ trade review via the scenario line.
+- 220 tests pass.
+
 ## 2026-07-22 — the HTF veto is finally IN FORCE, and the duplicate gate that starved it is gone
 - Follow-up to the structural-bias work. The owner-approved rule `htf-alignment-loose` says an
   actively opposing higher timeframe vetoes READY — but `useHtfAlignmentFilter` defaulted to

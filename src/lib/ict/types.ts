@@ -414,6 +414,8 @@ export type CrtAnchorInfo = {
   originLabel?: string;
   originClosed?: boolean;
   setupPhase?: "context" | "raid" | "model" | "ready";
+  // Master §6 tam lifecycle zinciri (10 durum); setupPhase sıralama için kalan kaba özettir.
+  lifecycleState?: "CANDIDATE" | "ACTIVE_RANGE" | "SIDE_SWEPT" | "RETURNED_INSIDE" | "CONFIRMATION_PENDING" | "CONFIRMED" | "TARGETING_MIDPOINT" | "TARGETING_OPPOSITE_EXTREME" | "INVALIDATED" | "COMPLETED";
   crtState?: CrtState;
   biasDirection?: "bullish" | "bearish" | "neutral";
   biasBullishScore?: number;

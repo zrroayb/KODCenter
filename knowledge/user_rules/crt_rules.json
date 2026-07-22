@@ -6,7 +6,7 @@
     {
       "id": "anchor-mapping",
       "area": "timeframe-roles",
-      "rule": "CRT is scanned on multiple anchors, each with its own confirmation TF: 4H range -> 15m confirm, 1D range -> 1h confirm, 1W range -> 4h confirm. All timeframes must be scanned, not only 4H.",
+      "rule": "CRT is scanned on multiple anchors, each with its own confirmation TF: 4H range -> 15m confirm, 1D range -> 1h confirm, 1W range -> 4h confirm. All timeframes must be scanned, not only 4H. Master §8's fifth mapping (1H range -> 5m confirm) exists in code as of 2026-07-22 but runs in tracking mode (intradayAnchorMode), i.e. watch-only: it was promoted to live and demoted the same day when real data returned -2.77R / PF 0.31 against a core of +2.89R.",
       "configurable": true,
       "status": "implemented"
     },
@@ -121,7 +121,7 @@
     {
       "id": "two-sided-directional-bias",
       "area": "directional-bias",
-      "rule": "Direction is graded by a two-sided engine (Master Section 8/11) BEFORE the CRT setup, in draw-first order: external liquidity draw (0-25) -> HTF structure M/W/D/4H (0-25) -> premium/discount (0-15) -> reclaimed liquidity sweep (0-15) -> displacement (0-10) -> LTF MSS/BOS (0-5) -> killzone timing (0-5). Separate bullish_score/bearish_score; bullish if bullish>=65 and bullish-bearish>=15 (bearish symmetric), else neutral; PD alone never forces direction. Surfaced as the directional-bias evidence item and flags contradictions when the per-anchor signal disagrees with the dominant lean. Thresholds/weights configurable (directionalBias.ts). Does NOT override the per-anchor direction resolution yet.",
+      "rule": "Direction is graded by a two-sided engine (Master Section 8/11) BEFORE the CRT setup, in draw-first order: external liquidity draw (0-25) -> HTF structure M/W/D/4H (0-25) -> premium/discount (0-15) -> reclaimed liquidity sweep (0-15) -> displacement (0-10) -> LTF MSS/BOS (0-5) -> killzone timing (0-5). Separate bullish_score/bearish_score; bullish if bullish>=65 and bullish-bearish>=15 (bearish symmetric), else neutral; PD alone never forces direction. Surfaced as the directional-bias evidence item and flags contradictions when the per-anchor signal disagrees with the dominant lean. Thresholds/weights configurable (directionalBias.ts). Does NOT override the per-anchor direction resolution yet. MEASURED (2026-07-22): the open 'yet' is now a measured question, not an assumption. Replay tags every trade bias:opposes / bias:not-opposing and reports a `bias-not-opposing` filter scenario. First real-data reading: all READY 8 trades 0.36R/PF 2.44/2.89R vs bias-not-opposing 7 trades 0.25R/PF 1.88/1.76R — the single trade whose two-sided bias OPPOSED the anchor returned +1.13R, so gating on bias would have removed a winner and lowered expectancy. Evidence therefore supports keeping direction anchor-resolved (bias stays a score/warning layer). Sample is 1 opposing trade — revisit at the 30+ trade review with the scenario line.",
       "status": "implemented"
     },
     {
