@@ -54,6 +54,14 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
   const orderBlocks = detectOrderBlocks(execution, swingPoints);
   const fairValueGaps = detectFairValueGaps(execution);
   const retracement = buildRetracementContext(execution, swingPoints);
+  // Her TF için tam yapısal okuma bir kez hesaplanır; hem `bias` hem `biasDetail` bunu kullanır.
+  const biasDetail = {
+    monthly: detectStructuralBias(timeframes.monthly),
+    weekly: detectStructuralBias(timeframes.weekly),
+    daily: detectStructuralBias(timeframes.daily),
+    h4: detectStructuralBias(timeframes.h4),
+    h1: detectStructuralBias(timeframes.h1)
+  };
   const feed = latest.feed ?? "mid-only";
   const dataFeed = {
     source: feed,
@@ -70,12 +78,13 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     symbol,
     timeframes,
     bias: {
-      monthly: detectStructuralBias(timeframes.monthly).bias,
-      weekly: detectStructuralBias(timeframes.weekly).bias,
-      daily: detectStructuralBias(timeframes.daily).bias,
-      h4: detectStructuralBias(timeframes.h4).bias,
-      h1: detectStructuralBias(timeframes.h1).bias
+      monthly: biasDetail.monthly.bias,
+      weekly: biasDetail.weekly.bias,
+      daily: biasDetail.daily.bias,
+      h4: biasDetail.h4.bias,
+      h1: biasDetail.h1.bias
     },
+    biasDetail,
     dealingRange,
     premiumDiscount: buildPremiumDiscountContext(latest, dealingRange),
     killzones: buildKillzoneContext(latest.time),

@@ -1,4 +1,4 @@
-import type { Candle, ICTBias, SwingPoint, TradeDirection } from "../ict/types";
+import type { Candle, ICTBias, StructuralBiasRead, SwingPoint, TradeDirection } from "../ict/types";
 import { detectSwingPoints } from "./structureEngine";
 
 // Yapı temelli HTF bias (Master §3/§8). Eski `detectDriftBias` iki kapanışın farkına bakıyordu;
@@ -14,16 +14,7 @@ import { detectSwingPoints } from "./structureEngine";
 export type StructuralPattern = "uptrend" | "downtrend" | "expanding" | "contracting" | "unclear";
 export type StructuralConfidence = "strong" | "moderate" | "weak";
 
-export type StructuralBias = {
-  bias: ICTBias;
-  pattern: StructuralPattern;
-  confidence: StructuralConfidence;
-  // Korunan seviyeler (Master §3 "protected high/low"): kırılırsa karakter değişir.
-  protectedHigh?: number;
-  protectedLow?: number;
-  lastEvent?: { kind: "bos" | "choch"; direction: TradeDirection; level: number; candleIndex: number };
-  reasons: string[];
-};
+export type StructuralBias = StructuralBiasRead;
 
 const MIN_SWINGS_PER_SIDE = 2;
 

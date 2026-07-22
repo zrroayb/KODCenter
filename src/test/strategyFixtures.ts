@@ -13,6 +13,13 @@ function makeExecutionCandles(): Candle[] {
   }));
 }
 
+const bearishRead = {
+  bias: "bearish" as const,
+  pattern: "downtrend" as const,
+  confidence: "moderate" as const,
+  reasons: ["fixture: LH + LL downtrend"]
+};
+
 export function createStructureContext(overrides: Partial<MarketContext> = {}): MarketContext {
   const candles = makeExecutionCandles();
   const base: MarketContext = {
@@ -32,6 +39,13 @@ export function createStructureContext(overrides: Partial<MarketContext> = {}): 
       daily: "bearish",
       h4: "bearish",
       h1: "bearish"
+    },
+    biasDetail: {
+      monthly: bearishRead,
+      weekly: bearishRead,
+      daily: bearishRead,
+      h4: bearishRead,
+      h1: bearishRead
     },
     dealingRange: {
       high: 105,

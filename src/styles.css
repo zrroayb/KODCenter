@@ -4995,3 +4995,118 @@ button {
     grid-row: 1 / span 2;
   }
 }
+
+/* Bugünün yönü şeridi — dashboard'un en üstünde tek bakışta HTF yön okuması. */
+.bias-board {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.bias-board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.bias-board-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 4px;
+  font-size: clamp(18px, 2vw, 24px);
+}
+
+.bias-board-head h2.bullish { color: var(--green-ink, #089981); }
+.bias-board-head h2.bearish { color: var(--red-ink, #f23645); }
+.bias-board-head h2.neutral { color: var(--muted); }
+
+.bias-board-head p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+.bias-board-counts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bias-board-counts span {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+.bias-board-counts .bullish { color: var(--green-ink, #089981); }
+.bias-board-counts .bearish { color: var(--red-ink, #f23645); }
+
+.bias-active-tfs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bias-tf {
+  display: inline-grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: 46px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.bias-tf small { font-size: 10px; letter-spacing: 0.08em; }
+.bias-tf.bullish { color: var(--green-ink, #089981); border-color: color-mix(in srgb, var(--green-ink, #089981) 40%, var(--line)); }
+.bias-tf.bearish { color: var(--red-ink, #f23645); border-color: color-mix(in srgb, var(--red-ink, #f23645) 40%, var(--line)); }
+
+.bias-invalidation {
+  display: inline-grid;
+  gap: 2px;
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: right;
+}
+
+.bias-invalidation small { font-size: 10px; color: var(--dim); }
+.bias-invalidation strong { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+.bias-symbol-grid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.bias-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.bias-symbol.bullish { color: var(--green-ink, #089981); }
+.bias-symbol.bearish { color: var(--red-ink, #f23645); }
+.bias-symbol.active { border-color: var(--blue); background: var(--blue-soft); }
+
+@media (max-width: 720px) {
+  .bias-invalidation { margin-left: 0; }
+  .bias-board-counts { width: 100%; }
+}

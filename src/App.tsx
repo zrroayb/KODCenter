@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Plus, Sparkles, Trash2 } from "lucide-react";
 import { BacktestView } from "./components/BacktestView";
+import { BiasBoard } from "./components/BiasBoard";
 import { BrandLogo } from "./components/BrandLogo";
 import { ChartsView } from "./components/ChartsView";
 import { ScannerView } from "./components/ScannerView";
@@ -154,6 +155,9 @@ function alertPrice(value: number | undefined) {
 export function FinanceDashboard({
   signals,
   hiddenSignals,
+  contexts,
+  activeSymbol,
+  onSelectSymbol,
   rejectedSetups,
   backtestResult,
   journalEntries,
@@ -167,6 +171,9 @@ export function FinanceDashboard({
 }: {
   signals: TradingSignal[];
   hiddenSignals: TradingSignal[];
+  contexts: MarketContext[];
+  activeSymbol: MarketSymbol;
+  onSelectSymbol: (symbol: MarketSymbol) => void;
   rejectedSetups: RejectedSetup[];
   backtestResult: ReturnType<typeof runDemoBacktest>;
   journalEntries: JournalEntry[];
@@ -187,6 +194,7 @@ export function FinanceDashboard({
   const displayedCount = ranked.length || lowQualitySignals.length || nearMisses.length;
   return (
     <section className="finance-dashboard simple-dashboard">
+      <BiasBoard activeSymbol={activeSymbol} contexts={contexts} onSelectSymbol={onSelectSymbol} />
       <article className={`panel decision-hero simple-hero ${best?.stage ?? "empty"}`}>
         <div>
           <span className="eyebrow">Karar</span>
@@ -924,6 +932,9 @@ export default function App() {
           <FinanceDashboard
             signals={visibleSignals}
             hiddenSignals={hiddenSignals}
+            contexts={contexts}
+            activeSymbol={activeSymbol}
+            onSelectSymbol={setActiveSymbol}
             rejectedSetups={rejectedSetups}
             backtestResult={backtestResult}
             journalEntries={journalEntries}

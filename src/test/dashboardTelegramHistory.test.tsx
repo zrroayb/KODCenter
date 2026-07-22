@@ -25,6 +25,9 @@ describe("dashboard Telegram history", () => {
     const html = renderToStaticMarkup(
       <FinanceDashboard
         signals={[]}
+      contexts={[]}
+      activeSymbol="XAUUSD"
+      onSelectSymbol={() => undefined}
         hiddenSignals={[]}
         rejectedSetups={[]}
         backtestResult={{ profitFactor: 0, totalTrades: 0 } as never}

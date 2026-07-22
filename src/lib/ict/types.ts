@@ -47,6 +47,17 @@ export type DealingRange = {
   source: string;
 };
 
+// Yapı temelli HTF bias okuması (structuralBias.ts üretir, UI/context tüketir).
+export type StructuralBiasRead = {
+  bias: ICTBias;
+  pattern: "uptrend" | "downtrend" | "expanding" | "contracting" | "unclear";
+  confidence: "strong" | "moderate" | "weak";
+  protectedHigh?: number;
+  protectedLow?: number;
+  lastEvent?: { kind: "bos" | "choch"; direction: TradeDirection; level: number; candleIndex: number };
+  reasons: string[];
+};
+
 export type CrtBiasKind = "bullish-continuation" | "bearish-continuation" | "bullish-reversal" | "bearish-reversal" | "neutral";
 
 export type CrtBiasContext = {
@@ -264,6 +275,14 @@ export type MarketContext = {
     daily: ICTBias;
     h4: ICTBias;
     h1: ICTBias;
+  };
+  // Aynı okumanın gerekçeli hali: desen, güven, korunan seviye (Master §3/§6 kanıtı).
+  biasDetail: {
+    monthly: StructuralBiasRead;
+    weekly: StructuralBiasRead;
+    daily: StructuralBiasRead;
+    h4: StructuralBiasRead;
+    h1: StructuralBiasRead;
   };
   dealingRange: DealingRange;
   premiumDiscount: PremiumDiscountContext;
