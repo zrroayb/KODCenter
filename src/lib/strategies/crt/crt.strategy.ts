@@ -1649,7 +1649,7 @@ export const crtStrategy: StrategyModule = {
     // consciously overriding the 30-trade rule on the demo-window result (PF 2.94). Same
     // quality gates apply; RANGE_TF_RANK keeps 1H sorted last so it only surfaces when it is
     // the best available signal. Revert to "tracking" to demote.
-    intradayAnchorMode: "live"
+    intradayAnchorMode: "tracking"
   },
   scan(input: StrategyInput): StrategyResult {
     const signals = signalsFromContext(input.context, input.settings);

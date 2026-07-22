@@ -2,6 +2,37 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — structural HTF bias replaces drift; 1H anchor DEMOTED on real-data evidence
+**A. HTF bias is now market structure, not close drift.**
+- `detectBias` (8-candle close-to-close drift, kept as `detectDriftBias` for comparison) was the
+  single source of every HTF direction surface: the alignment chain, `directionalBias.htfStructure`
+  (25p — heaviest bias input), `htfNarrative`, and the score bonus. It read direction from
+  `last.close > first.close` — no swings, no BOS/CHoCH, and it could essentially never return
+  neutral (only on exact float equality). Master §3/§8 require structure and an honest neutral.
+- New `detectStructuralBias`: wing-confirmed swings → HH/HL/LH/LL → protected high/low →
+  BOS vs CHoCH → real neutral on broadening/contracting ranges and on insufficient structure.
+  A pullback-free impulse leg (no pivots) is still read as a trend via a range-position fallback,
+  so clean trends are not mislabelled unclear. No repaint: unclosed candles ignored, break scans
+  start only after a swing is knowable.
+- Real-data check (8 symbols × 5 TFs): drift **0% neutral**, structural **17.5% neutral**, the two
+  disagree on **42.5%** of reads. Representative fix: `XAUUSD daily — drift said bullish while
+  structure was LH + LL (textbook downtrend)`. That false read costs up to 12 score points, which
+  can drop a setup a whole grade (A→B = 0.85→0.55 risk) — a direct, quantifiable R leak.
+- **Equal highs/lows (EQH/EQL) added** — Master §3's primary liquidity pool was completely absent.
+  Unswept equal swing levels (strength by touch count) now feed the external-draw component.
+- Measured effect on the core: **0.33R → 0.36R expectancy, PF 2.15 → 2.44, WR 71.4% → 75.0%,
+  2.30R → 2.89R** (8 trades — small sample, but every metric moved the right way).
+
+**B. The 1H anchor promotion is REVERSED — real data contradicted the demo window.**
+- Promoted to live earlier today on a demo-window result (7/9 triggers, PF 2.94, +3.87R). On real
+  Yahoo data, measured in the SAME replay window as the core (clean comparison):
+  **1H = 5/7 triggers, −0.55R/trade, PF 0.31, WR 20%, −2.77R** while the core was +2.89R. With 1H
+  live the headline collapsed to 0.01R expectancy / PF 1.02 / WR 53.8% / max DD 3.00R.
+- `intradayAnchorMode` default returned to `"tracking"`: the 1H family is watch-only again, pages
+  nobody, and keeps accumulating shadow evidence. This is the 30-trade rule vindicating itself —
+  the demo result was exactly the small-sample illusion it exists to catch. Re-promotion needs 30+
+  real tracked trades that actually hold up. 219 tests pass.
+
 ## 2026-07-22 — 1H anchor PROMOTED TO LIVE (owner decision, 30-trade rule consciously overridden)
 - `intradayAnchorMode` default flipped from "tracking" to "live": the 1H→5M anchor now produces
   READY signals and pages Telegram through the same quality gates as every other anchor

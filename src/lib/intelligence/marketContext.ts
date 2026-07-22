@@ -1,12 +1,13 @@
 import { latestClosed } from "../ict/candles";
 import type { Candle, MarketContext, MarketSymbol } from "../ict/types";
 import { buildCrtContext } from "./crtEngine";
-import { detectBias } from "./biasEngine";
+import { detectStructuralBias } from "./structuralBias";
 import { buildDataConfidence } from "./dataConfidenceEngine";
 import { buildEventRisk } from "./eventRiskEngine";
 import { buildKillzoneContext } from "./killzoneContextEngine";
 import { buildLiquidityPools, detectSweeps } from "./liquidityMapEngine";
 import { buildLiquidityObjectives } from "./liquidityObjectives";
+import { equalLevelObjectives } from "./equalLevels";
 import { classifyMarketRegime } from "./marketRegimeEngine";
 import { buildPremiumDiscountContext } from "./premiumDiscountContextEngine";
 import { buildDealingRange } from "./rangeEngine";
@@ -27,7 +28,14 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
   const execution = timeframes.m15.length ? timeframes.m15 : timeframes.m5;
   const latest = latestClosed(execution);
   const dealingRange = buildDealingRange(timeframes.h4.length ? timeframes.h4 : execution, "Active H4 dealing range");
-  const liquidityObjectives = buildLiquidityObjectives(timeframes.daily, dealingRange);
+  // Eşit tepe/dipler ICT'nin birincil likidite havuzu (Master §3): önceki-periyot uçlarının
+  // yanına, stop'ların fiilen kümelendiği seviyeleri de ekleriz. Bias motorunun external-draw
+  // bileşeni (25p, en ağır girdi) artık bunları da görür.
+  const liquidityObjectives = [
+    ...buildLiquidityObjectives(timeframes.daily, dealingRange),
+    ...equalLevelObjectives(timeframes.daily, "1d"),
+    ...equalLevelObjectives(timeframes.h4.length ? timeframes.h4 : execution, "4h")
+  ];
   const objectivePools = liquidityObjectives.map((objective) => ({
     id: objective.id,
     side: objective.side,
@@ -62,11 +70,11 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     symbol,
     timeframes,
     bias: {
-      monthly: detectBias(timeframes.monthly),
-      weekly: detectBias(timeframes.weekly),
-      daily: detectBias(timeframes.daily),
-      h4: detectBias(timeframes.h4),
-      h1: detectBias(timeframes.h1)
+      monthly: detectStructuralBias(timeframes.monthly).bias,
+      weekly: detectStructuralBias(timeframes.weekly).bias,
+      daily: detectStructuralBias(timeframes.daily).bias,
+      h4: detectStructuralBias(timeframes.h4).bias,
+      h1: detectStructuralBias(timeframes.h1).bias
     },
     dealingRange,
     premiumDiscount: buildPremiumDiscountContext(latest, dealingRange),

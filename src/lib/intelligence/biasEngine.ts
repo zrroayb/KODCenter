@@ -1,6 +1,9 @@
 import type { Candle, ICTBias } from "../ict/types";
 
-export function detectBias(candles: Candle[]): ICTBias {
+// LEGACY (2026-07-22'ye kadar tek HTF bias kaynağıydı): 8 mumluk kapanış farkı + HH/LL kontrolü.
+// Yapı analizi değil sürüklenme ölçümüdür ve matematiksel olarak neredeyse hiç "neutral"
+// dönemez — bu yüzden yerini `detectStructuralBias` aldı. Karşılaştırma/regresyon için durur.
+export function detectDriftBias(candles: Candle[]): ICTBias {
   if (candles.length < 8) return "neutral";
   const recent = candles.slice(-8);
   const first = recent[0];

@@ -125,10 +125,11 @@ describe("monthly runtime replay", () => {
     }
   });
 
-  it("promotes the 1H anchor to a first-class family under the live default (owner decision)", () => {
-    // Owner promoted 1H to live on 2026-07-22; the default now lets it reach READY through
-    // the same gates. In tracking mode the replay shadow-measures it off the headline.
-    expect(crtStrategy.defaultSettings.intradayAnchorMode).toBe("live");
+  it("keeps the 1H anchor in tracking by default after real data contradicted the demo result", () => {
+    // 2026-07-22: 1H canlıya alındı, sonra GERÇEK veriyle ölçüldü — aynı replay penceresinde
+    // çekirdek +2.89R / PF 2.44 iken 1H -2.77R / PF 0.31 / WR %20 verdi (demo'da +3.87R idi).
+    // Kanıt terfiyi çürüttüğü için varsayılan tracking'e döndürüldü.
+    expect(crtStrategy.defaultSettings.intradayAnchorMode).toBe("tracking");
 
     const tracking = runMonthlyRuntimeReplay({
       markets: createDemoMarkets(),

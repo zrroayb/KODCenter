@@ -108,7 +108,7 @@ export type LiquidityPool = {
   strength: "weak" | "moderate" | "strong";
 };
 
-export type LiquidityObjectiveKind = "PDH" | "PDL" | "PWH" | "PWL" | "PMH" | "PML" | "DRH" | "DRL";
+export type LiquidityObjectiveKind = "PDH" | "PDL" | "PWH" | "PWL" | "PMH" | "PML" | "DRH" | "DRL" | "EQH" | "EQL";
 
 export type LiquidityObjective = {
   id: string;
