@@ -13,7 +13,7 @@
     {
       "id": "htf-alignment-loose",
       "area": "directional-bias",
-      "rule": "Only an actively OPPOSING higher timeframe vetoes READY (never trade against the HTF narrative). A neutral/unclear higher TF is tolerated and costs score, not eligibility. Chain: 4H needs 1D+1W, 1D needs 1W, 1W needs 1M.",
+      "rule": "Only an actively OPPOSING higher timeframe vetoes READY (never trade against the HTF narrative). A neutral/unclear higher TF is tolerated and costs score, not eligibility. Chain: 4H needs 1D+1W, 1D needs 1W, 1W needs 1M. ENFORCEMENT (2026-07-22): the gate now actually runs — defaultRules.useHtfAlignmentFilter and crtStrategy.defaultSettings both default to true, so an actively opposing HTF really does veto READY. Until this date the flag defaulted to false, so the rule was documented but NOT in force. The gate lives ONLY in the strategy (readyEligible + blockers) because only there does the reversal-at-external-liquidity exception apply; the duplicate copy in applyRules was removed — it had no exception (silently breaking that rule) and hid 12 of 18 visible signals. Measured on real data: veto on vs off changed nothing (identical trades/R/PF), because the structural bias engine returns neutral far more often and neutral is tolerated by the loose gate.",
       "status": "implemented"
     },
     {

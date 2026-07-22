@@ -765,7 +765,10 @@ export default function App() {
         partialTpEnabled: rules.partialTpEnabled,
         moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
-        avoidNews: rules.avoidNews
+        avoidNews: rules.avoidNews,
+        // scanRuntime bunu canlı taramaya geçiriyordu ama replay'e geçmiyordu: Ayar'daki HTF
+        // anahtarı açıkken replay hâlâ kapalı ölçüyor, yani ölçüm canlıdan sapıyordu.
+        useHtfAlignmentFilter: rules.useHtfAlignmentFilter
       }
     });
   };

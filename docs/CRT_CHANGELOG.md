@@ -2,6 +2,27 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — the HTF veto is finally IN FORCE, and the duplicate gate that starved it is gone
+- Follow-up to the structural-bias work. The owner-approved rule `htf-alignment-loose` says an
+  actively opposing higher timeframe vetoes READY — but `useHtfAlignmentFilter` defaulted to
+  **false** in both defaultRules and crtStrategy.defaultSettings, so the rule was documented and
+  never enforced (Master §12 violation). A code comment even claimed "htfAlignment already vetoes
+  a hard opposing HTF", which was false under the shipped default. Both defaults are now `true`.
+- Measured first, on real Yahoo data: veto on vs off produced **identical** results (same trades,
+  R, PF, WR, DD). Reason: the new structural bias returns neutral ~17.5% of the time (drift: 0%),
+  and the loose gate tolerates neutral, so "actively opposing" is now rare. Enabling it costs
+  nothing in this window and brings code in line with the rule — but note the veto simply never
+  fired here, so this is "no measured downside", not proof it is harmless in every regime.
+- **Removed the duplicate HTF gate from `applyRules`.** Two problems, both measured:
+  (1) it had no `reversalAtExternalHtf` exception, so turning the flag on would have silently
+  broken the owner's reversal-at-external-liquidity rule (the USDCHF case);
+  (2) it hid **12 of 18 visible signals (67%)** — precisely the "scoring the same thing twice
+  starves the live system" failure this repo already learned once. The gate now lives only in the
+  strategy, where the exception exists. After removal, visible signals stay at 18 with the veto on.
+- Also fixed: the replay worker never received `useHtfAlignmentFilter`, so the Ayar toggle changed
+  live scanning but not the replay — the measurement tool was blind to the very setting under test.
+  219 tests pass.
+
 ## 2026-07-22 — structural HTF bias replaces drift; 1H anchor DEMOTED on real-data evidence
 **A. HTF bias is now market structure, not close drift.**
 - `detectBias` (8-candle close-to-close drift, kept as `detectDriftBias` for comparison) was the

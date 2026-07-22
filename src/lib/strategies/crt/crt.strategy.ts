@@ -1643,7 +1643,7 @@ export const crtStrategy: StrategyModule = {
     useExecutionCosts: true,
     slippageStress: "normal",
     noAutoExecution: true,
-    useHtfAlignmentFilter: false,
+    useHtfAlignmentFilter: true,
     exitModel: "eq-full",
     // Owner decision 2026-07-22: 1H→5M anchor promoted to LIVE (produces READY + alerts),
     // consciously overriding the 30-trade rule on the demo-window result (PF 2.94). Same

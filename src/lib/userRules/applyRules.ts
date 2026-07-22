@@ -9,12 +9,6 @@ function hasAllowedActiveKillzone(context: MarketContext, rules: UserRules): boo
   return rules.allowedKillzones.includes(active);
 }
 
-function hasAlignedHtf(signal: TradingSignal): boolean {
-  const { daily, h4 } = signal.context.bias;
-  if (signal.direction === "long") return daily !== "bearish" && h4 !== "bearish";
-  return daily !== "bullish" && h4 !== "bullish";
-}
-
 function hasValidPremiumDiscount(signal: TradingSignal): boolean {
   const zone = signal.context.premiumDiscount.zone;
   if (zone === "equilibrium") return true;
@@ -36,6 +30,10 @@ export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boole
   if (signal.stage === "ready" && signal.plan.rr < rules.minimumRR) return false;
   if (rules.usePremiumDiscountFilter && !hasValidPremiumDiscount(signal)) return false;
   if (rules.useJudasSwingFilter && !hasJudasSwing(signal)) return false;
-  if (rules.useHtfAlignmentFilter && !hasAlignedHtf(signal)) return false;
+  // HTF kapısı BİLEREK burada değil: stratejide (crt.strategy readyEligible + blockers) duruyor,
+  // çünkü yalnız orada `reversalAtExternalHtf` istisnası var — haftalık/aylık external likidite
+  // süpürülmüş dönüş setup'ları veto edilmez, boyutu küçültülür (owner kuralı, USDCHF vakası).
+  // Burada tekrar uygulamak (a) o istisnayı sessizce delerdi, (b) aynı şeyi iki kez kapıya
+  // koyup watch listesini boğardı — ölçüm: 18 görünür sinyalin 12'si kaybolyordu.
   return true;
 }

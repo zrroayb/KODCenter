@@ -15,6 +15,6 @@ export const defaultRules: UserRules = {
   allowedKillzones: ["Asia", "London", "New York AM", "London Close", "Outside"],
   usePremiumDiscountFilter: false,
   useJudasSwingFilter: false,
-  useHtfAlignmentFilter: false,
+  useHtfAlignmentFilter: true,
   maxSignalsPerScan: 18
 };
