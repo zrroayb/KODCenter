@@ -15,11 +15,11 @@ function crtSignal() {
 }
 
 describe("telegram chart snapshots", () => {
-  it("renders standalone SVGs for the CRT range TF and the confirmation TF", () => {
+  it("renders standalone SVGs for the CRT range TF and the confirmation TF", async () => {
     const signal = crtSignal();
 
-    const range = renderSignalChartSvg(signal, "range");
-    const confirm = renderSignalChartSvg(signal, "confirm");
+    const range = await renderSignalChartSvg(signal, "range");
+    const confirm = await renderSignalChartSvg(signal, "confirm");
 
     expect(range?.svg.startsWith("<svg")).toBe(true);
     expect(range?.svg).toContain("xmlns=");

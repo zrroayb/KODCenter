@@ -1,5 +1,4 @@
 import { createElement, type ReactElement } from "react";
-import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CandleChart } from "../../components/CandleChart";
@@ -29,6 +28,9 @@ const CONFIRM_SERIES: Record<string, { key: "m15" | "h1" | "h4"; mode: ChartMode
   "4h": { key: "h4", mode: "context" }
 };
 
+// React commit'ini beklerken en fazla bu kadar tick; aşılırsa grafik atlanır.
+const COMMIT_MAX_TICKS = 50;
+
 function snapshotSpec(signal: TradingSignal, kind: "range" | "confirm"): SnapshotSpec | undefined {
   const anchor = signal.crtAnchor;
   if (!anchor) return undefined;
@@ -55,22 +57,30 @@ function snapshotSpec(signal: TradingSignal, kind: "range" | "confirm"): Snapsho
 // In the browser the page's own React runtime must do the rendering — react-dom/server's
 // browser build has its own hook dispatcher and throws "Invalid hook call" next to a live
 // React app. In node (tests) there is no DOM, so renderToStaticMarkup is the right tool.
-function componentMarkup(element: ReactElement): string {
+async function componentMarkup(element: ReactElement): Promise<string> {
   if (typeof document === "undefined") return renderToStaticMarkup(element);
   const host = document.createElement("div");
   const root = createRoot(host);
   try {
-    flushSync(() => root.render(element));
+    root.render(element);
+    // flushSync BİLEREK kullanılmıyor. Alert hazırlanırken bu kod aktif bir React render'ının
+    // içinden çağrılabiliyordu; o durumda React "cannot flush when already rendering" hatası
+    // veriyor ve senkron unmount yarış durumuna giriyordu. Bunun yerine React'in kendi
+    // commit'ini bekleriz — DOM basılana kadar tick'leriz, basılmazsa boş dönüp sessizce
+    // vazgeçeriz (grafik best-effort'tur; metin uyarısı asla bloklanmaz).
+    for (let tick = 0; tick < COMMIT_MAX_TICKS && !host.firstChild; tick += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
     return host.innerHTML;
   } finally {
     root.unmount();
   }
 }
 
-export function renderSignalChartSvg(signal: TradingSignal, kind: "range" | "confirm"): { svg: string; label: string } | undefined {
+export async function renderSignalChartSvg(signal: TradingSignal, kind: "range" | "confirm"): Promise<{ svg: string; label: string } | undefined> {
   const spec = snapshotSpec(signal, kind);
   if (!spec) return undefined;
-  const markup = componentMarkup(createElement(CandleChart, {
+  const markup = await componentMarkup(createElement(CandleChart, {
     candles: spec.candles,
     title: spec.title,
     mode: spec.mode,
@@ -126,7 +136,7 @@ export async function captureSignalChartImages(signal: TradingSignal): Promise<T
   const images: TelegramChartImage[] = [];
   for (const kind of ["range", "confirm"] as const) {
     try {
-      const rendered = renderSignalChartSvg(signal, kind);
+      const rendered = await renderSignalChartSvg(signal, kind);
       if (!rendered) continue;
       const dataUrl = await svgToJpegDataUrl(rendered.svg);
       if (dataUrl) images.push({ label: rendered.label, dataUrl });
