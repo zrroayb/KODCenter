@@ -1,5 +1,6 @@
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { formatPrice } from "../lib/ict/format";
+import { CLUSTER_LABEL, CLUSTER_ORDER, clusterOf, type SymbolCluster } from "../lib/ict/symbols";
 import type { ICTBias, MarketContext, MarketSymbol, StructuralBiasRead } from "../lib/ict/types";
 
 // "Bugün yönüm neresi" şeridi: her sembolün yapısal HTF okuması tek bakışta.
@@ -55,6 +56,26 @@ export function BiasBoard({
   const bullish = reads.filter((item) => item.day.bias === "bullish").length;
   const bearish = reads.filter((item) => item.day.bias === "bearish").length;
   const neutral = reads.length - bullish - bearish;
+  // Küme içinde güçlü okumalar önce gelsin ki göz önce en net olana gitsin.
+  const convictionRank = (item: (typeof reads)[number]) =>
+    (item.day.bias === "neutral" ? 0 : 1) * 10 + { strong: 3, moderate: 2, weak: 1 }[item.context.biasDetail.daily.confidence];
+  const grouped = CLUSTER_ORDER
+    .map((cluster) => {
+      const items = reads
+        .filter((item) => clusterOf(item.context.symbol) === cluster)
+        .sort((a, b) => convictionRank(b) - convictionRank(a) || a.context.symbol.localeCompare(b.context.symbol));
+      const long = items.filter((item) => item.day.bias === "bullish").length;
+      const short = items.filter((item) => item.day.bias === "bearish").length;
+      const consensus = long && !short
+        ? { text: `${long} long — tek yönlü`, className: "bullish" }
+        : short && !long
+          ? { text: `${short} short — tek yönlü`, className: "bearish" }
+          : long || short
+            ? { text: `${long} long / ${short} short — karışık`, className: "mixed" }
+            : { text: "yön yok", className: "neutral" };
+      return { cluster: cluster as SymbolCluster, items, consensus };
+    })
+    .filter((group) => group.items.length);
   const active = reads.find((item) => item.context.symbol === activeSymbol) ?? reads[0];
   const activeDaily = active.context.biasDetail.daily;
   const invalidation = active.day.bias === "bullish"
@@ -98,18 +119,30 @@ export function BiasBoard({
         )}
       </div>
 
-      <div className="bias-symbol-grid">
-        {reads.map(({ context, day }) => (
-          <button
-            className={`bias-symbol ${biasClass(day.bias)} ${context.symbol === activeSymbol ? "active" : ""}`}
-            key={context.symbol}
-            onClick={() => onSelectSymbol(context.symbol)}
-            title={`${day.note}. ${context.biasDetail.daily.reasons[0]}`}
-            type="button"
-          >
-            <BiasIcon bias={day.bias} />
-            <span>{context.symbol}</span>
-          </button>
+      {/* Korelasyon kümesine göre gruplanır: aynı kümedeki semboller aynı makro bahsi paylaşır,
+          böylece "tüm dolar kompleksi aynı yönde mi" tek bakışta görünür (korelasyon riski). */}
+      <div className="bias-cluster-list">
+        {grouped.map(({ cluster, items, consensus }) => (
+          <div className="bias-cluster" key={cluster}>
+            <div className="bias-cluster-head">
+              <small>{CLUSTER_LABEL[cluster]}</small>
+              <span className={consensus.className}>{consensus.text}</span>
+            </div>
+            <div className="bias-symbol-grid">
+              {items.map(({ context, day }) => (
+                <button
+                  className={`bias-symbol ${biasClass(day.bias)} ${context.symbol === activeSymbol ? "active" : ""}`}
+                  key={context.symbol}
+                  onClick={() => onSelectSymbol(context.symbol)}
+                  title={`${day.note}. ${context.biasDetail.daily.reasons[0]}`}
+                  type="button"
+                >
+                  <BiasIcon bias={day.bias} />
+                  <span>{context.symbol}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
     </article>

@@ -17,7 +17,7 @@ export type MarketDataLoadResult = {
 };
 
 export type YahooInterval = "5m" | "15m" | "1h" | "1d";
-export type YahooRange = "5d" | "60d" | "1y";
+export type YahooRange = "5d" | "60d" | "1y" | "2y";
 
 const YAHOO_INTERVAL_MS: Record<YahooInterval, number> = {
   "5m": 5 * 60 * 1000,
@@ -177,7 +177,9 @@ export async function loadYahooMarket(
     withRetry(`${item.symbol} 5m`, () => fetchYahooCandles(item.yahoo, "5m", "5d", signal, options), attempts),
     withRetry(`${item.symbol} 15m`, () => fetchYahooCandles(item.yahoo, "15m", "60d", signal, options), attempts),
     withRetry(`${item.symbol} 1h`, () => fetchYahooCandles(item.yahoo, "1h", "60d", signal, options), attempts),
-    withRetry(`${item.symbol} 1d`, () => fetchYahooCandles(item.yahoo, "1d", "1y", signal, options), attempts)
+    // 2y: aylık seri günlükten türetiliyor; 1y yalnız ~12 aylık mum veriyordu ve yapı
+    // motoru aylıkta wing-3 swing bulamayıp wing-1 gürültüsüne düşüyordu (~25 ay yeterli).
+    withRetry(`${item.symbol} 1d`, () => fetchYahooCandles(item.yahoo, "1d", "2y", signal, options), attempts)
   ]);
 
   if ((!m15.length && !m5.length) || !h1.length || !daily.length) {

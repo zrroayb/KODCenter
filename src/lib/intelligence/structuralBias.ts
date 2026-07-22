@@ -18,6 +18,15 @@ export type StructuralBias = StructuralBiasRead;
 
 const MIN_SWINGS_PER_SIDE = 2;
 
+// Dar kanat = gürültülü pivot. Aylık gibi az mumlu serilerde kanat 1'e düşebiliyor; tek mumluk
+// bir pivottan "strong" trend iddiası üretmek yanlış güven verir ve htfStructure'ın 25 puanına
+// besleniyor. Güven, kullanılan kanadın kalitesiyle tavanlanır.
+const CONFIDENCE_RANK: Record<StructuralConfidence, number> = { weak: 0, moderate: 1, strong: 2 };
+function capConfidence(level: StructuralConfidence, wing: number): StructuralConfidence {
+  const cap: StructuralConfidence = wing >= 3 ? "strong" : wing === 2 ? "moderate" : "weak";
+  return CONFIDENCE_RANK[level] <= CONFIDENCE_RANK[cap] ? level : cap;
+}
+
 function neutral(reason: string, extra: Partial<StructuralBias> = {}): StructuralBias {
   return { bias: "neutral", pattern: "unclear", confidence: "weak", reasons: [reason], ...extra };
 }
@@ -133,11 +142,11 @@ export function detectStructuralBias(candles: Candle[]): StructuralBias {
     // Kırılım yok: yalnız swing deseni konuşur. Çelişkili desen = dürüst neutral.
     if (pattern === "uptrend") {
       reasons.push("Korunan seviyeler kırılmadı; trend yapısı geçerli.");
-      return { bias: "bullish", pattern, confidence: "moderate", protectedHigh, protectedLow, reasons };
+      return { bias: "bullish", pattern, confidence: capConfidence("moderate", wing), protectedHigh, protectedLow, reasons };
     }
     if (pattern === "downtrend") {
       reasons.push("Korunan seviyeler kırılmadı; trend yapısı geçerli.");
-      return { bias: "bearish", pattern, confidence: "moderate", protectedHigh, protectedLow, reasons };
+      return { bias: "bearish", pattern, confidence: capConfidence("moderate", wing), protectedHigh, protectedLow, reasons };
     }
     reasons.push("Yapı çelişkili (range) ve kırılım yok; yön belirsiz.");
     return { bias: "neutral", pattern, confidence: "weak", protectedHigh, protectedLow, reasons };
@@ -153,7 +162,7 @@ export function detectStructuralBias(candles: Candle[]): StructuralBias {
     return {
       bias: latestBreak.direction === "long" ? "bullish" : "bearish",
       pattern,
-      confidence: "moderate",
+      confidence: capConfidence("moderate", wing),
       protectedHigh,
       protectedLow,
       lastEvent,
@@ -163,7 +172,7 @@ export function detectStructuralBias(candles: Candle[]): StructuralBias {
 
   reasons.push(`BOS: ${latestBreak.direction === "long" ? "yüksek" : "düşük"} ${latestBreak.level} kapanışla kırıldı; yapı teyitli.`);
   // Range içindeki tek yönlü kırılım trend kadar güçlü değildir.
-  const confidence: StructuralConfidence = trendDirection ? "strong" : "weak";
+  const confidence: StructuralConfidence = capConfidence(trendDirection ? "strong" : "weak", wing);
   return {
     bias: latestBreak.direction === "long" ? "bullish" : "bearish",
     pattern,

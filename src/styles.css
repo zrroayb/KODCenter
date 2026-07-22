@@ -5110,3 +5110,25 @@ button {
   .bias-invalidation { margin-left: 0; }
   .bias-board-counts { width: 100%; }
 }
+
+.bias-cluster-list { display: grid; gap: 10px; }
+.bias-cluster { display: grid; gap: 5px; }
+
+.bias-cluster-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.bias-cluster-head small {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.bias-cluster-head span { font-size: 11px; color: var(--dim); }
+.bias-cluster-head .bullish { color: var(--green-ink, #089981); }
+.bias-cluster-head .bearish { color: var(--red-ink, #f23645); }
+.bias-cluster-head .mixed { color: var(--warning, #f59e0b); }

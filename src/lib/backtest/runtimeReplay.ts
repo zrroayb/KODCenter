@@ -16,7 +16,7 @@ import {
 import { aggregateCandles, trimCandles } from "../data/candleAggregation";
 import { executableClose, executableHigh, executableLow } from "../data/bidAsk";
 import type { Candle, MarketContext, MarketSymbol, Timeframe, TradingSignal } from "../ict/types";
-import { isCryptoSymbol } from "../ict/symbols";
+import { clusterExposure, isCryptoSymbol } from "../ict/symbols";
 import { buildMarketContext, type MarketTimeframes } from "../intelligence/marketContext";
 import { attachSmtDivergences } from "../intelligence/smtEngine";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../signals/waitingGuidance";
@@ -336,32 +336,6 @@ function tradeTags(signal: TradingSignal): string[] {
 
 // ── 30+ işlem incelemesi ölçümleri (kural değil, veri toplama — analiz 2026-07-21) ──────────
 
-// Korelasyon kümeleri ve USD-normalize yön: EURUSD short ≈ USDJPY long ≈ usd-long.
-// Kripto kümesi kendi betasına normalize edilir (BTC long ≈ ETH long ≈ crypto-long).
-const SYMBOL_CLUSTERS: Record<string, { cluster: string; usdInverse: boolean }> = {
-  EURUSD: { cluster: "dollar-fx", usdInverse: true },
-  GBPUSD: { cluster: "dollar-fx", usdInverse: true },
-  AUDUSD: { cluster: "dollar-fx", usdInverse: true },
-  USDJPY: { cluster: "dollar-fx", usdInverse: false },
-  USDCHF: { cluster: "dollar-fx", usdInverse: false },
-  XAUUSD: { cluster: "metal", usdInverse: true },
-  NAS100: { cluster: "index", usdInverse: true },
-  BTCUSD: { cluster: "crypto", usdInverse: true },
-  ETHUSD: { cluster: "crypto", usdInverse: true },
-  XRPUSD: { cluster: "crypto", usdInverse: true },
-  BNBUSD: { cluster: "crypto", usdInverse: true },
-  SOLUSD: { cluster: "crypto", usdInverse: true }
-};
-
-function clusterExposure(symbol: string, direction: string): { cluster: string; exposure: string } {
-  const spec = SYMBOL_CLUSTERS[symbol] ?? { cluster: "other", usdInverse: true };
-  if (spec.cluster === "crypto") {
-    return { cluster: spec.cluster, exposure: direction === "long" ? "crypto-long" : "crypto-short" };
-  }
-  const usdLong = spec.usdInverse ? direction === "short" : direction === "long";
-  return { cluster: spec.cluster, exposure: usdLong ? "usd-long" : "usd-short" };
-}
-
 function buildReviewMeasurements(trades: RuntimeReplayTrade[]): RuntimeReplayReviewMeasurements {
   const triggered = trades.filter((trade) => trade.status !== "not-triggered");
   const eqRrValues = triggered.map((trade) => trade.eqRR).filter((value) => Number.isFinite(value));
@@ -374,7 +348,7 @@ function buildReviewMeasurements(trades: RuntimeReplayTrade[]): RuntimeReplayRev
 
   const clusterGroups = new Map<string, { day: string; cluster: string; exposure: string; symbols: Set<string>; trades: number; totalR: number }>();
   for (const trade of triggered) {
-    const { cluster, exposure } = clusterExposure(trade.symbol, trade.direction);
+    const { cluster, exposure } = clusterExposure(trade.symbol, trade.direction === "long" ? "long" : "short");
     const day = dayKey(trade.signalTime);
     const key = `${day}:${cluster}:${exposure}`;
     const group = clusterGroups.get(key) ?? { day, cluster, exposure, symbols: new Set<string>(), trades: 0, totalR: 0 };
