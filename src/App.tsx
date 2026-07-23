@@ -495,11 +495,15 @@ export default function App() {
     showSelectedSignalOnly: true
   });
   const [showSignalMarkers, setShowSignalMarkers] = useState(true);
-  const initial = useMemo(() => scanContexts(contexts, strategyId, rules), [contexts, strategyId, rules]);
-  const [signals, setSignals] = useState<TradingSignal[]>(initial.signals);
-  const [hiddenSignals, setHiddenSignals] = useState<TradingSignal[]>(initial.hiddenSignals);
-  const [inactiveSignals, setInactiveSignals] = useState<TradingSignal[]>(initial.inactiveSignals);
-  const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>(initial.rejected);
+  // scanContexts 12 sembolde ~2sn sürüyor. Bu değer yalnızca aşağıdaki state'leri TOHUMLAMAK
+  // için kullanılıyordu, ama useMemo her contexts/rules değişiminde (yani her 60sn'lik veri
+  // yenilemesinde) yeniden koşup sonucu çöpe atıyordu — render sırasında 2sn blocking, üstelik
+  // hemen ardından aynı bağımlılıklarla çalışan useEffect taramayı zaten bir kez daha yapıyor.
+  // State'i boş başlatıp ilk taramayı da o effect'e bırakıyoruz: döngü başına iki tarama yerine bir.
+  const [signals, setSignals] = useState<TradingSignal[]>([]);
+  const [hiddenSignals, setHiddenSignals] = useState<TradingSignal[]>([]);
+  const [inactiveSignals, setInactiveSignals] = useState<TradingSignal[]>([]);
+  const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>([]);
   const [sessionSetups, setSessionSetups] = useState<SessionSetup[]>(() => loadSessionSetups());
   const [sessionSetupLogs, setSessionSetupLogs] = useState<SessionSetupLog[]>(() => loadSessionSetupLogs());
   const [silverBulletSetups, setSilverBulletSetups] = useState<SilverBulletSetup[]>(() => loadSilverBulletSetups());
