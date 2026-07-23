@@ -5132,3 +5132,10 @@ button {
 .bias-cluster-head .bullish { color: var(--green-ink, #089981); }
 .bias-cluster-head .bearish { color: var(--red-ink, #f23645); }
 .bias-cluster-head .mixed { color: var(--warning, #f59e0b); }
+
+.view-loading {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 13px;
+}

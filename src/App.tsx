@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Plus, Sparkles, Trash2 } from "lucide-react";
-import { BacktestView } from "./components/BacktestView";
 import { BiasBoard } from "./components/BiasBoard";
 import { BrandLogo } from "./components/BrandLogo";
-import { ChartsView } from "./components/ChartsView";
-import { ScannerView } from "./components/ScannerView";
-import { SessionSetupsView } from "./components/SessionSetupsView";
-import { SettingsView } from "./components/SettingsView";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
-import { SilverBulletSection } from "./components/SilverBulletSection";
+// Dashboard dışındaki görünümler ilk yüklemede gerekmez; kendi chunk'larına bölünür
+// (ChartsView + CandleChart en ağır parça). named export'lar default'a sarılır.
+const BacktestView = lazy(() => import("./components/BacktestView").then((m) => ({ default: m.BacktestView })));
+const ChartsView = lazy(() => import("./components/ChartsView").then((m) => ({ default: m.ChartsView })));
+const ScannerView = lazy(() => import("./components/ScannerView").then((m) => ({ default: m.ScannerView })));
+const SessionSetupsView = lazy(() => import("./components/SessionSetupsView").then((m) => ({ default: m.SessionSetupsView })));
+const SettingsView = lazy(() => import("./components/SettingsView").then((m) => ({ default: m.SettingsView })));
+const SilverBulletSection = lazy(() => import("./components/SilverBulletSection").then((m) => ({ default: m.SilverBulletSection })));
 import { createDemoMarkets } from "./data/demoData";
 import { runDemoBacktest } from "./lib/backtest/backtestEngine";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
@@ -932,6 +934,7 @@ export default function App() {
             </button>
           </div>
         </header>
+        <Suspense fallback={<div className="view-loading">Yükleniyor…</div>}>
         {activeView === "dashboard" && (
           <FinanceDashboard
             signals={visibleSignals}
@@ -1010,6 +1013,7 @@ export default function App() {
         )}
         {activeView === "ai" && <AiWorkspace signal={selectedSignal} signals={visibleSignals} journalEntries={journalEntries} />}
         {activeView === "settings" && <SettingsView strategies={strategyRegistry} rules={rules} memory={memory} onRulesChange={setRules} />}
+        </Suspense>
         <footer className="safety-note">
           Bu araç market analizi ve eğitim/araştırma içindir. Finansal tavsiye vermez ve işlem açmaz.
         </footer>
