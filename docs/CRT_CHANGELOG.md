@@ -2,6 +2,25 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-22 — retest-mandatory RE-ENFORCED (a silent regression in b60d381 caught in a CRT-logic audit)
+- CRT trade-logic audit (owner: "crt trade ile ilgili eksik var mı"). Most apparent gaps turned
+  out to be deliberate, documented choices — OTE is intentionally excluded ("a synthetic OTE is
+  not a POI"), and the entry uses the near FVG edge, not a mandatory CE/midpoint. Minor: CRT's
+  `cisdConfirmed` is aliased to ChoCH (no independent CISD detector like Silver Bullet has).
+- The real finding: the owner-approved, MEASURED rule `retest-mandatory-for-entry` (restored
+  2026-07-15 after direct-from-close entries measured −0.46R vs retest-based +0.56R, and live-READY
+  −0.14R → +2.62R) had been **silently reverted** in commit b60d381 ("Align CRT live signals and
+  replay", 2026-07-20). That commit re-added the `confirmationClose → entryStatus:"confirmed"`
+  branch and deleted the comment citing the measurement — so a ChoCH close with no retest was again
+  reaching READY (and Telegram), re-admitting the entry type measured to LOSE money. The ledger,
+  this changelog, and even the deleted comment all still said retest was mandatory (Master §12
+  violation).
+- Fix (owner decision this session): `selectCrtEntry` ignores `confirmationClose` again — a ChoCH
+  close stays PENDING/WATCH until price actually retests. Stale/contradictory warning texts fixed;
+  the now-unreachable "confirmed without retest" warning replaced with the pending-retest note.
+  Test updated to lock retest-mandatory. Verified on live data: **0 signals confirmed-without-retest**;
+  ChoCH setups correctly wait at poi-retest. 220 tests pass.
+
 ## 2026-07-22 — the last two doctrine gaps closed: §6 lifecycle implemented, §8 direction MEASURED
 **§6 — the 10-state lifecycle now exists.** `setupPhase` only ever had 4 states
 (context/raid/model/ready) against Master §6's ten. New `lifecycleState` derives the full chain

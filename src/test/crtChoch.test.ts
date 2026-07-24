@@ -232,7 +232,9 @@ describe("CRT ChoCH truth model", () => {
     expect(decision.retested).toBe(false);
   });
 
-  it("confirms directly from the closed ChoCH candle without making retest mandatory", () => {
+  it("never confirms from the ChoCH close alone — a retest is mandatory (retest-mandatory-for-entry)", () => {
+    // b60d381 relaxed this; owner re-enforced 2026-07-22. Even with a confirmationClose the entry
+    // stays PENDING (WATCH) until price actually retests — direct-from-close was measured at -0.46R.
     const decision = selectCrtEntry({
       choch: { level: 101, candleIndex: 9, referenceCandleIndex: 4, bodyRatio: 0.8, rangeAtr: 1.5 },
       plannedRetestEntry: 101,
@@ -240,9 +242,7 @@ describe("CRT ChoCH truth model", () => {
       confirmationClose: 101.4
     });
 
-    expect(decision.entry).toBe(101.4);
-    expect(decision.entrySource).toBe("choch-close");
-    expect(decision.entryStatus).toBe("confirmed");
+    expect(decision.entryStatus).toBe("pending");
     expect(decision.retested).toBe(false);
   });
 

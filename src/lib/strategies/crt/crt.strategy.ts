@@ -916,19 +916,13 @@ export function selectCrtEntry(input: {
     };
   }
 
-  // The core CRT model ends at the CLOSED lower-timeframe character shift. A later POI/FVG
-  // retest can improve the price, but it is a separate execution variant and cannot erase an
-  // otherwise valid confirmation. Keeping both variants under one mandatory-retest gate was the
-  // main reason live scans saw the same CRT as the trader but never emitted READY.
-  if (choch && typeof confirmationClose === "number" && Number.isFinite(confirmationClose)) {
-    return {
-      entry: confirmationClose,
-      entrySource: "choch-close",
-      entryStatus: "confirmed",
-      retested: false
-    };
-  }
-
+  // A ChoCH close WITHOUT a retest never confirms the entry (input.confirmationClose is
+  // deliberately ignored). Measured 2026-07-15 (12 symbols, 30d): direct-from-close entries ran
+  // -0.46R over 5 trades while retest-based entries made +0.56R over 6, and the doctrine says the
+  // displaced close is never chased. The plan stays visible (WATCH) at the retest level and only
+  // confirms when price actually returns. This guard was silently removed in b60d381 (a live/replay
+  // alignment commit) and restored 2026-07-22 by owner decision — see retest-mandatory-for-entry.
+  void confirmationClose;
   return {
     entry: plannedRetestEntry,
     entrySource: choch || poi ? (poi ? "poi-retest" : "choch-close") : "fallback-close",
@@ -983,7 +977,8 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
       : [`Stop ${structuralStopSource === "manipulation" ? "manipulation wick" : "CRT structure"} dışına ${formatPrice(buffer)} buffer ile kondu.`]),
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
-    ...(choch && entryStatus === "confirmed" && !entryDecision.retested ? [`Entry kapalı ChoCH mumundan ${formatPrice(entry)}; POI retest gelirse daha iyi fiyat bonusudur.`] : [])
+    // Retest zorunlu (retest-mandatory-for-entry): ChoCH var ama retest yoksa plan WATCH'ta bekler.
+    ...(choch && entryStatus === "pending" ? [`ChoCH kapandı; giriş ${formatPrice(entry)} retest teması bekleniyor (kapanış kovalanmaz).`] : [])
   ];
 
   return {
@@ -1208,7 +1203,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     reversalAtExternalHtf ? `Karşı-HTF dönüş setup'ı: haftalık/aylık external likidite süpürüldü (draw tüketildi), HTF henüz dönmedi — geçerli ama boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
-    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var fakat retest yok; ChoCH kapanışı geçerli, retest yalnızca daha iyi fiyat bonusu." : undefined,
+    choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     !pdAligned ? `${direction.toUpperCase()} entry CRT range ${crtZone}; ideal ${expectedPd(direction)} ama RR/geometri uygunsa hard gate değil.` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
