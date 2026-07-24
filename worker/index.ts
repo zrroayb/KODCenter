@@ -551,6 +551,29 @@ async function handleYahooProxy(request: Request) {
   });
 }
 
+// Kripto için Binance public market-data ucu (coğrafi engelsiz). Tarayıcı /binance/... çağırır,
+// worker data-api.binance.vision'a proxy'ler — Yahoo'nun bayat kripto feed'inin yerine geçer.
+async function handleBinanceProxy(request: Request) {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/^\/binance/, "");
+  if (!path.startsWith("/api/v3/klines")) {
+    return jsonResponse({ error: "Unsupported Binance route" }, 404);
+  }
+  const upstreamUrl = new URL(`https://data-api.binance.vision${path}`);
+  upstreamUrl.search = url.search;
+  const response = await fetch(upstreamUrl, {
+    headers: { Accept: "application/json" },
+    cf: { cacheTtl: 20, cacheEverything: true }
+  });
+  return new Response(response.body, {
+    status: response.status,
+    headers: {
+      "content-type": response.headers.get("content-type") || "application/json",
+      "cache-control": "public, max-age=15"
+    }
+  });
+}
+
 function hasScanAccess(request: Request, env: CloudflareEnv) {
   const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return Boolean(env.SCAN_TOKEN && supplied === env.SCAN_TOKEN);
@@ -690,6 +713,7 @@ async function handleUserRules(request: Request, env: CloudflareEnv) {
 async function handleRequest(request: Request, env: CloudflareEnv) {
   const url = new URL(request.url);
   if (url.pathname.startsWith("/yahoo/")) return handleYahooProxy(request);
+  if (url.pathname.startsWith("/binance/")) return handleBinanceProxy(request);
   if (url.pathname === "/api/health") {
     return jsonResponse({
       status: "ok",

@@ -1320,12 +1320,36 @@ async function handleYahooProxy(request: YahooProxyRequest, response: YahooProxy
   }
 }
 
+async function handleBinanceProxy(request: YahooProxyRequest, response: YahooProxyResponse) {
+  const requestPath = `/${(request.url ?? "").replace(/^\/+/, "").replace(/^binance\/?/, "")}`;
+  const upstreamUrl = `https://data-api.binance.vision${requestPath}`;
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Binance upstream timeout")), 8_000);
+  try {
+    const upstream = await fetch(upstreamUrl, { headers: { Accept: "application/json" }, signal: controller.signal });
+    const body = await upstream.text();
+    response.statusCode = upstream.status;
+    response.setHeader("content-type", upstream.headers.get("content-type") ?? "application/json");
+    response.setHeader("cache-control", "no-store");
+    response.end(body);
+  } catch (error) {
+    response.statusCode = 502;
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+}
+
 function yahooFinanceProxy(env: TelegramEnv): Plugin {
   return {
     name: "local-yahoo-finance-proxy",
     configureServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
         void handleYahooProxy(request, response);
+      });
+      server.middlewares.use("/binance", (request: YahooProxyRequest, response: YahooProxyResponse) => {
+        void handleBinanceProxy(request, response);
       });
       server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleTelegramReadyAlert(request, response, env);

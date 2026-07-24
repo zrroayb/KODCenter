@@ -2,6 +2,22 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-24 — crypto now uses real Binance data (Yahoo crypto feed was ~3.8h stale)
+- Owner: the app's BTC chart didn't match real BTC. Measured all 12 symbols' Yahoo freshness:
+  FX 0–1 min, futures (GC=F/NQ=F) ~10 min — fine — but **all 5 crypto (BTC/ETH/XRP/BNB/SOL) were
+  226 min = 3.8 hours stale**, and the price diverged too (Yahoo BTC 63,926 vs real ~64,158).
+  CRT setups on crypto were being computed on hours-old, off-market candles.
+- Fix: new `binanceProvider` pulls the 5 crypto symbols from `data-api.binance.vision` (Binance's
+  geo-unrestricted public market-data endpoint — no key, 24/7 live). `loadMarketFor` routes crypto
+  → Binance, everything else stays on Yahoo (already fresh). Any Binance failure falls back to
+  Yahoo, so it is never worse than before. Monthly/weekly/4h are aggregated from 1d/1h exactly as
+  the Yahoo pipeline does, so the structural engine stays consistent. Proxies added on both the
+  Cloudflare worker (`/binance`) and the vite dev server; cloud-scan (Node) fetches direct.
+- Verified end-to-end in the browser: crypto now 7 min fresh at real prices (BTC 64,157 matching
+  the exchange), FX/metals unchanged, `/binance` proxy 200s, console clean. 223 tests pass. The
+  live worker's egress to data-api.binance.vision is confirmed post-deploy; the Yahoo fallback
+  guards it regardless.
+
 ## 2026-07-22 — retest-mandatory RE-ENFORCED (a silent regression in b60d381 caught in a CRT-logic audit)
 - CRT trade-logic audit (owner: "crt trade ile ilgili eksik var mı"). Most apparent gaps turned
   out to be deliberate, documented choices — OTE is intentionally excluded ("a synthetic OTE is

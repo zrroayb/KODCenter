@@ -2,6 +2,37 @@ import { createDemoMarkets, type DemoMarket } from "../../data/demoData";
 import { aggregateCandles, trimCandles } from "./candleAggregation";
 import type { Candle, MarketSymbol } from "../ict/types";
 import { enrichWithSyntheticBidAsk } from "./bidAsk";
+import { isBinanceSymbol, loadBinanceMarket } from "./binanceProvider";
+
+// Kripto için Binance base URL'i: tarayıcıda /binance proxy'si (undefined → default), node/bulut
+// tarafında ise coğrafi engelsiz public uç. Yahoo base URL'inin şeklinden hangi ortamda
+// olduğumuzu anlarız (tam http URL = node/cloud, aksi = tarayıcı proxy).
+function binanceBaseUrl(yahooBaseUrl?: string): string | undefined {
+  if (!yahooBaseUrl) return undefined;
+  return /^https?:\/\//.test(yahooBaseUrl) ? "https://data-api.binance.vision" : "/binance";
+}
+
+// Sembol başına doğru sağlayıcı: kripto → Binance (gerçek borsa, taze), gerisi → Yahoo.
+// Binance başarısız olursa Yahoo'ya düşer — asla bugünkünden kötü olmaz (yalnızca bayat kalır).
+async function loadMarketFor(
+  item: YahooSymbolDefinition,
+  signal?: AbortSignal,
+  options: YahooRequestOptions = {}
+): Promise<DemoMarket> {
+  if (isBinanceSymbol(item.symbol)) {
+    try {
+      return await loadBinanceMarket(item.symbol, item.name, signal, {
+        fetcher: options.fetcher,
+        retryAttempts: options.retryAttempts,
+        baseUrl: binanceBaseUrl(options.baseUrl)
+      });
+    } catch {
+      // Binance erişilemezse eski davranışa (Yahoo, bayat da olsa) düş.
+      return loadYahooMarket(item, signal, options);
+    }
+  }
+  return loadYahooMarket(item, signal, options);
+}
 
 export type MarketDataSource = "yahoo-live" | "mixed" | "demo";
 export type MarketFeedMode = "synthetic-bid-ask" | "mid-only" | "demo";
@@ -214,7 +245,7 @@ export async function loadYahooMarketBatch(
     .map((symbol) => YAHOO_SYMBOLS.find((item) => item.symbol === symbol))
     .filter((item): item is YahooSymbolDefinition => Boolean(item));
   const settled = await Promise.allSettled(
-    definitions.map((item) => loadYahooMarket(item, options.signal, options))
+    definitions.map((item) => loadMarketFor(item, options.signal, options))
   );
   const markets: DemoMarket[] = [];
   const errors: string[] = [];
@@ -277,7 +308,7 @@ export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketData
 
   const demoMarkets = createDemoMarkets();
   const demoBySymbol = new Map(demoMarkets.map((market) => [market.symbol, market]));
-  const settled = await Promise.allSettled(YAHOO_SYMBOLS.map((item) => loadYahooMarket(item, signal)));
+  const settled = await Promise.allSettled(YAHOO_SYMBOLS.map((item) => loadMarketFor(item, signal)));
   const errors: string[] = [];
   const markets = settled.map((result, index) => {
     const symbol = YAHOO_SYMBOLS[index].symbol;
