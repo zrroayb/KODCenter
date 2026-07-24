@@ -4,16 +4,10 @@ import type { Candle, MarketSymbol } from "../ict/types";
 import { enrichWithSyntheticBidAsk } from "./bidAsk";
 import { isBinanceSymbol, loadBinanceMarket } from "./binanceProvider";
 
-// Kripto için Binance base URL'i: tarayıcıda /binance proxy'si (undefined → default), node/bulut
-// tarafında ise coğrafi engelsiz public uç. Yahoo base URL'inin şeklinden hangi ortamda
-// olduğumuzu anlarız (tam http URL = node/cloud, aksi = tarayıcı proxy).
-function binanceBaseUrl(yahooBaseUrl?: string): string | undefined {
-  if (!yahooBaseUrl) return undefined;
-  return /^https?:\/\//.test(yahooBaseUrl) ? "https://data-api.binance.vision" : "/binance";
-}
-
 // Sembol başına doğru sağlayıcı: kripto → Binance (gerçek borsa, taze), gerisi → Yahoo.
-// Binance başarısız olursa Yahoo'ya düşer — asla bugünkünden kötü olmaz (yalnızca bayat kalır).
+// Binance CORS `*` gönderir; hem tarayıcı hem node DOĞRUDAN data-api.binance.vision'a gider
+// (worker proxy'sine gerek yok — Cloudflare egress IP'si Binance'te 403'lüydü). Binance başarısız
+// olursa Yahoo'ya düşer — asla bugünkünden kötü olmaz (yalnızca bayat kalır).
 async function loadMarketFor(
   item: YahooSymbolDefinition,
   signal?: AbortSignal,
@@ -23,11 +17,9 @@ async function loadMarketFor(
     try {
       return await loadBinanceMarket(item.symbol, item.name, signal, {
         fetcher: options.fetcher,
-        retryAttempts: options.retryAttempts,
-        baseUrl: binanceBaseUrl(options.baseUrl)
+        retryAttempts: options.retryAttempts
       });
     } catch {
-      // Binance erişilemezse eski davranışa (Yahoo, bayat da olsa) düş.
       return loadYahooMarket(item, signal, options);
     }
   }

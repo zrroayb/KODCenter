@@ -13,10 +13,19 @@ Newest first. Each entry: date · area · what changed · why.
   Yahoo, so it is never worse than before. Monthly/weekly/4h are aggregated from 1d/1h exactly as
   the Yahoo pipeline does, so the structural engine stays consistent. Proxies added on both the
   Cloudflare worker (`/binance`) and the vite dev server; cloud-scan (Node) fetches direct.
-- Verified end-to-end in the browser: crypto now 7 min fresh at real prices (BTC 64,157 matching
-  the exchange), FX/metals unchanged, `/binance` proxy 200s, console clean. 223 tests pass. The
-  live worker's egress to data-api.binance.vision is confirmed post-deploy; the Yahoo fallback
-  guards it regardless.
+- Post-deploy the worker `/binance` proxy hit **403** — Binance blocks Cloudflare's egress IPs
+  (the geo/IP-block risk flagged up front). But `data-api.binance.vision` sends
+  `access-control-allow-origin: *`, so the browser can fetch it **directly** cross-origin (the
+  user's own IP is not blocked, and there is no CSP). Switched the browser + node to fetch Binance
+  directly and removed the now-useless worker/vite `/binance` proxies and the run_worker_first
+  entry. cloud-scan (GitHub Actions) also fetches direct.
+- Verified: crypto fetches directly from data-api.binance.vision at real prices (BTC 64,159,
+  BNB 561.67 — matching the exchange), 10 min fresh, 24 monthly candles (deep enough), FX/metals
+  unchanged, console clean. 223 tests pass.
+- Separate finding (not fixed here): the `/api/live-markets` cache is ~8 days stale, i.e. the
+  GitHub Actions background scan stopped populating it around 2026-07-16. The browser already
+  rejects the stale cache and direct-fetches, so charts are live — but the cloud bot's own scan
+  cadence needs checking (same CI-health thread as the broken deploy workflow).
 
 ## 2026-07-22 — retest-mandatory RE-ENFORCED (a silent regression in b60d381 caught in a CRT-logic audit)
 - CRT trade-logic audit (owner: "crt trade ile ilgili eksik var mı"). Most apparent gaps turned
