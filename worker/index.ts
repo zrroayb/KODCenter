@@ -561,8 +561,10 @@ async function handleBinanceProxy(request: Request) {
   }
   const upstreamUrl = new URL(`https://data-api.binance.vision${path}`);
   upstreamUrl.search = url.search;
+  // UA şart: Binance datacenter/Cloudflare IP'lerinden UA'sız isteği 403'lüyor (Yahoo proxy'si de
+  // aynı sebeple Mozilla UA gönderiyor).
   const response = await fetch(upstreamUrl, {
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
     cf: { cacheTtl: 20, cacheEverything: true }
   });
   return new Response(response.body, {
