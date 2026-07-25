@@ -315,7 +315,7 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
     : "";
   return [
     `<b>READY SETUP</b> ${escapeHtml(payload.symbol)} ${escapeHtml(payload.direction.toUpperCase())}`,
-    `${escapeHtml(payload.grade)} · Score ${payload.score} · Net RR ${formatR(payload.rr)}`,
+    `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.managementRR ?? 0)} · DOL net RR ${formatR(payload.rr)}`,
     "",
     `Entry: <b>${formatPrice(payload.entry)}</b>`,
     `Stop: <b>${formatPrice(payload.stopLoss)}</b>`,

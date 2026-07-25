@@ -252,6 +252,7 @@ export function ScannerView({
               <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
               <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
               <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
+              <div><span>EQ RR</span><strong>{formatR(best.plan.managementRR ?? 0)}</strong></div>
               <div><span>DOL RR</span><strong>{formatR(best.plan.rr)}</strong></div>
             </div>
             <section className="simple-structure-box">

@@ -85,25 +85,28 @@ function shortSignal(
 }
 
 describe("dealing-range PD is a note, not a second veto", () => {
-  it("keeps a CRT short READY when its own range is premium even if the global dealing range is discount", () => {
+  it("does not let a global-PD conflict add a second blocker when effective EQ RR blocks both", () => {
     const aligned = shortSignal("premium");
     const conflicting = shortSignal("discount");
 
-    // Baseline: the aligned setup is READY.
-    expect(aligned.stage).toBe("ready");
+    // This legacy fixture exits below 1R at EQ once the volatility-floor stop is used.
+    // It must be WATCH regardless of the global dealing-range read.
+    expect(aligned.stage).toBe("watch");
+    expect(aligned.governance.blockers.join(" ")).toContain("Tam-EQ çıkış net RR yetersiz");
 
-    // The global-PD conflict must NOT demote it or add a hard blocker — only a warning.
-    expect(conflicting.stage).toBe("ready");
+    // The global-PD conflict must NOT add a separate hard blocker.
+    expect(conflicting.stage).toBe("watch");
     expect(conflicting.governance.blockers.some((b) => b.includes("Dealing range"))).toBe(false);
-    expect(conflicting.governance.blockers).toHaveLength(0);
+    expect(conflicting.governance.blockers).toEqual(aligned.governance.blockers);
     expect(conflicting.decisionSummary.warnings.some((w) => w.includes("dealing range PD ters"))).toBe(true);
   });
 
-  it("keeps HTF conflict as quality context when the optional alignment filter is off", () => {
+  it("keeps HTF conflict out of blockers when the optional alignment filter is off", () => {
     const signal = shortSignal("premium", { weekly: "bullish" });
 
-    expect(signal.stage).toBe("ready");
+    expect(signal.stage).toBe("watch");
     expect(signal.governance.blockers.join(" ")).not.toContain("HTF yön filtresi");
+    expect(signal.governance.blockers.join(" ")).toContain("Tam-EQ çıkış net RR yetersiz");
     expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
   });
 

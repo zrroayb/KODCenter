@@ -328,6 +328,9 @@ export type TradePlan = {
   invalidation: number;
   rr: number;
   grossRR: number;
+  // The net R actually realised by the configured management exit. CRT currently
+  // closes the full position at EQ/TP1, while `rr` remains the DOL/TP2 potential.
+  managementRR?: number;
   riskDistance: number;
   stopSource: StopSource;
   stopBuffer: number;

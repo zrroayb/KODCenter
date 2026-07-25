@@ -21,6 +21,7 @@ export type TelegramReadyAlertPayload = {
   targets: number[];
   rr: number;
   grossRR: number;
+  managementRR?: number;
   reasons: string[];
   riskPct?: number;
   priority?: "high" | "normal" | "low";
@@ -122,7 +123,7 @@ function readyReasons(signal: TradingSignal): string[] {
     passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
     passed.has("Entry") ? "Giriş aktif" : null,
     passed.has("RR to DOL") ? "Karşı CRT kenarı hedef" : null,
-    `Net RR ${formatR(signal.plan.rr)}`
+    `EQ net RR ${formatR(signal.plan.managementRR ?? 0)} · DOL net RR ${formatR(signal.plan.rr)}`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 6);
 }
@@ -150,6 +151,7 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     targets: signal.plan.targets.slice(0, 2),
     rr: signal.plan.rr,
     grossRR: signal.plan.grossRR,
+    managementRR: signal.plan.managementRR,
     reasons: readyReasons(signal),
     riskPct,
     priority,

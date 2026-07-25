@@ -201,7 +201,8 @@ export function SignalDetailsPanel({
         <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
         <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
         <div><span>TP / DOL</span><strong>{formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}</strong></div>
-        <div><span>RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
+        <div><span>EQ RR</span><strong>{formatR(signal.plan.managementRR ?? 0)}</strong></div>
+        <div><span>DOL RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
       </div>
       <section className="simple-next-card">
         <span>{signal.stage === "ready" ? "Ne yapacağım?" : "Şimdi beklenen"}</span>

@@ -18,6 +18,9 @@ import { evaluateDirectionalBias, type DirectionalBias } from "./directionalBias
 
 const CRT_STRATEGY_ID = "crt";
 const DEFAULT_MINIMUM_RR = 1.5;
+// A DOL target can look attractive while the configured full exit at EQ pays too
+// little to justify the risk. READY must clear both numbers.
+const MIN_MANAGEMENT_RR = 1;
 const RISK_FLOOR_ATR_MULTIPLIER = 1;
 const RISK_FLOOR_AVERAGE_RANGE_MULTIPLIER = 0.8;
 // Freshness windows in confirmation-TF candles: a sweep older than ~24 bars no longer
@@ -968,6 +971,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
   const realTarget = targetDol(anchor, direction, entry);
   const tp2 = realTarget ?? tp1;
   const costs = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp2, stress });
+  const managementCosts = estimateExecutionCosts({ symbol: context.symbol, entry, stopLoss, target: tp1, stress });
   const planWarnings = [
     ...(turtleSoup ? [`${anchor.spec.confirmTf} Turtle Soup ek kalite teyidi var.`] : []),
     `CRT ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}; confirmation ${anchor.spec.confirmTf}.`,
@@ -976,6 +980,9 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
       ? [`Structure stop gürültü bandında kaldı; risk tabanı ${formatPrice(minimumRiskFloor)} uygulandı.`]
       : [`Stop ${structuralStopSource === "manipulation" ? "manipulation wick" : "CRT structure"} dışına ${formatPrice(buffer)} buffer ile kondu.`]),
     ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
+    ...(managementCosts.netRR < MIN_MANAGEMENT_RR
+      ? [`EQ/TP1 net RR ${managementCosts.netRR.toFixed(2)}, minimum ${MIN_MANAGEMENT_RR}. Tam-EQ çıkışta READY değil.`]
+      : [`Tam-EQ yönetim net RR ${managementCosts.netRR.toFixed(2)}.`]),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
     // Retest zorunlu (retest-mandatory-for-entry): ChoCH var ama retest yoksa plan WATCH'ta bekler.
     ...(choch && entryStatus === "pending" ? [`ChoCH kapandı; giriş ${formatPrice(entry)} retest teması bekleniyor (kapanış kovalanmaz).`] : [])
@@ -1005,6 +1012,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     invalidation: stopLoss,
     rr: costs.netRR,
     grossRR: costs.grossRR,
+    managementRR: managementCosts.netRR,
     riskDistance,
     stopSource,
     stopBuffer: buffer,
@@ -1089,6 +1097,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // If EQ pays less than half the risk, the 50% partial cannot carry the losers: the
   // win/loss asymmetry goes negative even with a decent win rate.
   const eqDistanceR = Math.abs(plan.targets[0] - plan.entry) / Math.max(plan.riskDistance, 0.000001);
+  const managementRR = plan.managementRR ?? eqDistanceR;
   const eqTooClose = tp1Valid && eqDistanceR < 0.5;
   const hasRealTarget = typeof targetDol(anchor, direction, plan.entry) === "number";
   const anchorRanges = anchor.rangeCandles.slice(-20).map((candle) => candle.high - candle.low);
@@ -1192,6 +1201,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     settings.useHtfAlignmentFilter === true && !htfAlignment.aligned && !reversalAtExternalHtf ? `HTF yön filtresi açık ve yön karşı: ${htfAlignment.summary}` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
+    !pdAligned ? "CRT range P/D yanlış: long discounttan, short premiumdan gelmeli." : undefined,
+    managementRR < MIN_MANAGEMENT_RR
+      ? `Tam-EQ çıkış net RR yetersiz (${managementRR.toFixed(2)} < ${MIN_MANAGEMENT_RR}).`
+      : undefined,
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
     settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
     plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
@@ -1237,6 +1250,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     + (manipulation ? 30 : 0)
     + (choch ? 25 : 0)
     + (plan.rr >= minimumRR ? 15 : Math.max(0, Math.round(plan.rr * 5)))
+    + (managementRR >= MIN_MANAGEMENT_RR ? 10 : 0)
     + (linkedShiftFvg || typeof retestIndex === "number" ? 5 : 0)
     + (htfAlignment.fullyAligned ? 6 : htfAlignment.aligned ? 3 : 0)
     + (smtAligned ? 3 : 0)
@@ -1250,6 +1264,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // Two-sided bias gate (Master §8): a confident OPPOSING macro bias costs score (not a veto —
     // the anchor still owns direction; htfAlignment already vetoes a hard opposing HTF).
     - (directionalBias.direction !== "neutral" && (directionalBias.direction === "bullish" ? "long" : "short") !== direction ? Math.min(12, Math.round(directionalBias.confidence / 5)) : 0)
+    - (!pdAligned ? 8 : 0)
+    - (!inSession ? 6 : 0)
   ));
   if (directionalBias.direction !== "neutral" && (directionalBias.direction === "bullish" ? "long" : "short") !== direction && directionalBias.confidence >= 25) {
     warnings.push(`İki-taraflı bias ${directionalBias.direction} (güven ${directionalBias.confidence}) setup yönüne karşı; makro çekiş ters, boyutu küçük tut.`);
@@ -1277,7 +1293,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const readyEligible = !intradayTracking
     && plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
+    && managementRR >= MIN_MANAGEMENT_RR
     && blockers.length === 0
+    && pdAligned
     && Boolean(manipulation) && !eqConsumed
     && hasRealTarget && stopValid && !retestFar
     && (settings.useHtfAlignmentFilter !== true || htfAlignment.aligned || reversalAtExternalHtf)

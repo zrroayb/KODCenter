@@ -140,11 +140,14 @@ function fvgOriginContextSignal() {
 }
 
 describe("Telegram READY alert payload", () => {
-  it("builds a readable READY payload with chart-safe trade plan fields and reasons", () => {
+  it("formats a READY payload with both effective-EQ and DOL RR", () => {
     const signal = readySignal();
-    const payload = buildTelegramReadyAlertPayload(signal);
+    // The fixture's volatility-floor stop leaves less than 1R to EQ, so the stricter
+    // live gate correctly keeps it WATCH. The formatter itself receives READY signals
+    // only after the runtime gate has passed.
+    expect(signal.stage).toBe("watch");
+    const payload = buildTelegramReadyAlertPayload({ ...signal, stage: "ready" });
 
-    expect(signal.stage).toBe("ready");
     expect(payload.stage).toBe("ready");
     expect(payload.dedupeKey).toBe(readyTelegramDedupeKey(signal));
     expect(payload.symbol).toBe("XAUUSD");
@@ -153,6 +156,8 @@ describe("Telegram READY alert payload", () => {
     expect(payload.stopLoss).toBe(signal.plan.stopLoss);
     expect(payload.targets).toEqual(signal.plan.targets.slice(0, 2));
     expect(payload.rr).toBeGreaterThanOrEqual(1.5);
+    expect(payload.managementRR).toBe(signal.plan.managementRR);
+    expect(payload.reasons.join(" ")).toContain("EQ net RR");
     expect(payload.reasons.join(" ")).toContain("Range hazır");
     expect(payload.reasons.join(" ")).toContain("Manipulation");
     expect(payload.reasons.join(" ")).toContain("ChoCH/Just");
