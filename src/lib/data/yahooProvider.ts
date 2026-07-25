@@ -39,6 +39,10 @@ export type MarketDataLoadResult = {
   oldestLoadedAt?: number;
 };
 
+// Bot cache'i bundan eskiyse güvenilmez (bot ~5dk'da bir günceller); 20dk birkaç kaçan taramaya
+// tolerans ama günlerce bayat cache'i reddeder → tarayıcı canlı çeker.
+const CACHE_MAX_AGE_MS = 20 * 60 * 1000;
+
 export type YahooInterval = "5m" | "15m" | "1h" | "1d";
 export type YahooRange = "5d" | "60d" | "1y" | "2y";
 
@@ -267,7 +271,12 @@ export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketData
           background?: boolean;
           errors?: string[];
         };
-        if (Array.isArray(cached.markets) && cached.markets.length === YAHOO_SYMBOLS.length) {
+        // Cache tazelik kapısı: bot her ~5dk günceller. loadedAt eskiyse (bot durmuşsa) cache'e
+        // GÜVENME — düş ve canlı çek (FX/metal Yahoo, kripto Binance; ikisi de taze). Bu olmadan
+        // 8 günlük bayat cache doğrudan gösteriliyordu ("Canlı bot" rozetiyle eski grafik).
+        const cacheAgeMs = typeof cached.loadedAt === "number" ? Date.now() - cached.loadedAt : Infinity;
+        const cacheFresh = cacheAgeMs <= CACHE_MAX_AGE_MS;
+        if (cacheFresh && Array.isArray(cached.markets) && cached.markets.length === YAHOO_SYMBOLS.length) {
           const hydratedMarkets = cached.markets.map((market) => ({
             ...market,
             timeframes: {
