@@ -2,6 +2,27 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-26 — Trend Continuation multi-axis validation (edge holds out-of-sample)
+- The single 60d pass wasn't enough to trust the edge. New `scripts/validate-continuation.ts`
+  (`npm run validate:continuation`) runs ONE real-data replay, then splits the resulting trades on
+  two independent axes and applies the replay verdict thresholds (min 12 trades; edge = expectancy
+  ≥0.15 & PF ≥1.15). Data limit (Yahoo m15 ~30–60d) rules out many non-overlapping windows, so
+  the two axes are: (a) temporal in-sample vs out-of-sample split at the median signalTime,
+  (b) cross-sectional per-symbol (12 independent markets).
+- Result (prod minRR 1.5 + costs, 60d, 12 symbols):
+  - Overall: 42 trades, +1.07R expectancy, PF 2.87 → EDGE.
+  - Temporal: in-sample 21 trades +1.50R PF 4.15 → edge; **out-of-sample 21 trades +0.64R PF 1.97
+    → edge**. The edge survives out-of-sample — attenuated (expectancy roughly halves, as expected
+    when the in-sample flattering goes away) but clearly positive, not a single-window fluke.
+  - Cross-sectional: 6 of 7 symbols with a ≥3-trade sample are positive (EURUSD, XAUUSD, ETHUSD,
+    USDJPY, AUDUSD, GBPUSD, USDCHF); only NAS100 is mildly negative (−0.17R on 4 trades). The edge
+    is broad, not carried by one symbol.
+- Honest limits: still one data source and a recent ~2-month window; per-symbol samples are small
+  (only AUDUSD individually clears the 12-trade floor). This is robustness evidence, not a
+  battle-test — a live-forward log is the next confirmation. Continuation is upgraded from
+  "measured-preliminary" to "measured (edge holds OOS + cross-sectionally)"; READYs remain
+  size-conservatively candidate-grade until live-forward data accrues.
+
 ## 2026-07-26 — acceptance fork: stop auto-hunting a reversal into an accepted breakout
 - Owner caught it live: USDCHF was a strong uptrend (daily bullish/strong, HH+HL) with price
   accepted ~100 pips ABOVE the 1W CRT range high (0.80960 → 0.81770), yet the app showed a

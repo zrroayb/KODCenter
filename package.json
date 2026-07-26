@@ -19,7 +19,8 @@
     "cloud:scan": "tsx scripts/cloud-scan.ts",
     "cloud:migrate": "wrangler d1 migrations apply tradebot-state --remote",
     "cloud:migrate:local": "wrangler d1 migrations apply tradebot-state --local",
-    "cloud:types": "wrangler types"
+    "cloud:types": "wrangler types",
+    "validate:continuation": "tsx scripts/validate-continuation.ts"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
