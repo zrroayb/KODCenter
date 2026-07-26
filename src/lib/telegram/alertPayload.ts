@@ -44,6 +44,7 @@ export type TelegramAlertRecord = {
   signalId: string;
   symbol: string;
   direction: string;
+  strategyId?: string;
   grade: string;
   score: number;
   sentAt: number;
@@ -186,6 +187,7 @@ export function telegramAlertRecordFromPayload(
     signalId: payload.id,
     symbol: payload.symbol,
     direction: payload.direction,
+    strategyId: payload.strategyId,
     grade: payload.grade,
     score: payload.score,
     sentAt,

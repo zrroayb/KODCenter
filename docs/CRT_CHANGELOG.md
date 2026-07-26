@@ -2,6 +2,25 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-26 — live-forward outcome logging + weekly edge report (per playbook)
+- Validation so far is all backtest/replay. The real confirmation is live-forward: log every READY
+  the bot fires and score what price actually did. Built on the existing alert_log (which already
+  stores each fired READY with its plan) — no new pipeline.
+- alert_log gains `outcome` / `r_multiple` / `resolved_at` columns (guarded PRAGMA-checked ALTER, so
+  ensureSchema stays cheap). Alert records now also carry `strategyId` so outcomes split by playbook.
+- Resolution: `resolveOpenAlerts` runs at the end of every scan (handleScanFinalize, best-effort) —
+  for each unresolved READY within 14 days it walks that symbol's fresh m15 snapshot candles after
+  the alert time and marks win (first target/EQ hit, +RR), loss (stop first, −1R, stop wins ties —
+  same conservative convention as replay), or expired (close-based R after ~96 m15). Single target =
+  CRT eq-full and continuation's one target, so one resolver serves both.
+- Report: public read-only `GET /api/edge-report?days=7` groups resolved outcomes by playbook
+  (trades / totalR / expectancy / win% / PF). `npm run report:edge` (EDGE_DAYS, CLOUD_SCAN_URL
+  overrides) prints it as a table with an edge/avoid/nötr verdict per playbook.
+- Dependency: resolution rides the cloud-scan cadence (GitHub Actions), so it only accrues while the
+  background scan is alive — the same CI-health thread flagged on 2026-07-24. When the bot runs, the
+  report fills in on its own; this is the mechanism that will let continuation graduate from
+  "measured-oos-validated" to live-proven. Tests: full suite 237 pass; worker + app typecheck clean.
+
 ## 2026-07-26 — Trend Continuation multi-axis validation (edge holds out-of-sample)
 - The single 60d pass wasn't enough to trust the edge. New `scripts/validate-continuation.ts`
   (`npm run validate:continuation`) runs ONE real-data replay, then splits the resulting trades on

@@ -173,6 +173,15 @@ async function ensureSchema(env: CloudflareEnv) {
       )
     `)
   ]);
+  // Live-forward outcome columns on alert_log (added 2026-07-26). Only ALTER when missing so
+  // ensureSchema stays cheap on the hot path.
+  const cols = await env.DB.prepare("PRAGMA table_info(alert_log)").all<{ name: string }>();
+  const names = new Set(cols.results.map((col) => col.name));
+  const adds: D1PreparedStatement[] = [];
+  if (!names.has("outcome")) adds.push(env.DB.prepare("ALTER TABLE alert_log ADD COLUMN outcome TEXT"));
+  if (!names.has("r_multiple")) adds.push(env.DB.prepare("ALTER TABLE alert_log ADD COLUMN r_multiple REAL"));
+  if (!names.has("resolved_at")) adds.push(env.DB.prepare("ALTER TABLE alert_log ADD COLUMN resolved_at INTEGER"));
+  if (adds.length) await env.DB.batch(adds);
 }
 
 async function readState(env: CloudflareEnv, key: string) {
@@ -610,6 +619,107 @@ async function handleScanIngest(request: Request, env: CloudflareEnv) {
   return jsonResponse({ status: "stored", symbol });
 }
 
+// ── Live-forward outcome logging ────────────────────────────────────────────
+// Her READY alert'i alert_log'da planıyla saklanır. Her tarama sonunda, henüz çözülmemiş
+// alertler o an D1'deki taze m15 snapshot mumlarına karşı değerlendirilir: entry sonrası önce
+// stop mu yoksa ilk hedef (EQ/TP1) mi görüldü. Bu, replay'in ölçtüğü şeyin CANLI karşılığı —
+// playbook edge'inin gerçek dünyada tutup tutmadığını biriktirir. Cloud-scan cadence'ine bağlıdır.
+type ResolverCandle = { time: number; high: number; low: number; close: number };
+type AlertRecord = {
+  symbol?: string; direction?: string; strategyId?: string; alertKind?: string;
+  createdAt?: number; entry?: number; stopLoss?: number; targets?: number[];
+};
+
+// Muhafazakâr sonuç: entry sonrası mumlarda aynı mumda hem stop hem hedef varsa stop önce sayılır
+// (replay ile aynı konvansiyon). Hedef = ilk target (CRT eq-full ve continuation tek-hedef).
+function resolveAlertOutcome(rec: AlertRecord, candles: ResolverCandle[]): { outcome: string; r: number; resolvedAt: number } | null {
+  const entry = rec.entry, stop = rec.stopLoss, target = rec.targets?.[0], created = rec.createdAt;
+  const dir = rec.direction;
+  if (![entry, stop, target, created].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+  if (dir !== "long" && dir !== "short") return null;
+  const risk = Math.abs((entry as number) - (stop as number));
+  if (risk <= 0) return null;
+  const MAX_HOLD_MS = 96 * 15 * 60 * 1000; // replay maxHold 96 m15 ≈ 1 gün
+  const after = candles.filter((c) => c.time > (created as number)).sort((a, b) => a.time - b.time);
+  for (const c of after) {
+    const stopHit = dir === "long" ? c.low <= (stop as number) : c.high >= (stop as number);
+    const targetHit = dir === "long" ? c.high >= (target as number) : c.low <= (target as number);
+    if (stopHit) return { outcome: "loss", r: -1, resolvedAt: c.time };
+    if (targetHit) return { outcome: "win", r: Number((Math.abs((target as number) - (entry as number)) / risk).toFixed(2)), resolvedAt: c.time };
+    if (c.time - (created as number) > MAX_HOLD_MS) {
+      const raw = dir === "long" ? (c.close - (entry as number)) / risk : ((entry as number) - c.close) / risk;
+      return { outcome: "expired", r: Number(Math.max(-1, raw).toFixed(2)), resolvedAt: c.time };
+    }
+  }
+  return null; // hâlâ açık
+}
+
+async function resolveOpenAlerts(env: CloudflareEnv, nowRef: number) {
+  const cutoff = nowRef - 14 * 24 * 60 * 60 * 1000;
+  const rows = await env.DB.prepare(`
+    SELECT dedupe_key, payload, created_at FROM alert_log
+    WHERE status = 'sent' AND resolved_at IS NULL AND created_at >= ? AND payload IS NOT NULL
+  `).bind(cutoff).all<{ dedupe_key: string; payload: string; created_at: number }>();
+  if (!rows.results.length) return 0;
+
+  const snaps = await env.DB.prepare("SELECT symbol, payload FROM market_snapshots").all<{ symbol: string; payload: string }>();
+  const candlesBySymbol = new Map<string, ResolverCandle[]>();
+  for (const snap of snaps.results) {
+    try {
+      const market = JSON.parse(snap.payload) as { timeframes?: { m15?: ResolverCandle[] } };
+      candlesBySymbol.set(snap.symbol, market.timeframes?.m15 ?? []);
+    } catch { /* skip unparseable snapshot */ }
+  }
+
+  const updates: D1PreparedStatement[] = [];
+  for (const row of rows.results) {
+    let rec: AlertRecord;
+    try { rec = JSON.parse(row.payload) as AlertRecord; } catch { continue; }
+    if (rec.alertKind && rec.alertKind !== "ready") continue; // sadece gerçek READY girişleri
+    const outcome = resolveAlertOutcome(rec, candlesBySymbol.get(rec.symbol ?? "") ?? []);
+    if (!outcome) continue;
+    updates.push(env.DB.prepare(
+      "UPDATE alert_log SET outcome = ?, r_multiple = ?, resolved_at = ?, updated_at = ? WHERE dedupe_key = ?"
+    ).bind(outcome.outcome, outcome.r, outcome.resolvedAt, nowRef, row.dedupe_key));
+  }
+  if (updates.length) await env.DB.batch(updates);
+  return updates.length;
+}
+
+function edgeMetrics(rs: number[]) {
+  const wins = rs.filter((r) => r > 0);
+  const losses = rs.filter((r) => r < 0);
+  const totalR = rs.reduce((s, r) => s + r, 0);
+  const grossWin = wins.reduce((s, r) => s + r, 0);
+  const grossLoss = Math.abs(losses.reduce((s, r) => s + r, 0));
+  return {
+    trades: rs.length,
+    totalR: Number(totalR.toFixed(2)),
+    expectancyR: rs.length ? Number((totalR / rs.length).toFixed(2)) : 0,
+    winRatePct: rs.length ? Number(((wins.length / rs.length) * 100).toFixed(1)) : 0,
+    profitFactor: Number((grossLoss ? grossWin / grossLoss : grossWin).toFixed(2))
+  };
+}
+
+async function edgeReportResponse(env: CloudflareEnv, url: URL) {
+  await ensureSchema(env);
+  const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") ?? "7")));
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const rows = await env.DB.prepare(`
+    SELECT payload, r_multiple FROM alert_log
+    WHERE resolved_at IS NOT NULL AND resolved_at >= ? AND outcome IS NOT NULL AND r_multiple IS NOT NULL
+  `).bind(cutoff).all<{ payload: string; r_multiple: number }>();
+  const byPlaybook = new Map<string, number[]>();
+  for (const row of rows.results) {
+    let rec: AlertRecord;
+    try { rec = JSON.parse(row.payload) as AlertRecord; } catch { continue; }
+    const key = rec.strategyId ?? "crt";
+    (byPlaybook.get(key) ?? byPlaybook.set(key, []).get(key)!).push(row.r_multiple);
+  }
+  const playbooks = Array.from(byPlaybook.entries()).map(([strategyId, rs]) => ({ strategyId, ...edgeMetrics(rs) }));
+  return jsonResponse({ status: "ok", days, generatedAt: Date.now(), playbooks });
+}
+
 async function handleScanFinalize(request: Request, env: CloudflareEnv) {
   if (request.method !== "POST") return jsonResponse({ status: "error", error: "Method not allowed" }, 405);
   if (!hasScanAccess(request, env)) return jsonResponse({ status: "error", error: "Unauthorized" }, 401);
@@ -655,11 +765,17 @@ async function handleScanFinalize(request: Request, env: CloudflareEnv) {
       .bind(now - 30 * 24 * 60 * 60 * 1000)
   ]);
 
+  // Live-forward: taze snapshot mumlarına karşı açık READY alertlerini çöz (win/loss/expired + R).
+  // Best-effort — çözümleme hatası tarama finalizasyonunu bozmamalı.
+  let resolved = 0;
+  try { resolved = await resolveOpenAlerts(env, now); } catch { /* resolution best-effort */ }
+
   return jsonResponse({
     status: "finalized",
     scannedAt: now,
     markets: symbols.length,
-    alerts: alertResults
+    alerts: alertResults,
+    resolvedOutcomes: resolved
   });
 }
 
@@ -714,6 +830,8 @@ async function handleRequest(request: Request, env: CloudflareEnv) {
   if (url.pathname === "/api/live-markets") return liveMarketsResponse(env);
   if (url.pathname === "/api/live-scan") return liveScanResponse(env);
   if (url.pathname === "/api/live-alerts") return liveAlertsResponse(env);
+  // Live-forward edge raporu (public, salt-okunur): çözülmüş READY sonuçları playbook bazında.
+  if (url.pathname === "/api/edge-report") return edgeReportResponse(env, url);
   if (url.pathname === "/api/ingest-market") return handleMarketIngest(request, env);
   if (url.pathname === "/api/ingest-scan") return handleScanIngest(request, env);
   if (url.pathname === "/api/finalize-scan") return handleScanFinalize(request, env);
