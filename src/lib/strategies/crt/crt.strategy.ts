@@ -1564,6 +1564,29 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
   ];
 }
 
+// Owner kuralı (2026-07-26): "sweep gördük diye otomatik ters işlem aramayacağız." Güçlü HTF
+// trend + fiyatın swept range kenarının ÖTESİNDE kapanışla KABUL görmesi (reclaim yok) =
+// continuation bağlamı; CRT reversal orada bastırılır (gösterilmez), trend-continuation playbook'u
+// devralır. Reclaim'e dayalı gerçek CRT dönüşleri ETKİLENMEZ (onlarda fiyat range'e geri döner,
+// kabul yoktur) — yani ölçülmüş "reversal-at-external-liquidity" edge'i korunur; yalnız
+// kabul-edilmiş (fiyat geçip tutundu) karşı-trend fade'ler elenir.
+function continuationAcceptanceSuppresses(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): boolean {
+  // Yalnız HTF anchor'lara uygula (1d/1w = trendi tanımlayan büyük range'ler). 4h/1h taktik
+  // raid'ler HTF trende karşı küçük düzeltmelerdir; onları CRT meşru fade eder, continuation
+  // playbook'u HTF trendi taşır. Owner örneği (USDCHF) 1W range idi.
+  if (anchor.spec.rangeTf !== "1d" && anchor.spec.rangeTf !== "1w") return false;
+  const daily = context.biasDetail?.daily;
+  if (!daily || daily.confidence !== "strong" || daily.bias === "neutral") return false;
+  const dailyDir: TradeDirection = daily.bias === "bullish" ? "long" : "short";
+  if (dailyDir === setup.direction) return false;          // reversal trend YÖNÜNDE — with-trend, dokunma
+  const lastClose = anchor.confirmCandles.at(-1)?.close;
+  if (typeof lastClose !== "number") return false;
+  // Fiyat swept kenarın ötesinde kapanışla tutunuyor mu? short: range high üstü, long: range low altı.
+  // Bu kontrol zaten reclaim-and-back-inside (geçerli dönüş) durumlarını dışlar: gerçek bir CRT
+  // dönüşünde fiyat range'e geri dönmüştür (short için lastClose < rangeHigh), o yüzden bastırılmaz.
+  return setup.direction === "short" ? lastClose > anchor.range.high : lastClose < anchor.range.low;
+}
+
 function signalFromAnchor(context: MarketContext, settings: StrategyInput["settings"], anchor: AnchorCtx): TradingSignal | undefined {
   const setup = buildAnchorSetup(context, settings, anchor);
   // Every anchor timeframe (4h/1d/1w) that produces a direction is surfaced — a directional
@@ -1571,6 +1594,9 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   // already returns undefined when no raid and no directional bias exist, so a pair with no
   // read on a timeframe simply yields nothing there.
   if (!setup) return undefined;
+  // Kabul-edilmiş karşı-trend fade'i bastır (owner 2026-07-26): trend güçlü ve fiyat kenarın
+  // ötesinde kabul görmüşse bu reversal değil, continuation'dır.
+  if (continuationAcceptanceSuppresses(context, anchor, setup)) return undefined;
   // Do not hide weak-location CRT reads. They are not READY, but they are still useful
   // heads-up context: "daily/weekly CRT is active, wait for LTF confirmation or ignore if
   // key level is missing." Hiding them is why valid-looking Daily CRT ideas never appeared.
@@ -1685,6 +1711,9 @@ function signalsFromContext(context: MarketContext, settings: StrategyInput["set
   }
   return signals;
 }
+
+// Test erişimi: kabul-bastırma saf fonksiyonu doğrudan doğrulanabilsin.
+export const __crtInternals = { continuationAcceptanceSuppresses };
 
 export const crtStrategy: StrategyModule = {
   id: CRT_STRATEGY_ID,

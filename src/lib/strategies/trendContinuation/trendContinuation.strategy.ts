@@ -12,6 +12,9 @@ import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } fro
 
 export const TREND_CONTINUATION_STRATEGY_ID = "trend-continuation";
 const DEFAULT_MINIMUM_RR = 1.5;
+// Taze BOS yoksa pullback POI'yi son bu kadar exec mumunda ararız (mature trendde kırılım geçmişte
+// kalmış olabilir; çok eski POI'yi almamak için pencere).
+const CONTINUATION_POI_LOOKBACK = 120;
 
 // İKİNCİ PLAYBOOK — Trend Continuation (CRT Reversal'ın tersi mantık).
 //   HTF trend → trend yönünde kabullü breakout (BOS, CHoCH DEĞİL) → pullback/FVG-OB retest →
@@ -95,18 +98,25 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
   if (trend.direction === "none") return undefined;
   const direction = trend.direction;
 
-  // Kabullü breakout = execution TF'de trend YÖNÜNDE BOS (CHoCH değil). CHoCH reversal'a aittir.
+  // Kabullü breakout. Owner modeli: "HTF trend → breakout kabulü → pullback". Kabul iki yoldan
+  // gelir: (a) execution TF'de trend YÖNÜNDE taze BOS, VEYA (b) kurulu exec trendi (HH+HL / LH+LL).
+  // Her taramada taze h1 BOS ŞART DEĞİL — mature trendde fiyat tepede/dipte pullback'te olabilir ve
+  // o an taze kırılım olmaz; yine de trend kabul edilmiştir (bkz. USDCHF: daily strong uptrend ama
+  // h1'de o an lastEvent yok). Ayrım kuralı: ters yönde CHoCH varsa (reclaim/yapı dönüşü) bu
+  // continuation DEĞİL, reversal'a aittir → kabul geçersiz.
   const execBias = detectStructuralBias(exec);
   const event = execBias.lastEvent;
-  const hasBreakout = Boolean(event && event.kind === "bos" && event.direction === direction);
   const lastClose = exec[exec.length - 1].close;
-  // Kabul hâlâ geçerli mi: fiyat kırılan seviyenin trend tarafında kapanmaya devam ediyor mu?
-  const accepted = hasBreakout && event
-    ? (direction === "long" ? lastClose > event.level : lastClose < event.level)
-    : false;
+  const opposingChoch = Boolean(event && event.kind === "choch" && event.direction !== direction);
+  const freshBos = Boolean(event && event.kind === "bos" && event.direction === direction);
+  const structureTrending = execBias.pattern === (direction === "long" ? "uptrend" : "downtrend");
+  const accepted = !opposingChoch && (freshBos || structureTrending);
 
   const buffer = averageTrueRange(exec, 14) * 0.25;
-  const poiHit = accepted && event ? pullbackPoi(exec, direction, event.candleIndex) : undefined;
+  // Pullback POI: taze BOS varsa kırılım bacağından, yoksa son POI_LOOKBACK mumluk pencereden
+  // trend yönünde retest edilmiş (mitigated) FVG/OB.
+  const poiFloor = freshBos && event ? event.candleIndex : Math.max(0, exec.length - CONTINUATION_POI_LOOKBACK);
+  const poiHit = accepted ? pullbackPoi(exec, direction, poiFloor) : undefined;
 
   // Plan geometrisi
   const entry = poiHit ? poiNearEdge(poiHit.poi, direction) : lastClose;
@@ -126,8 +136,7 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
   const entryStatus: TradePlan["entryStatus"] = poiHit ? (retested ? "confirmed" : "pending") : "fallback";
 
   const blockers = [
-    !hasBreakout ? `${direction === "long" ? "Yukarı" : "Aşağı"} yönlü kabullü breakout (BOS) yok; trend devamı teyidi bekleniyor.` : undefined,
-    hasBreakout && !accepted ? "Breakout kabul görmedi (fiyat kırılan seviyeye geri döndü); continuation geçersiz." : undefined,
+    opposingChoch ? "Ters yönde CHoCH var; bu continuation değil, reversal bölgesi." : undefined,
     !poiHit ? "Pullback FVG/OB yok; trend yönünde geri çekilme bölgesi bekleniyor." : undefined,
     !stopValid ? "Stop girişin yanlış tarafında; plan geometrisi bozuk." : undefined,
     !targetValid ? "Trend yönünde ulaşılabilir likidite hedefi yok." : undefined,
@@ -135,16 +144,16 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
 
-  // En az bir yapı (breakout) yoksa sinyal üretme — boş radar kaydı olmasın.
-  if (!hasBreakout && !poiHit) return undefined;
+  // Trend kabulü yoksa continuation da yok — boş/karşı-trend radar kaydı üretme.
+  if (!accepted) return undefined;
 
   const readyEligible = blockers.length === 0 && entryStatus === "confirmed";
   const stage: TradingSignal["stage"] = readyEligible ? "ready" : "watch";
 
   const score = Math.max(0, Math.min(100,
     20
-    + (hasBreakout ? 25 : 0)
-    + (accepted ? 15 : 0)
+    + (accepted ? 25 : 0)
+    + (freshBos ? 10 : 0)
     + (poiHit ? 15 : 0)
     + (retested ? 10 : 0)
     + (targetValid && costs.netRR >= settings.minimumRR ? 10 : Math.round(Math.max(0, costs.netRR) * 3))
@@ -161,7 +170,7 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
       status: entryStatus,
       level: entry,
       retested,
-      cisdConfirmed: hasBreakout,
+      cisdConfirmed: accepted,
       fairValueGap: poiHit?.kind === "FVG" ? (poiHit.poi as FairValueGap) : undefined,
       warnings: entryStatus === "confirmed" ? [] : [`${poiHit ? poiHit.kind + " retest" : "pullback"} bekleniyor; kabullü breakout kapanışı kovalanmaz.`]
     },
@@ -184,7 +193,7 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
 
   const evidence: SignalEvidenceItem[] = [
     { id: "tc-htf-trend", label: "HTF Trend", status: "pass", detail: trend.reason, timeframe: "1d" },
-    { id: "tc-breakout", label: "Kabullü Breakout (BOS)", status: hasBreakout && accepted ? "pass" : hasBreakout ? "warning" : "fail", detail: hasBreakout ? `${direction === "long" ? "Yukarı" : "Aşağı"} BOS ${formatPrice(event!.level)}; ${accepted ? "kabul geçerli" : "kabul yok (reclaim)"}.` : "BOS yok.", timeframe: "1h", price: event?.level },
+    { id: "tc-breakout", label: "Kabullü Breakout (BOS)", status: accepted ? "pass" : "fail", detail: opposingChoch ? "Ters CHoCH: kabul yok, reversal bölgesi." : freshBos && event ? `${direction === "long" ? "Yukarı" : "Aşağı"} BOS ${formatPrice(event.level)}; kabul geçerli.` : accepted ? `Kurulu ${direction === "long" ? "uptrend" : "downtrend"} yapısı; fiyat kırılım yönünde kabul görüyor.` : "Kabul yok.", timeframe: "1h", price: freshBos ? event?.level : undefined },
     { id: "tc-pullback", label: "Pullback POI", status: poiHit ? "pass" : "fail", detail: poiHit ? `${poiHit.kind} ${formatPrice(poiHit.poi.low)}-${formatPrice(poiHit.poi.high)}` : "Trend yönünde FVG/OB yok.", timeframe: "1h", price: poiHit ? entry : undefined },
     { id: "tc-entry", label: "Retest Girişi", status: entryStatus === "confirmed" ? "pass" : "neutral", detail: entryStatus === "confirmed" ? `Retest oldu; giriş ${formatPrice(entry)}.` : `Giriş ${formatPrice(entry)} retest teması bekleniyor.`, timeframe: "1h", price: entry },
     { id: "tc-target", label: "Trend Likidite Hedefi", status: targetValid ? "pass" : "fail", detail: target ? `${target.label} ${formatPrice(tp)}; RR ${formatR(costs.netRR)}.` : "Hedef yok.", price: targetValid ? tp : undefined }

@@ -2,6 +2,35 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-26 — acceptance fork: stop auto-hunting a reversal into an accepted breakout
+- Owner caught it live: USDCHF was a strong uptrend (daily bullish/strong, HH+HL) with price
+  accepted ~100 pips ABOVE the 1W CRT range high (0.80960 → 0.81770), yet the app showed a
+  "CRT REVERSAL — USDCHF SHORT" watch (RR 1:12.94) and NO continuation long. Exactly the
+  "sweep gördük diye otomatik ters işlem arama" the two-playbook split was meant to end.
+- Two root causes, two fixes:
+  1. Continuation was silent. It required a FRESH h1 BOS at scan time; in a mature trend price
+     is often mid-pullback with no fresh exec BOS (USDCHF h1 lastEvent was undefined), so it
+     produced nothing right when it was needed. Fixed: acceptance = a fresh same-direction exec
+     BOS OR an established exec trend (HH+HL / LH+LL) with no opposing CHoCH; pullback POI is
+     searched from the breakout leg, or a 120-candle window when there is no fresh BOS. The
+     daily-trend gate (+h4 confirm) still guards direction. Now USDCHF surfaces a continuation
+     LONG.
+  2. CRT auto-hunted the counter-trend fade. Added `continuationAcceptanceSuppresses`: on a
+     1d/1w anchor, when the daily structural trend is STRONG and OPPOSITE to the reversal AND
+     price has closed BEYOND the swept range edge (accepted, not reclaimed), the CRT reversal is
+     suppressed (not emitted) — it is continuation territory. Scoped to HTF anchors only (1d/1w);
+     4h/1h tactical raids are untouched, so the measured reversal-at-external-liquidity edge (which
+     fires on a RECLAIM, price back inside) is preserved — only accepted-through counter-trend
+     fades are dropped. Owner-approved (2026-07-26).
+- MEASURED on real data (Yahoo+Binance, 60d, all 12 symbols, prod minRR 1.5 + costs) — the
+  continuation-trigger fix turned continuation from barely-firing into a real, measurable edge:
+  **57 trades, +84.87R, +1.49R expectancy, 54.4% win, PF 4.41, avg RR 2.76, max DD 4R** (was 3
+  trades pre-fix). Sample mode (minRR 0.1): 106 trades, +0.63R, 62.3% win, PF 3.06. CRT unchanged
+  (suppression only removed accepted-through HTF fades, which were not reaching READY anyway).
+  This clears the 30-trade rule on a single 60d pass; multi-period / out-of-sample still pending.
+- Tests: 6 new suppression unit tests (`__crtInternals.continuationAcceptanceSuppresses`: HTF-only
+  scope, acceptance vs reclaim, with-trend preserved, weak-trend never suppresses). Full suite 237.
+
 ## 2026-07-26 — second playbook added: Trend Continuation (separate module, not a CRT flag)
 - Owner (from the Codex thread): the system must not be locked to a single "sweep → reversal"
   model. Two distinct playbooks are required: **CRT Reversal** (unchanged — range sweep → reclaim
