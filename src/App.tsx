@@ -516,6 +516,7 @@ export default function App() {
   const [clockNow, setClockNow] = useState(Date.now());
   const [backtestResult, setBacktestResult] = useState(runDemoBacktest(contexts));
   const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestStrategyId, setBacktestStrategyId] = useState("crt");
   const replayWorkerRef = useRef<Worker | null>(null);
   const [memory, setMemory] = useState(() => createSessionRuntimeMemory(activeSymbol));
   const readyHoldRef = useRef<Record<string, ReadyHoldRecord>>({});
@@ -749,8 +750,9 @@ export default function App() {
     runScan();
   };
 
-  const runBacktest = () => {
-    const strategy = getStrategy(strategyId);
+  const runBacktest = (playbookId: string = backtestStrategyId) => {
+    const strategy = getStrategy(playbookId);
+    setBacktestStrategyId(strategy.id);
     replayWorkerRef.current?.terminate();
     const worker = new Worker(new URL("./workers/replay.worker.ts", import.meta.url), { type: "module" });
     replayWorkerRef.current = worker;
@@ -770,6 +772,7 @@ export default function App() {
     };
     worker.postMessage({
       markets,
+      strategyId: strategy.id,
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
@@ -1000,7 +1003,7 @@ export default function App() {
         )}
         {activeView === "backtest" && (
           <section className="analytics-page">
-            <BacktestView result={backtestResult} onRun={runBacktest} loading={backtestLoading} />
+            <BacktestView result={backtestResult} onRun={runBacktest} loading={backtestLoading} strategyId={backtestStrategyId} />
           </section>
         )}
         {activeView === "journal" && (

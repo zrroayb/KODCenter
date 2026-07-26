@@ -29,10 +29,24 @@ Newest first. Each entry: date · area · what changed · why.
   continuation surfaced on the live board earlier (USDCHF, "pullback POI bekleniyor") and otherwise
   shows an honest empty state — continuation needs breakout AND a pullback POI, which is rarer than
   a raid, so the panel is legitimately empty when no trend-continuation setup is live.
-- Not measured on historical replay yet: the replay harness is CRT-specific; a continuation
-  backtest pass is the next governance step before promoting continuation from "shipped" to
-  "measured". Until then, treat continuation READYs as candidate-grade (same caution the 30-trade
-  rule imposes on any un-measured change).
+- MEASURED on real data (same day): the replay harness already had a generic single-target
+  forward-outcome path, so continuation runs through `runMonthlyRuntimeReplay` unchanged. Replay
+  worker + Backtest tab now take a `strategyId`, so the owner can replay either playbook (a
+  CRT Reversal / Trend Continuation toggle) — this is the repeatable backtest pass, not a one-off.
+- First real-data pass (`scripts/measure-continuation.ts`, Yahoo query2 + Binance direct, all 12
+  symbols, 60-day window):
+  - sample calibration (minRR 0.1, costs off, the same knobs the replay tests use to build a
+    sample): **Trend Continuation = 31 trades, +9.88R total, +0.32R expectancy, 80.6% win,
+    PF 5.24, max DD 1.03R**. CRT in the same window = 1 ready (retest-mandatory is far more
+    selective snapshot-to-snapshot).
+  - prod settings (minRR 1.5 + costs, live-bot config): continuation = 3 ready, +2.33R, +0.78R
+    expectancy; CRT = 0 ready (consistent with the live board showing CRT as all-WATCH right now).
+  - Read: a positive first edge on a sample that clears the 12-trade floor and approaches the
+    30-trade rule — encouraging, not conclusive. It is one 60-day pass on Yahoo history, sample
+    mode loosens minRR to reach 31 trades, and there is no out-of-sample split yet. Continuation
+    READYs stay candidate-grade until a multi-period pass confirms the edge holds at prod minRR.
+- Replay pipeline test added (continuation is measurable, single-target, never carries CRT's
+  1H-tracking tag). Full suite 231 tests pass.
 
 ## 2026-07-24 — crypto now uses real Binance data (Yahoo crypto feed was ~3.8h stale)
 - Owner: the app's BTC chart didn't match real BTC. Measured all 12 symbols' Yahoo freshness:

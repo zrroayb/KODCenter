@@ -3,6 +3,7 @@ import { RefreshCcw } from "lucide-react";
 import type { BacktestResult } from "../lib/analytics/performance";
 import { fetchGeminiReplayReview, type GeminiReplayReviewResponse } from "../lib/gemini/replayReview";
 import { formatPrice } from "../lib/ict/format";
+import { playbookLabel } from "../lib/strategies/playbookLabels";
 
 function reasonText(reason: string) {
   if (reason === "clean-model") return "Temiz model";
@@ -48,7 +49,7 @@ function plainAiCommentary(value: string): string {
     .trim();
 }
 
-export function BacktestView({ result, onRun, loading = false }: { result: BacktestResult; onRun: () => void; loading?: boolean }) {
+export function BacktestView({ result, onRun, loading = false, strategyId = "crt" }: { result: BacktestResult; onRun: (strategyId?: string) => void; loading?: boolean; strategyId?: string }) {
   const [aiReview, setAiReview] = useState<GeminiReplayReviewResponse>({ status: "disabled", reason: "Henüz yorum alınmadı." });
   const [aiLoading, setAiLoading] = useState(false);
   const replay = result.replay;
@@ -83,14 +84,27 @@ export function BacktestView({ result, onRun, loading = false }: { result: Backt
     <article className="panel">
       <header className="panel-head">
         <div>
-          <span className="eyebrow">Backtest</span>
+          <span className={`eyebrow playbook-eyebrow ${strategyId}`}>{playbookLabel(strategyId)} · Backtest</span>
           <h2>{replay ? "Son 1 ay runtime replay" : "Strategy bazlı runtime replay"}</h2>
         </div>
         <div className="panel-actions">
           {replay && <button className="ghost-btn" onClick={runAiReview} type="button" disabled={aiLoading}>{aiLoading ? "Gemini okuyor" : "AI replay yorumu"}</button>}
-          <button className="ghost-btn" onClick={onRun} type="button" disabled={loading}><RefreshCcw className={loading ? "spin" : ""} size={15} /> {loading ? "Replay çalışıyor" : "Son 1 ayı replay et"}</button>
+          <button className="ghost-btn" onClick={() => onRun()} type="button" disabled={loading}><RefreshCcw className={loading ? "spin" : ""} size={15} /> {loading ? "Replay çalışıyor" : "Son 1 ayı replay et"}</button>
         </div>
       </header>
+      <div className="playbook-toggle" role="group" aria-label="Hangi playbook replay edilsin">
+        {[{ id: "crt", label: "CRT Reversal" }, { id: "trend-continuation", label: "Trend Continuation" }].map((playbook) => (
+          <button
+            key={playbook.id}
+            className={`playbook-toggle-btn ${playbook.id} ${strategyId === playbook.id ? "active" : ""}`}
+            onClick={() => onRun(playbook.id)}
+            type="button"
+            disabled={loading}
+          >
+            {playbook.label}
+          </button>
+        ))}
+      </div>
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       {replay && (
         <>
