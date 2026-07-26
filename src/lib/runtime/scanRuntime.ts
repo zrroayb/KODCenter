@@ -1,7 +1,7 @@
 import type { MarketContext, TradingSignal } from "../ict/types";
 import { signalDecisionClass } from "../signals/signalClassification";
-import { getStrategy } from "../strategies/registry";
-import type { RejectedSetup } from "../strategies/types";
+import { getStrategy, PLAYBOOK_STRATEGIES } from "../strategies/registry";
+import type { RejectedSetup, StrategyModule } from "../strategies/types";
 import { ruleAllowsContext, ruleAllowsSignal } from "../userRules/applyRules";
 import type { UserRules } from "../userRules/userRules";
 
@@ -53,10 +53,15 @@ export function scanContexts(
   strategyId: string,
   rules: UserRules
 ): ScanRuntimeResult {
-  const strategy = getStrategy(strategyId);
-  const results = contexts
-    .filter((context) => ruleAllowsContext(context, rules))
-    .map((context) => strategy.scan({
+  // İki playbook birlikte koşar: CRT Reversal + Trend Continuation. strategyId artık "birincil"
+  // playbook'u işaret eder; listede yoksa yine tüm playbook'lar taranır. Her sinyal kendi
+  // strategyId etiketini taşır, böylece aynı setup iki isimle görünmez (reversal vs continuation
+  // yapısal olarak birbirini dışlar: reclaim+karşı CHoCH vs same-direction BOS kabulü).
+  const primary = getStrategy(strategyId);
+  const strategies: StrategyModule[] = [primary, ...PLAYBOOK_STRATEGIES.filter((strategy) => strategy.id !== primary.id)];
+  const allowedContexts = contexts.filter((context) => ruleAllowsContext(context, rules));
+  const results = strategies.flatMap((strategy) =>
+    allowedContexts.map((context) => strategy.scan({
       context,
       settings: {
         ...strategy.defaultSettings,
@@ -70,7 +75,8 @@ export function scanContexts(
         avoidNews: rules.avoidNews,
         useHtfAlignmentFilter: rules.useHtfAlignmentFilter
       }
-    }));
+    }))
+  );
 
   const rawSignals = results.flatMap((result) => result.signals);
   const activeSignals = rawSignals

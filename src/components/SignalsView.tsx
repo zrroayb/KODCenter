@@ -1,5 +1,6 @@
 import type { MarketSymbol, TradingSignal } from "../lib/ict/types";
 import { formatPrice, formatR } from "../lib/ict/format";
+import { playbookShortLabel } from "../lib/strategies/playbookLabels";
 
 export function SignalsView({
   signals,
@@ -33,7 +34,7 @@ export function SignalsView({
             type="button"
           >
             <span className={`status-dot ${signal.stage}`} />
-            <strong>{signal.symbol}</strong>
+            <strong>{signal.symbol} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
             <span>{signal.direction.toUpperCase()}</span>
             <span>{signal.stage}</span>
             <span>{signal.grade} · {signal.score}</span>

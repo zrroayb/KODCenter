@@ -7,11 +7,11 @@ import { getStrategy, strategyRegistry } from "../lib/strategies/registry";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("KOD strategy module", () => {
-  it("keeps CRT as the only active registry strategy while KOD remains a direct legacy module", () => {
+  it("keeps CRT first and Trend Continuation as the registered playbooks; KOD stays a direct legacy module", () => {
     expect(strategyRegistry[0].id).toBe("crt");
-    expect(strategyRegistry).toHaveLength(1);
+    expect(strategyRegistry.map((strategy) => strategy.id)).toEqual(["crt", "trend-continuation"]);
     expect(getStrategy("missing-strategy").id).toBe(crtStrategy.id);
-    expect(getStrategy(kodStrategy.id).id).toBe(crtStrategy.id);
+    expect(getStrategy(kodStrategy.id).id).toBe(crtStrategy.id); // KOD registry'de değil → CRT'ye düşer
   });
 
   it("emits visible watch or ready signals with decision summaries", () => {

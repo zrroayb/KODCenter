@@ -10,6 +10,7 @@ import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason } fr
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../lib/signals/waitingGuidance";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
+import { playbookShortLabel } from "../lib/strategies/playbookLabels";
 
 function stagePriority(signal: TradingSignal) {
   if (signal.stage === "ready") return 3000;
@@ -171,7 +172,22 @@ export function ScannerView({
   onSelectSignal: (signal: TradingSignal) => void;
 }) {
   const sortedSignals = dataLoading ? [] : sortForAction(signals);
-  const sortedLowQualitySignals = dataLoading ? [] : sortForAction(lowQualitySignals).slice(0, 8);
+  // İki playbook ayrı gösterilir (owner: "reversal vs continuation ayrı, aynı sinyali iki kez gösterme").
+  // Continuation kendi bölümünü GÖRÜNÜR + GİZLİ havuzun birleşiminden çeker; böylece CRT'nin yüksek-RR
+  // watch'ları görünür cap'i doldursa bile trend-devamı setup'ları asla ekrandan düşmez.
+  const seenPool = new Set<string>();
+  const dedupedPool = [...signals, ...lowQualitySignals].filter((signal) => {
+    if (seenPool.has(signal.id)) return false;
+    seenPool.add(signal.id);
+    return true;
+  });
+  const continuationSignals = dataLoading
+    ? []
+    : sortForAction(dedupedPool.filter((signal) => signal.strategyId === "trend-continuation")).slice(0, 8);
+  const reversalSignals = signals.filter((signal) => signal.strategyId !== "trend-continuation");
+  const sortedLowQualitySignals = dataLoading
+    ? []
+    : sortForAction(lowQualitySignals.filter((signal) => signal.strategyId !== "trend-continuation")).slice(0, 8);
   const best = sortedSignals.find((signal) => signal.stage === "ready" || signal.stage === "watch");
   // Desk view: the moment the scan lands, the AI reads the whole board and names ONE pick
   // ("bence şunu al, şu daha zayıf çünkü ...") — re-generated only when the board changes.
@@ -348,7 +364,7 @@ export function ScannerView({
         )}
         {(best ?? latestInactive) && (
           <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
-            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}</strong>
+            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}</strong>
             <span>
               {best
                 ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
@@ -358,9 +374,9 @@ export function ScannerView({
         )}
       </article>
       <article className="panel">
-        <header className="panel-head"><h2>Bulunan sinyaller</h2><span className="badge">{signals.length}</span></header>
+        <header className="panel-head"><h2>CRT Reversal <span className="playbook-tag crt">Reversal</span></h2><span className="badge">{reversalSignals.length}</span></header>
         <div className="scan-signal-list">
-          {signals.map((signal) => (
+          {reversalSignals.map((signal) => (
             <button
               className={selectedSignalId === signal.id ? "scan-signal-card selected" : "scan-signal-card"}
               key={signal.id}
@@ -368,7 +384,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (
@@ -376,7 +392,29 @@ export function ScannerView({
               )}
             </button>
           ))}
-          {!signals.length && <p className="muted-note">Mevcut runtime kurallarına uyan görünür sinyal yok.</p>}
+          {!reversalSignals.length && <p className="muted-note">Mevcut runtime kurallarına uyan görünür reversal sinyali yok.</p>}
+        </div>
+      </article>
+      <article className="panel">
+        <header className="panel-head"><h2>Trend Continuation <span className="playbook-tag trend-continuation">Continuation</span></h2><span className="badge">{continuationSignals.length}</span></header>
+        <div className="scan-signal-list">
+          {continuationSignals.map((signal) => (
+            <button
+              className={selectedSignalId === signal.id ? "scan-signal-card selected" : "scan-signal-card"}
+              key={signal.id}
+              onClick={() => onSelectSignal(signal)}
+              type="button"
+            >
+              <span className={`status-dot ${signal.stage}`} />
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
+              <b>Kalite {signal.grade}/{signal.score}</b>
+              <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
+              {signal.stage !== "ready" && (
+                <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "HTF trend + kabullü breakout + pullback bekleniyor."}</em>
+              )}
+            </button>
+          ))}
+          {!continuationSignals.length && <p className="muted-note">Şu an trend-devamı setup'ı yok; HTF trend + kabullü breakout (BOS) + pullback FVG/OB retest bekleniyor.</p>}
         </div>
       </article>
       <details className="scanner-more">
@@ -409,7 +447,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>Erken aday · {signalDecisionLabel(signal)} · Net RR {formatR(signal.plan.rr)}</small>
               <em>{signalDecisionReason(signal)}</em>

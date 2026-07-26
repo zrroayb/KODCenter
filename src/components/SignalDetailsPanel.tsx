@@ -8,6 +8,7 @@ import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from ".
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { signalDecisionClass } from "../lib/signals/signalClassification";
+import { playbookLabel } from "../lib/strategies/playbookLabels";
 import { waitingRequirementsForMinimumRR } from "./ScannerView";
 
 function statusClass(status: DecisionChecklistItem["status"] | SignalEvidenceItem["status"]) {
@@ -181,7 +182,7 @@ export function SignalDetailsPanel({
     <aside className="panel signal-details-panel compact">
       <header className="panel-head">
         <div>
-          <span className="eyebrow">Sinyal</span>
+          <span className={`eyebrow playbook-eyebrow ${signal.strategyId}`}>{playbookLabel(signal.strategyId)}</span>
           <h2>{signal.symbol} {signal.direction.toUpperCase()}</h2>
           {signal.crtAnchor && (
             <p className="muted-note">{signal.crtAnchor.originLabel ?? `CRT mumu: ${signal.crtAnchor.rangeTf.toUpperCase()}`} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>

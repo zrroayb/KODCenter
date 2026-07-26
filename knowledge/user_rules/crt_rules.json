@@ -129,6 +129,13 @@
       "area": "reference-candle-selection",
       "rule": "Range candles must be meaningful, not arbitrary. Hybrid (not a hard filter): every closed candle is a CANDIDATE, but reference_candle_score (Master Section 5) grades it. Components: imbalance body/range 0-30 (rejection < 0.3, strong >= 0.7), range vs ATR 0-25 (ideal 0.8x-2.5x, exhausted > 3.5x), expansion vs recent median 0-15, meaningful HTF location 0-20, key-open/killzone session 0-10. An A imbalance candle adds ~9 to the setup score, a D/arbitrary candle ~2; a D/C reference candle raises a quality warning; thresholds are configurable (referenceCandle.ts REFERENCE_CANDLE_DEFAULTS). Grounded in ict-knowledge-library CRT checklist, XAU-60 body/ATR/expansion filters, crt-turtlesoup-ea wick/body.",
       "status": "implemented"
+    },
+    {
+      "id": "two-playbook-model",
+      "area": "strategy-scope",
+      "rule": "The scanner runs TWO separate playbooks, not one. (1) CRT Reversal (strategyId 'crt') — range sweep -> reclaim -> ChoCH -> retest -> EQ/DOL. (2) Trend Continuation (strategyId 'trend-continuation') — HTF trend (1D structural bias, 4H confirm) -> accepted breakout = same-direction BOS on the execution TF (a CHoCH is reversal territory and is rejected) -> pullback FVG/OB retest (retest mandatory) -> next trend-direction external liquidity as target. OWNER RULE (2026-07-26, from the Codex thread): 'we do NOT auto-hunt a reversal just because a sweep happened' — strong trend + acceptance beyond the breakout is continuation; only reclaim + structure reversal is CRT. The two are a SEPARATE MODULE each (own direction/entry/target), never conditions bolted onto CRT. No double-count: BOS-in-trend (continuation) and CHoCH+reclaim (reversal) are structurally mutually exclusive, and each signal carries its own strategyId so the same setup never shows under two names. Scan and Telegram show both, labeled reversal vs continuation. STATUS: shipped + unit-tested (230 tests) but NOT yet measured on historical replay (replay harness is CRT-specific); continuation READYs are candidate-grade until a continuation backtest pass exists.",
+      "configurable": true,
+      "status": "implemented-unmeasured"
     }
   ]
 }

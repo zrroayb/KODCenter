@@ -4,6 +4,7 @@ import { buildGeminiTradeCommentaryPayload, type GeminiTradeCommentaryPayload } 
 import { defaultAccountModel } from "../risk/accountModel";
 import { GRADE_RISK_FACTOR } from "../risk/positionSizing";
 import { signalSetupIdentity } from "../signals/setupIdentity";
+import { playbookLabel } from "../strategies/playbookLabels";
 
 export type TelegramReadyAlertPayload = {
   id: string;
@@ -15,6 +16,8 @@ export type TelegramReadyAlertPayload = {
   score: number;
   stage: "ready" | "watch";
   alertKind?: "ready" | "raid" | "context";
+  playbook?: string;
+  strategyId?: string;
   createdAt: number;
   entry: number;
   stopLoss: number;
@@ -110,7 +113,7 @@ export function crtContextTelegramDedupeKey(signal: TradingSignal): string {
   ].join("|");
 }
 
-function readyReasons(signal: TradingSignal): string[] {
+function crtReadyReasons(signal: TradingSignal): string[] {
   const passed = new Set(
     signal.decisionSummary.checklist
       .filter((item) => item.status === "pass")
@@ -126,6 +129,18 @@ function readyReasons(signal: TradingSignal): string[] {
     `EQ net RR ${formatR(signal.plan.managementRR ?? 0)} · DOL net RR ${formatR(signal.plan.rr)}`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 6);
+}
+
+// Continuation, CRT'nin EQ/DOL/ChoCH şablonunu kullanamaz — kendi checklist'inden (HTF trend,
+// kabullü breakout, pullback POI, retest, likidite hedefi) üretir.
+function genericReadyReasons(signal: TradingSignal): string[] {
+  const passed = signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label);
+  const reasons = [...passed, `net RR ${formatR(signal.plan.rr)}`];
+  return Array.from(new Set(reasons)).slice(0, 6);
+}
+
+function readyReasons(signal: TradingSignal): string[] {
+  return signal.strategyId === "crt" ? crtReadyReasons(signal) : genericReadyReasons(signal);
 }
 
 export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramReadyAlertPayload {
@@ -145,6 +160,8 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     grade: signal.grade,
     score: signal.score,
     stage: "ready",
+    playbook: playbookLabel(signal.strategyId),
+    strategyId: signal.strategyId,
     createdAt: signal.createdAt,
     entry: signal.plan.entry,
     stopLoss: signal.plan.stopLoss,

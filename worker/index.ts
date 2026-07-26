@@ -313,17 +313,29 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
   const ai = payload.aiCommentary?.trim()
     ? `\n\n<b>AI Yorumu</b>\n${escapeHtml(payload.aiCommentary.trim())}`
     : "";
+  const isCrt = (payload.strategyId ?? "crt") === "crt";
+  // Playbook etiketi mesajın ilk satırında — reversal mi continuation mı hemen belli olsun.
+  const playbookLine = payload.playbook ? ` · ${escapeHtml(payload.playbook)}` : "";
+  // EQ/DOL sadece CRT reversal terimleri; continuation için TP1/TP2 ve düz net RR kullanılır.
+  const rrLine = isCrt
+    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.managementRR ?? 0)} · DOL net RR ${formatR(payload.rr)}`
+    : `${escapeHtml(payload.grade)} · Score ${payload.score} · net RR ${formatR(payload.rr)}`;
+  const tp1Label = isCrt ? "EQ / TP1" : "TP1";
+  const tp2Label = isCrt ? "DOL / TP2" : "TP2";
+  const targetLines = [`${tp1Label}: <b>${formatPrice(payload.targets[0])}</b>`];
+  if (payload.targets[1] !== undefined && payload.targets[1] !== payload.targets[0]) {
+    targetLines.push(`${tp2Label}: <b>${formatPrice(payload.targets[1])}</b>`);
+  }
   return [
-    `<b>READY SETUP</b> ${escapeHtml(payload.symbol)} ${escapeHtml(payload.direction.toUpperCase())}`,
-    `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.managementRR ?? 0)} · DOL net RR ${formatR(payload.rr)}`,
+    `<b>READY SETUP</b> ${escapeHtml(payload.symbol)} ${escapeHtml(payload.direction.toUpperCase())}${playbookLine}`,
+    rrLine,
     "",
     `Entry: <b>${formatPrice(payload.entry)}</b>`,
     `Stop: <b>${formatPrice(payload.stopLoss)}</b>`,
-    `EQ / TP1: <b>${formatPrice(payload.targets[0])}</b>`,
-    `DOL / TP2: <b>${formatPrice(payload.targets[1] ?? payload.targets[0])}</b>`,
+    ...targetLines,
     "",
     "<b>Neden READY?</b>",
-    reasons || "- CRT sırası tamam"
+    reasons || "- Playbook sırası tamam"
   ].join("\n") + ai;
 }
 

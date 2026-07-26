@@ -2,6 +2,38 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-26 — second playbook added: Trend Continuation (separate module, not a CRT flag)
+- Owner (from the Codex thread): the system must not be locked to a single "sweep → reversal"
+  model. Two distinct playbooks are required: **CRT Reversal** (unchanged — range sweep → reclaim
+  → ChoCH → retest → EQ/DOL) and **Trend Continuation** (HTF trend → accepted breakout → pullback
+  FVG/OB retest → trend-direction liquidity target). The critical rule: *"we do NOT auto-hunt a
+  reversal just because a sweep happened"* — if trend is strong and price accepts beyond the
+  breakout it is continuation; only reclaim + structure reversal is CRT. Must be a separate module
+  (own direction/entry/target), and the same setup must never appear under two names.
+- Build: new `src/lib/strategies/trendContinuation/trendContinuation.strategy.ts` (`strategyId:
+  "trend-continuation"`). Gate = HTF trend via `detectStructuralBias` on 1D (+4H confirm); no
+  trend ⇒ no signal. Acceptance = execution-TF **BOS in the trend direction** (a CHoCH is reversal
+  territory and is rejected — this is the structural mutual-exclusion that guarantees no
+  double-count). Entry = retest of the breakout leg's pullback FVG/OB (retest mandatory, consistent
+  with the owner's retest rule; a bullish FVG that closed through flips to bearish in the detector,
+  so the direction filter already drops violated gaps). Stop beyond POI far edge / protected swing;
+  target = next trend-direction external liquidity from `liquidityObjectives`.
+- Wiring: `registry.ts` now exports `PLAYBOOK_STRATEGIES = [crt, trend-continuation]`; `scanRuntime`
+  runs both over every context and merges into one labeled list (each signal keeps its own
+  `strategyId`, ids unique — no double-count). Scanner shows them in **two separate panels**
+  ("CRT Reversal" / "Trend Continuation"), the signal detail eyebrow names the playbook, and the
+  Telegram READY message states the playbook and drops CRT-only EQ/DOL wording for continuation.
+- Verified: 6 new continuation tests (trend gate, BOS-in-trend long, flat=silent, no counter-trend
+  long, CHoCH≠continuation, scanContexts dual-playbook + unique ids) + registry test updated; full
+  suite **230 tests pass**; production build clean. Live scan (Yahoo proxy) rendered both panels;
+  continuation surfaced on the live board earlier (USDCHF, "pullback POI bekleniyor") and otherwise
+  shows an honest empty state — continuation needs breakout AND a pullback POI, which is rarer than
+  a raid, so the panel is legitimately empty when no trend-continuation setup is live.
+- Not measured on historical replay yet: the replay harness is CRT-specific; a continuation
+  backtest pass is the next governance step before promoting continuation from "shipped" to
+  "measured". Until then, treat continuation READYs as candidate-grade (same caution the 30-trade
+  rule imposes on any un-measured change).
+
 ## 2026-07-24 — crypto now uses real Binance data (Yahoo crypto feed was ~3.8h stale)
 - Owner: the app's BTC chart didn't match real BTC. Measured all 12 symbols' Yahoo freshness:
   FX 0–1 min, futures (GC=F/NQ=F) ~10 min — fine — but **all 5 crypto (BTC/ETH/XRP/BNB/SOL) were
