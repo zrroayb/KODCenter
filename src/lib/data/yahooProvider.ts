@@ -8,6 +8,10 @@ import { isBinanceSymbol, loadBinanceMarket } from "./binanceProvider";
 // Binance CORS `*` gönderir; hem tarayıcı hem node DOĞRUDAN data-api.binance.vision'a gider
 // (worker proxy'sine gerek yok — Cloudflare egress IP'si Binance'te 403'lüydü). Binance başarısız
 // olursa Yahoo'ya düşer — asla bugünkünden kötü olmaz (yalnızca bayat kalır).
+// Tek sembol yükleyici + VERİ KAYNAĞI YÖNLENDİRİCİ. Kripto (isBinanceSymbol) → Binance (canlı,
+// coğrafi engelsiz); Binance düşerse Yahoo'ya fallback. FX/metal/endeks → Yahoo. loadYahooMarketBatch
+// ve loadYahooMarkets bunu kullandığı için, "Yahoo" isimli bu yükleyiciler kripto'yu yine de
+// Binance'ten çeker — app, cloud-scan ve ölçüm scriptleri hepsi aynı yolu paylaşır.
 async function loadMarketFor(
   item: YahooSymbolDefinition,
   signal?: AbortSignal,
@@ -233,6 +237,8 @@ export type YahooMarketBatchResult = {
   errors: string[];
 };
 
+// İsim yanıltıcı: bu Yahoo-ONLY değildir. loadMarketFor üzerinden kripto'yu Binance'e, gerisini
+// Yahoo'ya yönlendirir (baseUrl opsiyonu yalnız Yahoo yoluna geçer; kripto Binance default'unu kullanır).
 export async function loadYahooMarketBatch(
   symbols: MarketSymbol[],
   options: YahooRequestOptions & { signal?: AbortSignal } = {}
