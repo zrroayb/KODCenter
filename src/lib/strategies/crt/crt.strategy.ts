@@ -1603,6 +1603,11 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   const readyCandidate = setup.readyEligible;
   const life = lifecycle(context, anchor, setup, readyCandidate);
   const grade = gradeFromScore(setup.score);
+  // Trende karşı mı: daily yapısal yön (varsa) sinyal yönüne ters. reversalAtExternalHtf olan
+  // dış-likidite dönüşleri CRT'nin meşru edge'i — onları counter-trend saymayız.
+  const dailyBias = context.biasDetail?.daily?.bias;
+  const dailyDir = dailyBias === "bullish" ? "long" : dailyBias === "bearish" ? "short" : "none";
+  const counterTrend = dailyDir !== "none" && dailyDir !== setup.direction && !setup.reversalAtExternalHtf;
   const position = calculatePositionSize({
     account: defaultAccountModel,
     symbol: context.symbol,
@@ -1614,6 +1619,7 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   return {
     id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${anchor.spec.rangeTf}${anchor.origin ? `-${anchor.origin.kind}-${anchor.origin.originIndex}` : ""}`,
     strategyId: CRT_STRATEGY_ID,
+    counterTrend,
     symbol: context.symbol,
     direction: setup.direction,
     stage: life.stage,

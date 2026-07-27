@@ -364,7 +364,7 @@ export function ScannerView({
         )}
         {(best ?? latestInactive) && (
           <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
-            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}</strong>
+            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}{(best ?? latestInactive)?.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
             <span>
               {best
                 ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
@@ -384,7 +384,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (

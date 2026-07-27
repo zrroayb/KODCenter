@@ -423,6 +423,10 @@ export type TradingSignal = {
   governance: SignalGovernance;
   actionWindow: SignalActionWindow;
   crtAnchor?: CrtAnchorInfo;
+  // Sinyal yönü HTF (daily) yapısal trendine karşı mı. CRT reversal doğası gereği sık sık trende
+  // karşıdır; bunu işaretleyip radarda öne çıkmasını kısarız (2026-07-27 denetimi: yön tahtası ile
+  // CRT çoğu sembolde ters düşüyordu ve continuation seyrek olduğu için tahta "hep fade" görünüyordu).
+  counterTrend?: boolean;
 };
 
 export type CrtAnchorInfo = {

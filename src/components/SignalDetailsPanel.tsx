@@ -193,7 +193,10 @@ export function SignalDetailsPanel({
       <section className={`simple-signal-card ${decisionClass === "invalid" ? "invalidated" : signal.stage}`}>
         <div>
           <span>{actionTitle(signal)}</span>
-          <strong>{signal.grade} · {signal.score} kalite</strong>
+          {/* Ölü setup (missed/invalidated) canlı kalite gibi görünmesin — grade yerine durum. */}
+          {signal.stage === "missed" || signal.stage === "invalidated" || decisionClass === "invalid"
+            ? <strong className="setup-consumed">{signal.stage === "missed" ? "Tüketildi" : "Geçersiz"} · {signal.grade}/{signal.score} idi</strong>
+            : <strong>{signal.grade} · {signal.score} kalite</strong>}
         </div>
         <h3>{signal.symbol} {signal.direction.toUpperCase()} · {formatR(signal.plan.rr)}</h3>
         <p>{structureAudit.decision}</p>

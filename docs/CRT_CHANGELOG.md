@@ -2,6 +2,28 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-27 — audit fixes: counter-trend labeling + consumed-setup grade
+- A system audit across all 12 symbols surfaced two "saçma" (nonsensical-looking) patterns:
+  (1) the direction engine and CRT frequently point opposite ways — on many symbols the only CRT
+  watch was counter to the HTF trend, and continuation (the with-trend playbook) is sparse, so the
+  board looked like it perpetually wants to fade the trend; (2) dead setups (missed/invalidated)
+  still displayed grade A/A+, reading like a live high-quality trade.
+- Fix #1 — counter-trend flag: `TradingSignal.counterTrend` is set on a CRT signal when its
+  direction opposes the daily structural trend AND it is NOT a reversal-at-external-liquidity
+  (`reversalAtExternalHtf`) — so CRT's measured liquidity-fade edge is preserved; only the
+  UNJUSTIFIED counter-trend fades are marked. `compareSignalsByDecision` now ranks counter-trend
+  watches BELOW trend-aligned ones within a stage, so the headline/decision prefers a with-trend
+  signal (e.g. a continuation LONG) over a counter-trend CRT fade. The scanner card and decision
+  strip show a "trende karşı" tag. Verified live: ETH (daily bullish, CRT short) and EUR (daily
+  bearish, CRT long) get the tag; USDCHF/GBP reversal-at-liquidity do NOT; neutral-daily XAU does
+  not. Generation is unchanged (flag affects ordering/display only), so the measured edge stands.
+- Fix #3 — consumed-setup grade: the signal detail panel no longer shows a live "A · 88 kalite"
+  for a missed/invalidated setup; it shows "Tüketildi/Geçersiz · A/88 idi" in muted styling, so a
+  dead setup can't be mistaken for a live opportunity.
+- Full suite 238 pass; typecheck clean. Deferred (lower severity, offered): collapsing the
+  simultaneous long+short CRT watches on ~5 symbols into a single "chop" state; widening
+  acceptance-suppression beyond strong-daily.
+
 ## 2026-07-27 — internal-structure (LTF) MSB reading in the direction engine
 - Owner caught it live on BTC: h1 was a strong up-move to 65,744, then a decisive drop that closed
   below the protective higher-low (~65,100) and held — a clear internal MSB down that a trader
