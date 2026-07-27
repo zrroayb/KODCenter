@@ -2,6 +2,32 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-27 — internal-structure (LTF) MSB reading in the direction engine
+- Owner caught it live on BTC: h1 was a strong up-move to 65,744, then a decisive drop that closed
+  below the protective higher-low (~65,100) and held — a clear internal MSB down that a trader
+  reads as bearish. But the structural engine returned "expanding / neutral", because its wing-3
+  swings only saw HH(65,744)+LL(64,418) = broadening and no wing-3-level close-break. The engine
+  was blind to internal (minor) structure. Owner: "the msb is the correct read — apply it generally."
+- Fix: `detectInternalMsb` (wing-1 minor swings) runs ONLY when the major wing-3 read is ambiguous
+  (expanding / contracting / no-break). It collects break-and-hold events — for each minor swing
+  high, did a close break below its protective low and is price STILL below it (and the symmetric
+  up case) — and, in a two-sided chop, RECENCY breaks the tie (the most recent holding break is the
+  current character). When found, the engine returns that direction with **weak** confidence and a
+  ChoCH lastEvent, instead of a blind neutral. Clean trends (uptrend/downtrend) are untouched, and
+  when no internal break holds it still returns honest neutral (verified on a contracting/mid-range
+  series). BTC h1 now reads bearish MSB @65,100 — the owner's read.
+- Deliberately conservative wiring: the internal read keeps `pattern` as expanding/contracting, so
+  it does NOT by itself open the continuation trend gate (which requires a clean daily trend). Its
+  only downstream effect is the bias LABEL (weak directional vs neutral), which feeds scoring and
+  the h4-alignment gates.
+- MEASURED (real data, 60d, 12 symbols) before→after: prod continuation 57→**46 trades**,
+  +1.49R→**+1.13R** expectancy, PF 4.41→3.45; OOS split still **edge** (IS +1.36R/PF3.88,
+  OOS +0.51R/PF1.76); cross-sectional 4/5 symbols positive. The edge holds — slightly more
+  conservative because the h4-opposition gate now fires on some internal-MSB directional reads that
+  were previously neutral-and-tolerated. A directional-accuracy improvement with a modest
+  fewer-signals cost, not a degradation. CRT unchanged. Tests: structuralBias suite updated
+  (broadening → internal-MSB bullish + choch event; contracting → honest neutral); full suite 238.
+
 ## 2026-07-26 — live-forward outcome logging + weekly edge report (per playbook)
 - Validation so far is all backtest/replay. The real confirmation is live-forward: log every READY
   the bot fires and score what price actually did. Built on the existing alert_log (which already

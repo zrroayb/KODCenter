@@ -95,6 +95,44 @@ function firstCloseBreak(
   return undefined;
 }
 
+// İç-yapı (internal / LTF) MSB. Major (wing-adaptif) yapı BELİRSİZ iken (expanding/çelişkili)
+// devreye girer: dar kanatla (wing 1) minor swing'leri okur. Her swing high için koruyucu low
+// (high'tan önceki son low), her swing low için koruyucu high kapanışla kırıldı mı ve fiyat HÂLÂ
+// kırılan seviyenin ötesinde mi (holds) bakar. Bu, trader'ın grafikte gördüğü "msb"dir. İki yönlü
+// chop'ta RECENCY taraf seçer — en son yapılan ve tutan kırılım mevcut karakterdir. Owner 2026-07-27.
+function detectInternalMsb(closed: Candle[]): { direction: TradeDirection; level: number; candleIndex: number } | undefined {
+  const swings = detectSwingPoints(closed, 1);
+  const highs = swings.filter((point) => point.side === "high");
+  const lows = swings.filter((point) => point.side === "low");
+  if (highs.length < 2 || lows.length < 2) return undefined;
+  const lastClose = closed[closed.length - 1].close;
+  const events: { direction: TradeDirection; level: number; candleIndex: number }[] = [];
+  for (const high of highs.slice(-4)) {
+    const protectedLow = [...lows].reverse().find((low) => low.candleIndex < high.candleIndex);
+    if (!protectedLow) continue;
+    for (let index = high.candleIndex + 1; index < closed.length; index += 1) {
+      if (closed[index].closed === false) continue;
+      if (closed[index].close < protectedLow.level) {
+        if (lastClose < protectedLow.level) events.push({ direction: "short", level: protectedLow.level, candleIndex: index });
+        break;
+      }
+    }
+  }
+  for (const low of lows.slice(-4)) {
+    const protectedHigh = [...highs].reverse().find((high) => high.candleIndex < low.candleIndex);
+    if (!protectedHigh) continue;
+    for (let index = low.candleIndex + 1; index < closed.length; index += 1) {
+      if (closed[index].closed === false) continue;
+      if (closed[index].close > protectedHigh.level) {
+        if (lastClose > protectedHigh.level) events.push({ direction: "long", level: protectedHigh.level, candleIndex: index });
+        break;
+      }
+    }
+  }
+  if (!events.length) return undefined;
+  return events.sort((a, b) => b.candleIndex - a.candleIndex)[0];
+}
+
 export function detectStructuralBias(candles: Candle[]): StructuralBias {
   const closed = candles.filter((candle) => candle.closed !== false);
   if (closed.length < 5) return neutral("Yapı okumak için yeterli kapalı mum yok.");
@@ -147,6 +185,20 @@ export function detectStructuralBias(candles: Candle[]): StructuralBias {
     if (pattern === "downtrend") {
       reasons.push("Korunan seviyeler kırılmadı; trend yapısı geçerli.");
       return { bias: "bearish", pattern, confidence: capConfidence("moderate", wing), protectedHigh, protectedLow, reasons };
+    }
+    // Major yapı belirsiz — ama iç-yapı (LTF) MSB varsa trader'ın gördüğü karakteri veririz (weak).
+    const internal = detectInternalMsb(closed);
+    if (internal) {
+      reasons.push(`Major yapı belirsiz (${pattern}) fakat iç-yapı MSB ${internal.direction === "short" ? "aşağı" : "yukarı"}: koruyucu ${internal.direction === "short" ? "low" : "high"} ${internal.level} kapanışla kırıldı ve fiyat ötesinde tutunuyor.`);
+      return {
+        bias: internal.direction === "long" ? "bullish" : "bearish",
+        pattern,
+        confidence: "weak",
+        protectedHigh,
+        protectedLow,
+        lastEvent: { kind: "choch", direction: internal.direction, level: internal.level, candleIndex: internal.candleIndex },
+        reasons
+      };
     }
     reasons.push("Yapı çelişkili (range) ve kırılım yok; yön belirsiz.");
     return { bias: "neutral", pattern, confidence: "weak", protectedHigh, protectedLow, reasons };

@@ -49,14 +49,25 @@ describe("structural HTF bias (Master §3/§8)", () => {
     expect(bias.pattern).toBe("downtrend");
   });
 
-  it("returns an honest neutral on a broadening range (HH + LL) instead of guessing", () => {
-    // Bu, drift motorunun sessizce taraf seçtiği durum: yapı çelişkili, yön yok.
+  it("reads a broadening range via its internal (LTF) MSB instead of a blind neutral", () => {
+    // Major yapı belirsiz (HH+LL broadening) AMA fiyat prior high 110'u kapanışla kırıp üstünde
+    // tutunuyor → iç-yapı MSB yukarı (weak). Bu drift motorunun uydurması DEĞİL: gerçek break-and-hold.
+    // Owner 2026-07-27: "msb'yi motor görmeli, genelde uygula."
     const candles = series([100, 95, 110, 90, 120, 114]);
     const structural = detectStructuralBias(candles);
     expect(structural.pattern).toBe("expanding");
-    expect(structural.bias).toBe("neutral");
-    // Eski motor aynı seride yön uyduruyordu — regresyonun kanıtı.
+    expect(structural.bias).toBe("bullish");
+    expect(structural.confidence).toBe("weak");            // major belirsiz → weak
+    expect(structural.lastEvent?.kind).toBe("choch");       // iç-MSB karakter değişimi
     expect(detectDriftBias(candles)).not.toBe("neutral");
+  });
+
+  it("still returns an honest neutral when there is no holding internal break (contracting, mid-range)", () => {
+    // İç-MSB fazla hevesli değil: kırılım tutmuyorsa yine dürüst neutral. Motorun temkini korunur.
+    const structural = detectStructuralBias(series([100, 120, 105, 115, 108, 112]));
+    expect(structural.pattern).toBe("contracting");
+    expect(structural.bias).toBe("neutral");
+    expect(structural.lastEvent).toBeUndefined();
   });
 
   it("flips to CHoCH when the protected low breaks after an uptrend", () => {
