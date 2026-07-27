@@ -427,6 +427,9 @@ export type TradingSignal = {
   // karşıdır; bunu işaretleyip radarda öne çıkmasını kısarız (2026-07-27 denetimi: yön tahtası ile
   // CRT çoğu sembolde ters düşüyordu ve continuation seyrek olduğu için tahta "hep fade" görünüyordu).
   counterTrend?: boolean;
+  // Sembolde aynı anda zıt yönlü canlı raid'ler var — yön yok, chop. Bu sinyaller tradeable değil;
+  // en dibe sıralanır ve UI'da tek "chop, dur" satırına indirgenir.
+  chopConflict?: boolean;
 };
 
 export type CrtAnchorInfo = {

@@ -1576,7 +1576,9 @@ function continuationAcceptanceSuppresses(context: MarketContext, anchor: Anchor
   // playbook'u HTF trendi taşır. Owner örneği (USDCHF) 1W range idi.
   if (anchor.spec.rangeTf !== "1d" && anchor.spec.rangeTf !== "1w") return false;
   const daily = context.biasDetail?.daily;
-  if (!daily || daily.confidence !== "strong" || daily.bias === "neutral") return false;
+  // Strong VEYA moderate directional daily yeterli (2026-07-27 genişletme: BTC gibi moderate uptrend'de
+  // de accepted counter-trend fade bastırılsın). Yalnız weak/neutral bastırmaz.
+  if (!daily || daily.confidence === "weak" || daily.bias === "neutral") return false;
   const dailyDir: TradeDirection = daily.bias === "bullish" ? "long" : "short";
   if (dailyDir === setup.direction) return false;          // reversal trend YÖNÜNDE — with-trend, dokunma
   const lastClose = anchor.confirmCandles.at(-1)?.close;
@@ -1713,6 +1715,9 @@ function signalsFromContext(context: MarketContext, settings: StrategyInput["set
     for (const signal of signals) {
       signal.governance.warnings = Array.from(new Set([note, ...signal.governance.warnings]));
       signal.decisionSummary.warnings = Array.from(new Set([note, ...signal.decisionSummary.warnings])).slice(0, 8);
+      // Aktif (watch/ready) sinyaller chop olarak işaretlenir: sıralamada en dibe iner, UI tek
+      // "chop, dur" satırına indirir. Missed/invalidated zaten radar dışı.
+      if (signal.stage !== "missed" && signal.stage !== "invalidated") signal.chopConflict = true;
     }
   }
   return signals;

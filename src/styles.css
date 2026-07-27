@@ -5196,6 +5196,26 @@ button {
   opacity: 0.75;
 }
 
+/* Chop (zıt raid çakışması) etiketi — nötr/gri, "dur" sinyali. */
+.chop-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+.chop-note {
+  color: #94a3b8;
+}
+
 /* Replay playbook seçici — hangi oyun kitabı backtest ediliyor. */
 .playbook-toggle {
   display: flex;

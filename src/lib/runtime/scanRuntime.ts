@@ -33,6 +33,10 @@ export function compareSignalsByDecision(a: TradingSignal, b: TradingSignal) {
   const stageDifference = (SIGNAL_STAGE_RANK[b.stage] ?? 0) - (SIGNAL_STAGE_RANK[a.stage] ?? 0);
   if (stageDifference) return stageDifference;
 
+  // Chop (zıt raid çakışması) = tradeable değil; aynı stage içinde en dibe iner.
+  const chopDifference = Number(Boolean(a.chopConflict)) - Number(Boolean(b.chopConflict));
+  if (chopDifference) return chopDifference;
+
   // Trende karşı (counter-trend) fade'ler aynı stage içinde trend-yönü sinyallerin ALTINDA sıralanır
   // — headline/karar bir counter-trend fade olmasın; continuation/with-trend varsa o öne çıksın.
   const counterTrendDifference = Number(Boolean(a.counterTrend)) - Number(Boolean(b.counterTrend));

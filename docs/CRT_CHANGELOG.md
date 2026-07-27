@@ -20,9 +20,16 @@ Newest first. Each entry: date · area · what changed · why.
 - Fix #3 — consumed-setup grade: the signal detail panel no longer shows a live "A · 88 kalite"
   for a missed/invalidated setup; it shows "Tüketildi/Geçersiz · A/88 idi" in muted styling, so a
   dead setup can't be mistaken for a live opportunity.
-- Full suite 238 pass; typecheck clean. Deferred (lower severity, offered): collapsing the
-  simultaneous long+short CRT watches on ~5 symbols into a single "chop" state; widening
-  acceptance-suppression beyond strong-daily.
+- Full suite 238 pass; typecheck clean.
+- Follow-up (same day, both deferred items done): (a) CHOP COLLAPSE — when a symbol has opposing
+  live raids (long+short), its active signals are marked `chopConflict`, ranked to the bottom of
+  their stage in `compareSignalsByDecision`, and collapsed in the scanner to a single "chop · dur"
+  row ("zıt yönlü raid; yön yok, LTF onayı bekle") instead of two competing tradeable cards.
+  (b) ACCEPTANCE-SUPPRESSION WIDENED — the counter-trend accepted-fade suppression now fires on a
+  MODERATE (not only strong) directional daily, so a moderate-uptrend symbol like BTC also drops
+  its accepted counter-trend short; only weak/neutral daily is exempt. Both are display/ordering/
+  CRT-emit changes — measured continuation edge is unchanged (prod 46 trades +1.13R PF 3.45, CRT 0,
+  identical to pre-change). Full suite 239.
 
 ## 2026-07-27 — internal-structure (LTF) MSB reading in the direction engine
 - Owner caught it live on BTC: h1 was a strong up-move to 65,744, then a decisive drop that closed

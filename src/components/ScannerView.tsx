@@ -184,7 +184,16 @@ export function ScannerView({
   const continuationSignals = dataLoading
     ? []
     : sortForAction(dedupedPool.filter((signal) => signal.strategyId === "trend-continuation")).slice(0, 8);
-  const reversalSignals = signals.filter((signal) => signal.strategyId !== "trend-continuation");
+  // Chop (zıt raid çakışması) sembollerini tek satıra indir: iki competing sinyal yerine bir
+  // "chop, dur" satırı. Chop olmayanlar normal gösterilir.
+  const reversalRaw = signals.filter((signal) => signal.strategyId !== "trend-continuation");
+  const seenChopSymbols = new Set<string>();
+  const reversalSignals = reversalRaw.filter((signal) => {
+    if (!signal.chopConflict) return true;
+    if (seenChopSymbols.has(signal.symbol)) return false;
+    seenChopSymbols.add(signal.symbol);
+    return true;
+  });
   const sortedLowQualitySignals = dataLoading
     ? []
     : sortForAction(lowQualitySignals.filter((signal) => signal.strategyId !== "trend-continuation")).slice(0, 8);
@@ -384,11 +393,20 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
-              <b>Kalite {signal.grade}/{signal.score}</b>
-              <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
-              {signal.stage !== "ready" && (
-                <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "Daha temiz confirmation bekleniyor."}</em>
+              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
+              {signal.chopConflict ? (
+                <>
+                  <b className="chop-note">Zıt yönlü raid</b>
+                  <small>Üst timeframe'lerde long ve short raid çakışıyor; yön yok, LTF onayı gelene kadar bekle.</small>
+                </>
+              ) : (
+                <>
+                  <b>Kalite {signal.grade}/{signal.score}</b>
+                  <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
+                  {signal.stage !== "ready" && (
+                    <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "Daha temiz confirmation bekleniyor."}</em>
+                  )}
+                </>
               )}
             </button>
           ))}

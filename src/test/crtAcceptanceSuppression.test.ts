@@ -40,8 +40,13 @@ describe("CRT acceptance suppression (don't auto-hunt reversal into an accepted 
     expect(continuationAcceptanceSuppresses(ctx("bearish", "strong"), anchor("1w", 0.80960, 0.79090, 0.81770), setup("short"))).toBe(false);
   });
 
-  it("does NOT suppress when the daily trend is not strong (weak/moderate never auto-suppresses)", () => {
-    expect(continuationAcceptanceSuppresses(ctx("bullish", "moderate"), anchor("1w", 0.80960, 0.79090, 0.81770), setup("short"))).toBe(false);
+  it("suppresses on a MODERATE (not just strong) directional daily — widened 2026-07-27", () => {
+    // BTC gibi moderate uptrend + accepted counter-trend fade de bastırılır.
+    expect(continuationAcceptanceSuppresses(ctx("bullish", "moderate"), anchor("1w", 0.80960, 0.79090, 0.81770), setup("short"))).toBe(true);
+  });
+
+  it("does NOT suppress on a WEAK or NEUTRAL daily (needs a confident directional trend)", () => {
+    expect(continuationAcceptanceSuppresses(ctx("bullish", "weak"), anchor("1w", 0.80960, 0.79090, 0.81770), setup("short"))).toBe(false);
     expect(continuationAcceptanceSuppresses(ctx("neutral", "strong"), anchor("1w", 0.80960, 0.79090, 0.81770), setup("short"))).toBe(false);
   });
 });
