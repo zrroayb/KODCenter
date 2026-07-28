@@ -94,11 +94,21 @@ export function scanContexts(
   const tradeCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) !== "invalid");
   const invalidCandidates = activeSignals.filter((signal) => signalDecisionClass(signal) === "invalid");
   const visibleCandidates = tradeCandidates.filter((signal) => ruleAllowsSignal(signal, rules));
-  const visibleSignals = visibleCandidates.slice(0, rules.maxSignalsPerScan);
+  // HTF (1d/1w) watch/ready = büyük-resim context; global cap onu ASLA gizlememeli (2026-07-28:
+  // BTC 1d long C/58, LTF watch'ların altında cap dışı kalıp kayboluyordu). Cap'i doldururuz, sonra
+  // cap dışı kalan HTF setup'ları geri ekleriz — chop/counter-trend olmayanlar.
+  const isHtfContext = (signal: TradingSignal) =>
+    (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w")
+    && (signal.stage === "ready" || signal.stage === "watch")
+    && !signal.chopConflict;
+  const cappedVisible = visibleCandidates.slice(0, rules.maxSignalsPerScan);
+  const cutHtfContext = visibleCandidates.slice(rules.maxSignalsPerScan).filter(isHtfContext);
+  const visibleSignals = [...cappedVisible, ...cutHtfContext];
+  const promotedIds = new Set(visibleSignals.map((signal) => signal.id));
   const hiddenCandidates = [
     ...invalidCandidates,
     ...tradeCandidates.filter((signal) => !ruleAllowsSignal(signal, rules)),
-    ...visibleCandidates.slice(rules.maxSignalsPerScan)
+    ...visibleCandidates.slice(rules.maxSignalsPerScan).filter((signal) => !promotedIds.has(signal.id))
   ];
   const seenHiddenSignals = new Set<string>();
   const hiddenSignals = hiddenCandidates

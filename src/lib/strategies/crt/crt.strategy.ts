@@ -1705,12 +1705,19 @@ function signalsFromContext(context: MarketContext, settings: StrategyInput["set
       || (RANGE_TF_RANK[String(a.crtAnchor?.rangeTf)] ?? 9) - (RANGE_TF_RANK[String(b.crtAnchor?.rangeTf)] ?? 9)
       || signalPriority(a) - signalPriority(b)
       || b.score - a.score);
-  // When two anchors hold live raids in opposite directions (e.g. weekly short raid vs daily
-  // long raid), the chop between them IS the market: say it out loud on every signal.
-  const liveRaidDirections = new Set(
-    signals.filter((signal) => signal.crtAnchor?.raidActive && signal.stage !== "missed" && signal.stage !== "invalidated").map((signal) => signal.direction)
+  // Gerçek chop = YALNIZ HTF anchorların (1d/1w) zıt yönlü canlı raid'i (ör. haftalık short vs
+  // günlük long). Bir 1d/1w long ile bir LTF (4h/1h) short ÇAKIŞMASI chop DEĞİLDİR — o "HTF trend
+  // + LTF pullback"tir ve HTF long asıl okumadır; onu "chop dur"a indirmek gerçek setup'ı siler
+  // (2026-07-28: chop-collapse BTC 1d long'unu böyle gizlemişti). Bu yüzden chop determinasyonu
+  // sadece 1d/1w raid yönlerine bakar.
+  const htfRaidDirections = new Set(
+    signals
+      .filter((signal) => signal.crtAnchor?.raidActive
+        && (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w")
+        && signal.stage !== "missed" && signal.stage !== "invalidated")
+      .map((signal) => signal.direction)
   );
-  if (liveRaidDirections.size > 1) {
+  if (htfRaidDirections.size > 1) {
     const note = "Anchor çatışması: üst timeframe'lerde zıt yönlü canlı raid'ler var; LTF onayı gelmeden yön yok, chop bu çatışmanın kendisi.";
     for (const signal of signals) {
       signal.governance.warnings = Array.from(new Set([note, ...signal.governance.warnings]));

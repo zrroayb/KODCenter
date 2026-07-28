@@ -2,6 +2,23 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-28 — fix chop over-collapse + never hide an HTF (1d/1w) setup
+- Owner caught it live: BTC had a valid 1d LONG (price swept the 1d range low ~63,739 and reclaimed
+  — a with-trend discount long), but the app showed only "BTCUSD · chop · dur" and never surfaced
+  the long. Two causes, both mine from the previous day's changes:
+  1. Chop over-collapse: `chopConflict` fired on ANY opposing live raids, so a 1d long raid + a 1h
+     short raid was labeled chop and collapsed to a contentless "dur" row — erasing the 1d long. A
+     1d/1w-vs-LTF split is NOT chop; it is "HTF trend + LTF pullback", and the HTF read is the point.
+     Fixed: chop is now determined ONLY from 1d/1w raid directions conflicting with each other.
+  2. Global cap hid the HTF setup: the 1d long is an early C/58 watch (unconfirmed, waiting on a 1h
+     ChoCH), so it ranked below the 18-signal global cap and fell into the collapsed "early/rejected"
+     details — invisible. Fixed: HTF (1d/1w) watch/ready signals are promoted past the cap so the
+     big-picture context is never hidden by a pile of LTF watches from other symbols.
+- Verified on live data via the real `scanContexts` runtime: BTC 1d LONG (C/58) now lands in the
+  VISIBLE list alongside the 1h short, and BTC no longer renders as "chop". HTF promotion is bounded
+  (≤2 anchors/symbol) so it does not flood the board. Full suite 239; typecheck clean; continuation
+  edge untouched (visibility/labeling only).
+
 ## 2026-07-27 — audit fixes: counter-trend labeling + consumed-setup grade
 - A system audit across all 12 symbols surfaced two "saçma" (nonsensical-looking) patterns:
   (1) the direction engine and CRT frequently point opposite ways — on many symbols the only CRT
