@@ -1197,7 +1197,14 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // opposite range edge. Everything else belongs in quality warnings, not this gate list.
     anchor.origin ? `${anchor.origin.kind === "fvg-origin" ? "FVG-origin" : "Active CRT"} deneysel model; ana CRT ile ayrı ölçülene kadar yalnızca WATCH.` : undefined,
     !manipulation ? `Manipulation yok: ${anchor.spec.rangeTf.toUpperCase()} CRT high/low henüz alınmadı.` : undefined,
-    !choch ? `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.` : undefined,
+    // "ChoCH yok" yanıltıcıydı: LTF'de bir ChoCH OLABİLİR ama bu HTF setup'ın onayı, sweep'ten
+    // ÖNCEki korunan swing'in kırılmasıdır. Mesaj artık o SEVİYEYİ söyler, böylece "ama grafikte
+    // ChoCH var" karışıklığı biter — o küçük LTF kırılımı bu anchor'ı onaylamaz (2026-07-28).
+    !choch
+      ? (chochRead.reference
+          ? `${anchor.spec.confirmTf} kapanışı bu ${anchor.spec.rangeTf.toUpperCase()} setup'ın gerektirdiği ${direction === "short" ? "swing low" : "swing high"} ${formatPrice(chochRead.reference.level)}'i kırmadı (küçük LTF ChoCH bu setup'ı onaylamaz).`
+          : `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.`)
+      : undefined,
     settings.useHtfAlignmentFilter === true && !htfAlignment.aligned && !reversalAtExternalHtf ? `HTF yön filtresi açık ve yön karşı: ${htfAlignment.summary}` : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,

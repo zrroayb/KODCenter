@@ -2,6 +2,18 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-28 — clarify the misleading "1h ChoCH yok" blocker
+- Owner (rightly): BTC clearly had a 1h ChoCH — after sweeping 62,742, price closed 63,928 above
+  the 63,669 swing high — yet the 1d long said "1h ChoCH/shift mum kapanışı yok". Both true, but
+  the message was misleading: the 1d anchor's confirmation must break the swing high that existed
+  BEFORE the 1d-range-low sweep (65,078 here), not any LTF pivot. The small LTF sweep→ChoCH the
+  owner read IS valid — it's the 1H-anchor setup, which stays tracking-only precisely because live
+  data measured it at −2.77R / PF 0.31 / 20% win (see the 1H-anchor demotion, 2026-07-22).
+- Fix: the blocker now names the exact level the setup needs — e.g. "1h kapanışı bu 1D setup'ın
+  gerektirdiği swing high 65,078'i kırmadı (küçük LTF ChoCH bu setup'ı onaylamaz)" — so a visible
+  LTF ChoCH no longer contradicts the message. Blocker/message only; detection and the measured
+  edge are unchanged. Full suite 239.
+
 ## 2026-07-28 — fix chop over-collapse + never hide an HTF (1d/1w) setup
 - Owner caught it live: BTC had a valid 1d LONG (price swept the 1d range low ~63,739 and reclaimed
   — a with-trend discount long), but the app showed only "BTCUSD · chop · dur" and never surfaced
