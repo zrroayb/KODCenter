@@ -123,7 +123,14 @@ export function parseYahooChartResponse(payload: YahooChartResponse, interval?: 
   const quote = result?.indicators?.quote?.[0];
   if (!quote || !timestamps.length) return [];
 
-  const candles: Candle[] = [];
+  // Yahoo intraday serilerinin sonuna, oluşmakta olan mumun yanına HİZASIZ bir "şu an"
+  // (regularMarketTime) barı ekliyor — ör. 14:00 saatlik mumu VARKEN bir de 14:36 barı. Bu, 1h/15m/5m
+  // serisini kirletir (mükerrer/hizasız mum). Her timestamp'i kendi interval kovasına snap edip aynı
+  // kovadaki barları birleştirerek temizleriz: hizalı barlar (%interval==0) yerinde kalır, hizasız
+  // trailing bar doğru kovaya (14:00) merge olur. interval yoksa (ham) eski davranış korunur.
+  const intervalMs = interval ? YAHOO_INTERVAL_MS[interval] : undefined;
+  const byBucket = new Map<number, Candle>();
+  const rawCandles: Candle[] = [];
   timestamps.forEach((timestamp, index) => {
     const open = quote.open?.[index];
     const high = quote.high?.[index];
@@ -132,17 +139,24 @@ export function parseYahooChartResponse(payload: YahooChartResponse, interval?: 
     if (open == null || high == null || low == null || close == null) return;
 
     const time = timestamp * 1000;
-    candles.push({
-      time,
-      open,
-      high,
-      low,
-      close,
-      volume: quote.volume?.[index] ?? 0,
-      ...(interval ? { closed: time + YAHOO_INTERVAL_MS[interval] <= now } : {})
-    });
+    const volume = quote.volume?.[index] ?? 0;
+    if (intervalMs == null) {
+      rawCandles.push({ time, open, high, low, close, volume });
+      return;
+    }
+    const bucket = Math.floor(time / intervalMs) * intervalMs;
+    const existing = byBucket.get(bucket);
+    if (existing) {
+      existing.high = Math.max(existing.high, high);
+      existing.low = Math.min(existing.low, low);
+      existing.close = close;                    // timestamp artan sırada → en son gelen kapanış
+      existing.volume = (existing.volume ?? 0) + volume;
+    } else {
+      byBucket.set(bucket, { time: bucket, open, high, low, close, volume, closed: bucket + intervalMs <= now });
+    }
   });
 
+  const candles = intervalMs == null ? rawCandles : Array.from(byBucket.values());
   return candles.sort((a, b) => a.time - b.time);
 }
 

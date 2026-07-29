@@ -51,21 +51,31 @@ describe("Yahoo data provider", () => {
     ).toThrow("No data found");
   });
 
-  it("marks the live Yahoo bucket as forming instead of treating its quote as a closed candle", () => {
+  it("merges Yahoo's misaligned regularMarketTime quote into its interval bucket (no spurious bar)", () => {
+    // now = 17:39 → current 15m bucket 17:30-17:45. Yahoo appends a misaligned "now" quote (17:38:21)
+    // in that same bucket; it must MERGE into the forming 17:30 candle, not become a separate bar.
     const now = Date.UTC(2026, 6, 12, 17, 39);
     const candles = parseYahooChartResponse({
       chart: {
         result: [{
           timestamp: [
-            Date.UTC(2026, 6, 12, 17, 15) / 1000,
-            Date.UTC(2026, 6, 12, 17, 28, 21) / 1000
+            Date.UTC(2026, 6, 12, 17, 15) / 1000,       // closed bucket
+            Date.UTC(2026, 6, 12, 17, 30) / 1000,       // current bucket start (forming)
+            Date.UTC(2026, 6, 12, 17, 38, 21) / 1000    // misaligned regularMarketTime quote, same bucket
           ],
-          indicators: { quote: [{ open: [100, 101], high: [102, 103], low: [99, 100], close: [101, 102], volume: [10, 5] }] }
+          indicators: { quote: [{ open: [100, 101, 101.5], high: [102, 103, 104], low: [99, 100, 100.5], close: [101, 102, 103], volume: [10, 5, 3] }] }
         }]
       }
     }, "15m", now);
 
+    expect(candles).toHaveLength(2);                                        // 3 timestamps -> 2 buckets
     expect(candles.map((candle) => candle.closed)).toEqual([true, false]);
+    expect(candles.every((candle) => candle.time % (15 * 60 * 1000) === 0)).toBe(true); // hepsi hizalı
+    expect(candles[1].time).toBe(Date.UTC(2026, 6, 12, 17, 30));
+    expect(candles[1].open).toBe(101);   // kova ilk barın open'ı
+    expect(candles[1].high).toBe(104);   // merge: max high
+    expect(candles[1].close).toBe(103);  // merge: son quote'un close'u
+    expect(candles[1].volume).toBe(8);   // merge: hacim toplamı
   });
 
   it("prefers the Cloudflare candle cache and hydrates executable bid/ask candles", async () => {

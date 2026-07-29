@@ -2,6 +2,21 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — fix malformed Yahoo intraday candles (misaligned trailing bar)
+- Owner: "1h mumları bok gibi alıyorsun." Confirmed on live data: every Yahoo symbol's intraday
+  series (1h/15m/5m) carried a spurious MISALIGNED trailing bar — Yahoo appends the current
+  `regularMarketTime` quote (e.g. 14:36) as its OWN candle alongside the proper hour bucket (14:00),
+  so the same forming hour was represented by two bars and the last "1h candle" was a 36-min partial
+  at a non-hour timestamp. `parseYahooChartResponse` used the raw timestamps verbatim, so this
+  polluted every downstream reader (swings/FVG/OB, and the h1 confirm stream the 1d CRT anchor
+  depends on). Crypto (Binance) was already clean.
+- Fix: for intraday intervals, snap each timestamp to its interval bucket (`floor(time/intervalMs)`)
+  and MERGE bars sharing a bucket (open=first, high=max, low=min, close=last, volume=sum,
+  closed=bucket+interval≤now). Already-aligned bars (all but the trailing quote) are unchanged; the
+  misaligned "now" quote now merges into its forming hour. Verified: EURUSD 1h is now fully
+  :00-aligned with the last bar the proper forming 14:00 candle carrying the latest price. Non-interval
+  (raw) parsing is untouched. Test updated to assert the merge; full suite 239.
+
 ## 2026-07-28 — clarify the misleading "1h ChoCH yok" blocker
 - Owner (rightly): BTC clearly had a 1h ChoCH — after sweeping 62,742, price closed 63,928 above
   the 63,669 swing high — yet the 1d long said "1h ChoCH/shift mum kapanışı yok". Both true, but
