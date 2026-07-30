@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
 import { signalConfirmTimeframe, type FocusedTimeRange } from "../lib/charts/selectedSignal";
-import type { Candle, MarketContext, Timeframe, TradingSignal } from "../lib/ict/types";
+import type { Candle, DealingRange, MarketContext, Timeframe, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
 import { CandleChart } from "./CandleChart";
@@ -51,10 +51,37 @@ function bestSignalForSymbol(signals: TradingSignal[], symbol: string): TradingS
 // actually holds ITS range candle as "CRT Range" and its confirmation tab as "Confirmation",
 // instead of the static "4h = CRT / 1D = DOL" assumption.
 function captionFor(item: { id: ChartTab; caption: string }, signal: TradingSignal | null): string {
+  // Trend Continuation: kendi exec sekmesinde "Continuation POI" etiketi, CRT terimleri değil.
+  if (signal && !signal.crtAnchor && signal.strategyId === "trend-continuation") {
+    return confirmTabFor(signal) === item.id ? "Trend Continuation" : item.caption;
+  }
   if (!signal?.crtAnchor) return item.caption;
   if (ANCHOR_TAB[signal.crtAnchor.rangeTf] === item.id) return "CRT Range";
   if (confirmTabFor(signal) === item.id) return "Confirmation";
   return item.caption;
+}
+
+// Chart üstünde çizilecek "range" kutusu. CRT'de CRT range; Trend Continuation'da pullback FVG
+// (POI) — CRT range'i çizmek continuation'da alakasız/yanıltıcıydı. Sinyal yoksa aktif CRT range.
+function chartRangeFor(signal: TradingSignal | null, context: MarketContext): DealingRange {
+  if (signal?.crtAnchor) {
+    return {
+      high: signal.crtAnchor.rangeHigh,
+      low: signal.crtAnchor.rangeLow,
+      midpoint: (signal.crtAnchor.rangeHigh + signal.crtAnchor.rangeLow) / 2,
+      source: `CRT ${signal.crtAnchor.rangeTf} range`
+    };
+  }
+  if (signal?.strategyId === "trend-continuation") {
+    const fvg = signal.plan.entryModel?.fairValueGap;
+    if (fvg) {
+      return { high: fvg.high, low: fvg.low, midpoint: (fvg.high + fvg.low) / 2, source: "Pullback FVG · continuation POI" };
+    }
+    const high = Math.max(signal.plan.entry, signal.plan.stopLoss);
+    const low = Math.min(signal.plan.entry, signal.plan.stopLoss);
+    return { high, low, midpoint: (high + low) / 2, source: "Continuation giriş bölgesi" };
+  }
+  return context.crt.activeRange;
 }
 
 function MarketContextPanel({ context, signals }: { context: MarketContext; signals: TradingSignal[] }) {
@@ -212,14 +239,7 @@ export function ChartsView({
           candles={candlesForTab(market, activeTab)}
           title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           mode={tab.mode}
-          range={activeSelectedSignal?.crtAnchor
-            ? {
-                high: activeSelectedSignal.crtAnchor.rangeHigh,
-                low: activeSelectedSignal.crtAnchor.rangeLow,
-                midpoint: (activeSelectedSignal.crtAnchor.rangeHigh + activeSelectedSignal.crtAnchor.rangeLow) / 2,
-                source: `CRT ${activeSelectedSignal.crtAnchor.rangeTf} range`
-              }
-            : context.crt.activeRange}
+          range={chartRangeFor(activeSelectedSignal, context)}
           context={context}
           signals={markerSignals}
           selectedSignal={activeSelectedSignal}

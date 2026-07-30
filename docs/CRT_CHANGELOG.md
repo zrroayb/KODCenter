@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — chart renders Trend Continuation correctly (was CRT-shaped garbage)
+- Owner: continuation signals were drawn badly on the chart and not labeled as continuation. Causes:
+  (1) `signalConfirmTimeframe` had no crtAnchor for a continuation signal, so it defaulted to m15 —
+  the chart opened on the WRONG timeframe (continuation's POI/entry live on 1h); (2) the chart's
+  range box fell back to `context.crt.activeRange` (an irrelevant CRT range) since continuation has
+  no crtAnchor; (3) captions/decision text used CRT terms (CRT Range, EQ/DOL) that don't apply.
+- Fixes: (1) `signalConfirmTimeframe` now uses the signal's own execution TF (1h) when there is no
+  crtAnchor → the chart opens on 1h. (2) New `chartRangeFor` draws the pullback FVG (the continuation
+  POI) as the range box, not the CRT range. (3) Tab caption shows "Trend Continuation", the detail
+  eyebrow shows the playbook, and the on-chart READY line reads "READY (Trend Continuation) · Giriş …
+  · Stop … · Hedef …" (single target, no EQ/DOL).
+- Verified live: selecting the BTC continuation long opens the 1h chart titled "BTCUSD · 1h Trend
+  Continuation · LONG READY · A · 1:2.40", FVG box drawn, no CRT wording. Full suite 239.
+
 ## 2026-07-29 — fix malformed Yahoo intraday candles (misaligned trailing bar)
 - Owner: "1h mumları bok gibi alıyorsun." Confirmed on live data: every Yahoo symbol's intraday
   series (1h/15m/5m) carried a spurious MISALIGNED trailing bar — Yahoo appends the current

@@ -44,6 +44,9 @@ const TF_MS: Record<ConfirmationTimeframe, number> = {
 export function signalConfirmTimeframe(signal: TradingSignal): ConfirmationTimeframe {
   const tf = signal.crtAnchor?.confirmTf;
   if (tf === "1h" || tf === "4h") return tf;
+  // Non-CRT playbooks (Trend Continuation) have no crtAnchor — their POI/entry live on the signal's
+  // own execution timeframe (1h), so the chart must open THERE, not default to m15.
+  if (!signal.crtAnchor && (signal.timeframe === "1h" || signal.timeframe === "4h")) return signal.timeframe;
   return signal.context.timeframes.m15.length ? "15m" : "5m";
 }
 

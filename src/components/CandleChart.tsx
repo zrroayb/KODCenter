@@ -134,6 +134,10 @@ function chartDecisionText(signal: TradingSignal, closeRequirement: CloseConfirm
     return compactDecisionText(`TEK KARAR: ${closeRequirement.timeframe} mum ${formatPrice(closeRequirement.level)} ${sideText} kapanmalı (${refText}).`);
   }
   if (signal.stage === "ready") {
+    // Continuation tek hedeflidir (EQ/DOL CRT reversal terimleridir); ona göre yaz.
+    if (signal.strategyId === "trend-continuation") {
+      return compactDecisionText(`TEK KARAR: READY (Trend Continuation). Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · Hedef ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)}.`);
+    }
     return compactDecisionText(`TEK KARAR: READY. Giriş ${formatPrice(signal.plan.entry)} · Stop ${formatPrice(signal.plan.stopLoss)} · EQ ${formatPrice(signal.plan.targets[0] ?? signal.plan.entry)} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0] ?? signal.plan.entry)}.`);
   }
   if (signal.plan.entryStatus === "pending") {
