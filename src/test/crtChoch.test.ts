@@ -124,6 +124,42 @@ describe("CRT ChoCH truth model", () => {
     expect(read.confirmation?.candleIndex).toBe(10);
   });
 
+  it("uses the POST-sweep reclaim pivot (CISD/MSS) as the shift, not a distant pre-sweep swing", () => {
+    // ICT 2022 model: after the sweep, the reclaim leg prints a pivot high (idx10), pulls back,
+    // then a strong close breaks above it (idx12) = CISD up. No pre-sweep swing is supplied, so
+    // only the post-sweep reference can confirm — this is what unlocked the manipulation->ChoCH wall.
+    const data = candles();
+    data[10] = { ...data[10], open: 100.1, high: 100.7, low: 100.0, close: 100.5 };
+    data[11] = { ...data[11], open: 100.4, high: 100.5, low: 100.1, close: 100.2 };
+    data[12] = { ...data[12], open: 100.2, high: 101.2, low: 100.15, close: 101.0 };
+
+    const read = detectCrtChoch({
+      candles: data,
+      swings: [],
+      range,
+      direction: "long",
+      manipulationIndex: 8,
+      buffer: 0.2,
+      averageRange: 1
+    });
+
+    expect(read.reference?.candleIndex).toBe(10);   // reclaim pivot, post-sweep
+    expect(read.confirmation?.candleIndex).toBe(12); // strong close through it
+  });
+
+  it("falls back to the pre-sweep swing when the post-sweep pivot is never broken", () => {
+    // Reclaim makes a pivot high (idx10) but price never closes above it → no post-sweep CISD.
+    // Detection must fall back to the supplied pre-sweep swing + its later break (idx12).
+    const data = candles();
+    data[10] = { ...data[10], open: 100.1, high: 101.9, low: 100.0, close: 101.2 }; // pivot never exceeded
+    data[11] = { ...data[11], open: 101.0, high: 101.3, low: 100.6, close: 100.7 };
+    data[12] = { ...data[12], open: 100.5, high: 101.1, low: 100.4, close: 101.05 }; // breaks pre-sweep 101, not idx10
+    const swings: SwingPoint[] = [{ side: "high", level: 101, candleIndex: 4, strength: "minor" }];
+
+    const read = detectCrtChoch({ candles: data, swings, range, direction: "long", manipulationIndex: 8, buffer: 0.2, averageRange: 1 });
+    expect(read.reference?.candleIndex).toBe(4); // pre-sweep fallback
+  });
+
   it("recognizes the mirrored bearish shift after a buy-side manipulation", () => {
     const data = candles();
     data[5] = { ...data[5], low: 99.3 };

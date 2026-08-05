@@ -706,6 +706,42 @@ function internalShiftReference(
   return undefined;
 }
 
+// Post-sweep CISD/MSS referansı (ICT 2022 modeli, doktrinel doğru): "sweep → reclaim → shift"te
+// kırılan yapı sweep'ten SONRA, reclaim bacağında oluşur — pre-sweep swing değil. Bullish reclaim
+// (range low sweep) için: sweep sonrası reclaim bacağının EN GÜNCEL karşı-yön mikro pivotu (lower-high);
+// onu kapanışla kırmak = yukarı karakter değişimi. Owner 2026-07-29: manipulation→ChoCH huni duvarını
+// (19→0) açmak için, çünkü kod ChoCH'u yanlış (pre-sweep) çapalıyordu.
+function postSweepShiftReference(
+  candles: Candle[],
+  manipulationIndex: number,
+  side: SwingPoint["side"],
+  range: DealingRange,
+  internalMargin: number
+): SwingPoint | undefined {
+  let latest: SwingPoint | undefined;
+  for (let index = manipulationIndex + 1; index <= candles.length - 2; index += 1) {
+    const previous = candles[index - 1];
+    const candle = candles[index];
+    const next = candles[index + 1];
+    if (!previous || !candle || !next || next.closed === false) continue;
+    const isPivot = side === "high"
+      ? candle.high > previous.high && candle.high >= next.high
+      : candle.low < previous.low && candle.low <= next.low;
+    const level = side === "high" ? candle.high : candle.low;
+    const isInternal = side === "high"
+      ? level < range.high - internalMargin
+      : level > range.low + internalMargin;
+    if (!isPivot || !isInternal) continue;
+    // Bir CISD referansı ancak SONRAKİ kapalı bir mum onu kapanışla kırdıysa geçerlidir — yoksa bu,
+    // reclaim'in en güncel tepesi/displacement mumunun kendisidir ve "kırılacak yapı" değildir.
+    // Bu guard, displacement mumunu kendi referansı yapıp pre-sweep fallback'ini engelleme bug'ını önler.
+    const brokenLater = candles.slice(index + 1).some((later) =>
+      later.closed !== false && (side === "high" ? later.close > level : later.close < level));
+    if (brokenLater) latest = { side, level, candleIndex: index, strength: "minor" };
+  }
+  return latest;
+}
+
 export function detectCrtChoch(input: {
   candles: Candle[];
   swings: SwingPoint[];
@@ -731,21 +767,24 @@ export function detectCrtChoch(input: {
       ? point.level > range.low + internalMargin
       : point.level < range.high - internalMargin)
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
-  // CRT shift is an internal structure break. A three-wing swing is preferred, but a
-  // one-candle internal pivot that was already visible before the manipulation is valid too.
-  // Requiring only the broad three-wing pivot hid the exact SSL -> shift sequence used on
-  // discretionary CRT charts.
-  const swing = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  // CRT shift is an internal structure break. ICT 2022 model: the confirming shift is the CISD/MSS
+  // the reclaim leg leaves AFTER the sweep — so the POST-sweep opposing micro-pivot is preferred.
+  // Pre-sweep swings (three-wing, then one-candle internal) remain as a higher-conviction fallback.
+  const postSweepSwing = postSweepShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  const preSweepSwing = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  const swing = postSweepSwing ?? preSweepSwing;
+  const isPostSweep = Boolean(postSweepSwing);
   if (!swing) return {};
 
   const reference = { level: swing.level, candleIndex: swing.candleIndex };
   const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
-  const referenceWing = confirmedSwing ? CHOCH_SWING_WING : 1;
+  const referenceWing = isPostSweep ? 1 : confirmedSwing ? CHOCH_SWING_WING : 1;
   const firstBreakIndex = Math.max(manipulationIndex + 1, swing.candleIndex + referenceWing + 1);
   // Sweep -> shift must be one delivery sequence: the break search ends CHOCH_MAX_DELAY_CANDLES
-  // after the manipulation. A close through the swing beyond that window is a move the raid no
-  // longer owns (the recovery's own BOS), so it cannot be this setup's character change.
-  const lastBreakIndex = Math.min(candles.length - 1, manipulationIndex + CHOCH_MAX_DELAY_CANDLES);
+  // after the sequence anchor. Pre-sweep refs anchor to the manipulation; post-sweep CISD refs
+  // anchor to the shift pivot itself (the reclaim's break naturally lands right after the pivot).
+  const windowFrom = isPostSweep ? swing.candleIndex : manipulationIndex;
+  const lastBreakIndex = Math.min(candles.length - 1, windowFrom + CHOCH_MAX_DELAY_CANDLES);
   let structuralBreak: CrtChochRead["structuralBreak"];
   for (let index = firstBreakIndex; index <= lastBreakIndex; index += 1) {
     const candle = candles[index];

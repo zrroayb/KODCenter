@@ -2,6 +2,33 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — post-sweep CISD/MSS ChoCH: unlock the CRT READY funnel (0 → measured positive)
+- Critical finding (owner-driven end-to-end audit): CRT almost never reached READY. A funnel across
+  all 12 symbols showed the wall precisely: **19 manipulations → 0 confirmed ChoCH** → nothing
+  downstream. The flagship playbook was effectively non-firing; the historical +2.89R "core" rested
+  on a ~1-trade sample.
+- Root cause: `detectCrtChoch` anchored the ChoCH reference to a PRE-sweep swing (both the wing-3
+  `confirmedSwing` and the `internalShiftReference` fallback scan only BEFORE the manipulation). But
+  the ICT 2022 model confirms a reversal with the shift the reclaim leg leaves AFTER the sweep
+  (CISD/MSS) — a post-sweep opposing micro-pivot that price then closes through. Demanding a break of
+  a distant pre-sweep swing within ~12 candles almost never triggers → manipulations never convert.
+  This is the owner's BTC complaint ("1h ChoCH var ama sistem yok diyor") generalized.
+- Fix: new `postSweepShiftReference` finds the reclaim leg's most recent opposing micro-pivot that a
+  LATER closed candle actually breaks (the `brokenLater` guard — so it is a real CISD, never the
+  displacement candle itself). `detectCrtChoch` prefers this post-sweep reference; the pre-sweep
+  swing stays as a higher-conviction fallback (when no post-sweep CISD exists). Same displacement
+  quality (bodyRatio ≥0.5, rangeATR ≥0.8), freshness, and retest-mandatory gates. The break-window
+  anchors to the shift pivot for post-sweep refs, to the manipulation for pre-sweep.
+- MEASURED (real data, 60d, 12 symbols, prod): CRT went from **0 READY to 92 READY / 72 triggered
+  trades, +0.27R expectancy, PF 1.5, 44.4% win, DD 6.73R** (sample mode: 81 trades +0.38R PF 1.76).
+  Modest per-trade edge but a real one (~+19R over the window) and a night-and-day change from a
+  non-functional playbook. First cut had a bug (picked the displacement candle as its own reference,
+  broke 5 truth-model tests + inflated the number to +0.61R); the `brokenLater` guard fixed it and
+  all 17 crtChoch truth-model tests pass (2 new: post-sweep CISD detected; pre-sweep fallback when
+  the post-sweep pivot is never broken). Full suite 241.
+- Status: shipped + measured-preliminary. Single 60d Yahoo pass, small per-symbol samples, and CRT
+  READYs stay candidate-grade until live-forward confirms the edge holds at prod settings.
+
 ## 2026-07-29 — chart renders Trend Continuation correctly (was CRT-shaped garbage)
 - Owner: continuation signals were drawn badly on the chart and not labeled as continuation. Causes:
   (1) `signalConfirmTimeframe` had no crtAnchor for a continuation signal, so it defaulted to m15 —

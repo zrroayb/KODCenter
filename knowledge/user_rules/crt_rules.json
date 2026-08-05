@@ -61,7 +61,7 @@
     {
       "id": "choch-first-break-near-sweep",
       "area": "confirmation",
-      "rule": "ChoCH must be the FIRST close through the protecting swing, and it must land within a bounded window after the manipulation (CHOCH_MAX_DELAY_CANDLES=24 confirm candles). A later re-close of the same level is the new trend's BOS, not this raid's ChoCH.",
+      "rule": "ChoCH must be the FIRST close through the protecting swing, within a bounded window (CHOCH_MAX_DELAY_CANDLES=12 confirm candles). A later re-close of the same level is the new trend's BOS, not this raid's ChoCH. REFERENCE = POST-sweep CISD/MSS (2026-07-29): the confirming shift is the opposing micro-pivot the reclaim leg leaves AFTER the sweep (ICT 2022 model), found by postSweepShiftReference and validated by a later close that actually breaks it (brokenLater guard, never the displacement candle itself). A pre-sweep confirmed swing / internal pivot is the higher-conviction fallback when no post-sweep CISD exists. Anchoring only to pre-sweep swings was the bug that starved CRT to ~0 READY (funnel: 19 manipulation -> 0 ChoCH); the post-sweep fix took CRT to 92 READY / 72 trades / +0.27R / PF 1.5 on a 60d real-data pass (measured-preliminary, candidate-grade until live-forward).",
       "status": "implemented"
     },
     {
