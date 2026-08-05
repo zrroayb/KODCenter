@@ -273,13 +273,23 @@ export function ScannerView({
               <strong>{best.symbol} · {best.direction.toUpperCase()}</strong>
               <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · Kalite {best.grade}/{best.score}</span>
             </div>
-            <div className="simple-plan-grid">
-              <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
-              <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
-              <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-              <div><span>EQ RR</span><strong>{formatR(best.plan.managementRR ?? 0)}</strong></div>
-              <div><span>DOL RR</span><strong>{formatR(best.plan.rr)}</strong></div>
-            </div>
+            {/* EQ/DOL CRT reversal terimleri; continuation tek hedeflidir → Hedef + Net RR. */}
+            {best.strategyId === "trend-continuation" ? (
+              <div className="simple-plan-grid">
+                <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
+                <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
+                <div><span>Hedef</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
+                <div><span>Net RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+              </div>
+            ) : (
+              <div className="simple-plan-grid">
+                <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
+                <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
+                <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
+                <div><span>EQ RR</span><strong>{formatR(best.plan.managementRR ?? 0)}</strong></div>
+                <div><span>DOL RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+              </div>
+            )}
             <section className="simple-structure-box">
               <strong>Yapı okuması</strong>
               <p>{bestAudit?.decision ?? actionReason}</p>
@@ -447,7 +457,9 @@ export function ScannerView({
               <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
               <b>{signal.stage.toUpperCase()}</b>
               <small>{signalDecisionReason(signal)}</small>
-                <em>Entry {formatPrice(signal.plan.entry)} · SL {formatPrice(signal.plan.stopLoss)} · EQ {formatPrice(signal.plan.targets[0])} · DOL {formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}</em>
+                <em>Entry {formatPrice(signal.plan.entry)} · SL {formatPrice(signal.plan.stopLoss)} · {signal.strategyId === "trend-continuation"
+                  ? `Hedef ${formatPrice(signal.plan.targets[0])}`
+                  : `EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}`}</em>
             </button>
           ))}
           {!inactiveSignals.length && <p className="muted-note">Stop olmuş veya missed setup yok.</p>}

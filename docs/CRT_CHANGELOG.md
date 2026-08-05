@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — purge remaining CRT-term leaks from the continuation UI
+- Owner: "fix all the errors/nonsense." Swept the UI for CRT-only wording (EQ/DOL/EQ RR) shown on
+  Trend Continuation signals (single-target, no EQ/managementRR) and made each surface playbook-aware:
+  - Scanner "TEK BAKIŞ" (headline) plan grid: continuation now shows Entry/SL/Hedef/Net RR instead
+    of EQ/TP1 · EQ RR · DOL RR (this was the exact leak visible on the earlier ETHUSD screenshot).
+  - Signal detail plan grid: same Hedef/Net RR for continuation vs TP-DOL/EQ RR/DOL RR for CRT.
+  - CandleChart target price-line labels (both the confirm-TF and HTF overlays): "HEDEF" / "HTF
+    HEDEF" for continuation instead of "EQ/TP1" / "DOL/TP2".
+  - Scanner history/"bozulmuş" card: continuation shows "Hedef X" instead of "EQ X · DOL Y".
+- These join the earlier continuation fixes (telegram message, chart tab/caption/range box, detail
+  eyebrow, consumed-setup grade, on-chart READY line). Display-only; full suite 241, typecheck clean.
+- Remaining minor CRT-flavored strings on continuation (the detail "ChoCH/Just" technical row, the
+  "CRT Analiz (Gemini)" AI section) left as-is for now — low-visibility / behind a fetch.
+
 ## 2026-07-29 — post-sweep CISD/MSS ChoCH: unlock the CRT READY funnel (0 → measured positive)
 - Critical finding (owner-driven end-to-end audit): CRT almost never reached READY. A funnel across
   all 12 symbols showed the wall precisely: **19 manipulations → 0 confirmed ChoCH** → nothing

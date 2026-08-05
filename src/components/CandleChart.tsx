@@ -730,7 +730,7 @@ export function CandleChart({
         )}
         {levelLine(selectedSignal.plan.entry, "#38bdf8", "ENTRY", false, 1, "#0c4a6e")}
         {levelLine(selectedSignal.plan.stopLoss, bear, selectedSignal.stage === "invalidated" ? "STOP HIT" : "STOP", false, 1, "#4c0519")}
-        {selectedSignal.plan.targets.map((target, index) => levelLine(target, bull, index === 0 ? "EQ/TP1" : "DOL/TP2", index > 0, 1, "#064e3b"))}
+        {selectedSignal.plan.targets.map((target, index) => levelLine(target, bull, selectedSignal.strategyId === "trend-continuation" ? "HEDEF" : index === 0 ? "EQ/TP1" : "DOL/TP2", index > 0, 1, "#064e3b"))}
         <g className="trade-execution-markers">
           {planMarker(selectedSignal.plan.entry, "#38bdf8", "#0c4a6e", anchorX, "entry", `${selectedSignal.id}-entry`)}
           {planMarker(selectedSignal.plan.stopLoss, bear, "#4c0519", anchorX, "stop", `${selectedSignal.id}-stop`)}
@@ -774,7 +774,7 @@ export function CandleChart({
       ...selectedSignal.plan.targets.slice(0, 2).map((target, index) => ({
         key: `target-${index}`,
         price: target,
-        label: index === 0 ? "HTF EQ/TP1" : "HTF DOL/TP2",
+        label: selectedSignal.strategyId === "trend-continuation" ? "HTF HEDEF" : index === 0 ? "HTF EQ/TP1" : "HTF DOL/TP2",
         color: index === 0 ? bull : "#14b8a6",
         fill: "rgba(6, 78, 59, 0.9)",
         dash: index === 0 ? "4 5" : "2 6"
