@@ -127,6 +127,13 @@ export function SignalDetailsPanel({
 
   useEffect(() => {
     let active = true;
+    // CRT-özel Gemini yorumu yalnız CRT sinyalleri için — continuation'da CRT interpretasyonu koşmak
+    // ve "CRT Analiz" başlığı göstermek anlamsız (2026-07-29).
+    if (signal.strategyId !== "crt") {
+      setCrtAnalysisLoading(false);
+      setCrtAnalysis({ status: "disabled", reason: "CRT analizi yalnız CRT reversal içindir." });
+      return;
+    }
     setCrtAnalysisLoading(true);
     setCrtAnalysis({ status: "disabled", reason: "CRT analizi bekleniyor." });
     void fetchCrtAnalysis(signal).then((response) => {
@@ -235,7 +242,7 @@ export function SignalDetailsPanel({
         <h3>AI mentor</h3>
         <p>
           {aiLoading
-            ? "Gemini chartı CRT mentor gibi okuyor..."
+            ? "Gemini chartı mentor gibi okuyor..."
             : aiCommentary.status === "ready" || aiCommentary.status === "fallback"
               ? aiCommentary.commentary
               : aiCommentary.status === "disabled"
@@ -243,6 +250,7 @@ export function SignalDetailsPanel({
                 : `AI yorumu alınamadı: ${aiCommentary.error ?? aiCommentary.reason ?? "bilinmeyen hata"}`}
         </p>
       </section>
+      {signal.strategyId === "crt" && (
       <section className={`crt-analysis-card ${crtAnalysis.status === "ready" ? "ready" : crtAnalysis.status}`}>
         <header className="crt-analysis-head">
           <h3>CRT Analiz (Gemini)</h3>
@@ -282,6 +290,7 @@ export function SignalDetailsPanel({
           <p className="crt-analysis-summary">CRT analizi alınamadı: {crtAnalysis.error ?? "bilinmeyen hata"}</p>
         )}
       </section>
+      )}
       <details className="details-section compact-details">
         <summary>Teknik detay</summary>
         <div className="detail-grid compact-detail-grid">
@@ -292,7 +301,7 @@ export function SignalDetailsPanel({
           <div><span>Zone</span><strong>{signal.context.premiumDiscount.zone}</strong></div>
           <div><span>Session</span><strong>{activeKillzone}</strong></div>
           <div><span>POI retest</span><strong>{signal.plan.entryModel.retested ? "var · bonus" : "yok · şart değil"}</strong></div>
-          <div><span>ChoCH/Just</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
+          <div><span>{signal.strategyId === "trend-continuation" ? "Kabul (BOS)" : "ChoCH/Just"}</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
           <div><span>Friction</span><strong>{signal.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(signal.plan.executionCosts.total)}</strong></div>
           <div><span>RR durumu</span><strong>{rrStatusText(signal)}</strong></div>
           <div><span>Rejim</span><strong>{signal.context.regime.type}</strong></div>

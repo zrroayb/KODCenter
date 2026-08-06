@@ -2,6 +2,20 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — continuation detail panel de-CRT'd; CRT quality-tighten measured (no win, reverted)
+- #3 (display): the signal detail panel no longer runs or shows the CRT-specific "CRT Analiz (Gemini)"
+  section for a Trend Continuation signal (the fetch is skipped and the whole card is gated to
+  strategyId === "crt"); the technical "ChoCH/Just" row reads "Kabul (BOS)" for continuation; the AI
+  mentor loading string dropped its "CRT" flavor. Display-only.
+- #1 (CRT edge): tried a doctrinal quality tighten — require displacement ≥ medium for READY (drop
+  the weak "none-displacement + FVG" escape). MEASURED on real data: it made CRT slightly WORSE
+  (prod +0.27R → +0.22R, PF 1.5 → 1.4, fewer trades), so it was REVERTED. Honest read: there is no
+  clean code lever to raise the modest CRT edge — the losses are spread across small-sample sessions
+  (Asia/London negative, NY AM +1.07R) and chop, and cutting them is overfitting on 4–9-trade buckets
+  that also violates the killzone-confluence rule. The real lever is live-forward data + a
+  multi-period study, not a speculative gate. CRT stays as-is (measured-preliminary, +0.27R/PF 1.5).
+- Full suite 241; typecheck clean.
+
 ## 2026-07-29 — purge remaining CRT-term leaks from the continuation UI
 - Owner: "fix all the errors/nonsense." Swept the UI for CRT-only wording (EQ/DOL/EQ RR) shown on
   Trend Continuation signals (single-target, no EQ/managementRR) and made each surface playbook-aware:
