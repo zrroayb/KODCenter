@@ -270,7 +270,7 @@ export function ScannerView({
         {best ? (
           <>
             <div className="trade-now-main">
-              <strong>{best.symbol} · {best.direction.toUpperCase()}</strong>
+              <strong>{best.symbol} · {best.direction.toUpperCase()}{best.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · Kalite {best.grade}/{best.score}</span>
             </div>
             {/* EQ/DOL CRT reversal terimleri; continuation tek hedeflidir → Hedef + Net RR. */}
@@ -403,7 +403,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
+              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               {signal.chopConflict ? (
                 <>
                   <b className="chop-note">Zıt yönlü raid</b>
@@ -434,7 +434,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span></strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (

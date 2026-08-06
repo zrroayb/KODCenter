@@ -2,6 +2,22 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-07-29 — surface stale/frozen data ("veri eski" badge)
+- Owner: "how is there old data on NAS100?!" End-to-end check: it is NOT NAS100-specific and NOT our
+  code. The RAW Yahoo response (parsing bypassed) for EURUSD=X returned its last bar at 07:39 UTC
+  with the clock at 14:40 — Yahoo's feed was frozen ~7h for ALL Yahoo symbols (FX/metals/index),
+  while Binance (crypto) stayed fresh. Yahoo intraday freshness is inconsistent (fine one fetch,
+  frozen the next). The system already flags this (`dataConfidence.stale`: exec>60m or HTF>360m →
+  −18 score + warning) but the penalty is too soft — it never blocks READY and the warning is buried,
+  so 7h-old A+/96 setups still surfaced and looked live. That is what misled the owner.
+- Fix (display, replay-safe): a prominent "⚠ veri eski" badge on any signal whose
+  `context.dataConfidence.stale` is true — on the scanner cards (both playbooks) and the TEK BAKIŞ
+  headline. Now a frozen-feed symbol is obviously flagged instead of masquerading as a live setup.
+- Deliberately NOT gating READY on stale yet: the replay computes dataConfidence with Date.now()
+  against historical candles, so every replayed bar reads "stale" — a `!stale` READY gate would
+  break the replay/measurement until that `now` is threaded through. Flagged as the next step if a
+  hard block is wanted. Full suite 241; typecheck clean.
+
 ## 2026-07-29 — continuation detail panel de-CRT'd; CRT quality-tighten measured (no win, reverted)
 - #3 (display): the signal detail panel no longer runs or shows the CRT-specific "CRT Analiz (Gemini)"
   section for a Trend Continuation signal (the fetch is skipped and the whole card is gated to
