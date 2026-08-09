@@ -6,6 +6,7 @@ import type { Candle, DealingRange, MarketContext, Timeframe, TradingSignal } fr
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
 import { CandleChart } from "./CandleChart";
+import { CrtLiteChart } from "./CrtLiteChart";
 import { SignalDetailsPanel } from "./SignalDetailsPanel";
 
 type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly";
@@ -158,6 +159,7 @@ export function ChartsView({
   onSelectSymbol: (symbol: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ChartTab>("m15");
+  const [chartEngine, setChartEngine] = useState<"svg" | "lite">("lite");
   const symbolSignals = useMemo(() => signals.filter((signal) => signal.symbol === market.symbol), [market.symbol, signals]);
   const activeSelectedSignal = selectedSignal?.symbol === market.symbol ? selectedSignal : null;
   const selectedConfirmTab = activeSelectedSignal ? confirmTabFor(activeSelectedSignal) : null;
@@ -222,6 +224,9 @@ export function ChartsView({
           </div>
           <div className="chart-actions">
             <label className="marker-toggle"><input type="checkbox" checked={showSignalMarkers} onChange={(event) => onToggleSignalMarkers(event.target.checked)} /> Marker</label>
+            <button className="ghost-btn" type="button" onClick={() => setChartEngine((e) => (e === "svg" ? "lite" : "svg"))} title="Chart motoru">
+              {chartEngine === "svg" ? "Lite (TV)" : "Klasik"}
+            </button>
             <button className="ghost-btn icon-action" onClick={onPreviousSignal} type="button" disabled={!signals.length} aria-label="Önceki sinyal" title="Önceki"><ChevronLeft size={16} /></button>
             <button className="ghost-btn icon-action" onClick={onNextSignal} type="button" disabled={!signals.length} aria-label="Sonraki sinyal" title="Sonraki"><ChevronRight size={16} /></button>
             <button className="ghost-btn icon-action" onClick={onClearSelection} type="button" disabled={!activeSelectedSignal} aria-label="Seçimi temizle" title="Temizle"><X size={16} /></button>
@@ -235,19 +240,27 @@ export function ChartsView({
             </button>
           ))}
         </div>
-        <CandleChart
-          candles={candlesForTab(market, activeTab)}
-          title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
-          mode={tab.mode}
-          range={chartRangeFor(activeSelectedSignal, context)}
-          context={context}
-          signals={markerSignals}
-          selectedSignal={activeSelectedSignal}
-          focusedTimeRange={activeFocus}
-          showSignalMarkers={showSignalMarkers}
-          chartTimeframe={TAB_TIMEFRAME[activeTab]}
-          onSelectSignal={onSelectSignal}
-        />
+        {chartEngine === "lite" ? (
+          <CrtLiteChart
+            candles={candlesForTab(market, activeTab)}
+            range={chartRangeFor(activeSelectedSignal, context)}
+            title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
+          />
+        ) : (
+          <CandleChart
+            candles={candlesForTab(market, activeTab)}
+            title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
+            mode={tab.mode}
+            range={chartRangeFor(activeSelectedSignal, context)}
+            context={context}
+            signals={markerSignals}
+            selectedSignal={activeSelectedSignal}
+            focusedTimeRange={activeFocus}
+            showSignalMarkers={showSignalMarkers}
+            chartTimeframe={TAB_TIMEFRAME[activeTab]}
+            onSelectSignal={onSelectSignal}
+          />
+        )}
       </div>
       <div className={activeSelectedSignal ? "selection-dock" : "selection-dock context-strip"}>
         {activeSelectedSignal ? (

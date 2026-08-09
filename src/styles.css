@@ -5268,3 +5268,52 @@ button {
   border-color: rgba(45, 212, 191, 0.55);
   background: rgba(45, 212, 191, 0.12);
 }
+
+/* CRT lightweight-charts port */
+.crt-lite-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.crt-lite-chart__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.crt-lite-chart__title {
+  font-weight: 600;
+  color: #e6ebf5;
+}
+.crt-lite-chart__range {
+  color: #97a3bd;
+  font-variant-numeric: tabular-nums;
+}
+.crt-lite-chart__status {
+  margin-left: auto;
+  font-weight: 600;
+}
+.crt-lite-chart__alert {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  animation: crtAlertPulse 1.1s ease-in-out infinite;
+}
+.crt-lite-chart__alert--high {
+  color: #ffd5d5;
+  background: rgba(242, 54, 69, 0.16);
+  border-color: rgba(242, 54, 69, 0.55);
+}
+.crt-lite-chart__alert--low {
+  color: #d3ffe9;
+  background: rgba(8, 153, 129, 0.16);
+  border-color: rgba(8, 153, 129, 0.55);
+}
+@keyframes crtAlertPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
