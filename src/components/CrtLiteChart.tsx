@@ -45,44 +45,47 @@ function cleanCandles(candles: Candle[]) {
 
 type MsbMarker = SeriesMarker<Time>;
 
-// Pine'daki MSB mantigi: son swing high/low kirilinca (close ustune/altina) isaret.
-function computeMsbMarkers(candles: Candle[], len: number): MsbMarker[] {
-  const markers: MsbMarker[] = [];
-  let swingHigh: number | null = null;
-  let swingHighBroken = false;
-  let swingLow: number | null = null;
-  let swingLowBroken = false;
+type Swings = {
+  swingHigh: number | null; swingHighBroken: boolean; swingHighTime: number | null;
+  swingLow: number | null; swingLowBroken: boolean; swingLowTime: number | null;
+};
+
+// Son (kirilmamis) swing high / swing low — pivot temelli.
+function lastUnbrokenSwings(candles: Candle[], len: number): Swings {
+  let swingHigh: number | null = null, swingHighBroken = false, swingHighTime: number | null = null;
+  let swingLow: number | null = null, swingLowBroken = false, swingLowTime: number | null = null;
   for (let i = 0; i < candles.length; i++) {
-    // pivot: len bar geride tam pivot olustu mu (i-len merkezli)
     const p = i - len;
     if (p >= len && p < candles.length - len) {
-      let isHigh = true;
-      let isLow = true;
+      let isHigh = true, isLow = true;
       for (let j = p - len; j <= p + len; j++) {
         if (j === p) continue;
         if (candles[j].high >= candles[p].high) isHigh = false;
         if (candles[j].low <= candles[p].low) isLow = false;
       }
-      if (isHigh) {
-        swingHigh = candles[p].high;
-        swingHighBroken = false;
-      }
-      if (isLow) {
-        swingLow = candles[p].low;
-        swingLowBroken = false;
-      }
+      if (isHigh) { swingHigh = candles[p].high; swingHighTime = candles[p].time; swingHighBroken = false; }
+      if (isLow) { swingLow = candles[p].low; swingLowTime = candles[p].time; swingLowBroken = false; }
     }
     const c = candles[i];
-    if (swingHigh != null && !swingHighBroken && c.close > swingHigh) {
-      swingHighBroken = true;
-      markers.push({ time: toSeconds(c.time), position: "belowBar", color: "#089981", shape: "arrowUp", text: "MSB" });
-    }
-    if (swingLow != null && !swingLowBroken && c.close < swingLow) {
-      swingLowBroken = true;
-      markers.push({ time: toSeconds(c.time), position: "aboveBar", color: "#f23645", shape: "arrowDown", text: "MSB" });
-    }
+    if (swingHigh != null && !swingHighBroken && c.close > swingHigh) swingHighBroken = true;
+    if (swingLow != null && !swingLowBroken && c.close < swingLow) swingLowBroken = true;
   }
-  return markers;
+  return { swingHigh, swingHighBroken, swingHighTime, swingLow, swingLowBroken, swingLowTime };
+}
+
+// Range'e gore SIRADAKI kirilmasi gereken TEK seviye (CHoCH beklentisi).
+// premium -> asagi swing low kirilmali (SHORT); discount -> yukari swing high (LONG).
+type NextBreak = { price: number; time: number; dir: "up" | "down"; label: string } | null;
+function nextBreak(candles: Candle[], range: DealingRange | undefined, len: number, lastClose: number | undefined): NextBreak {
+  if (!range || lastClose == null) return null;
+  const sw = lastUnbrokenSwings(candles, len);
+  if (lastClose > range.midpoint && sw.swingLow != null && !sw.swingLowBroken && sw.swingLowTime != null) {
+    return { price: sw.swingLow, time: sw.swingLowTime, dir: "down", label: `↓ ${formatPrice(sw.swingLow)} kırılırsa SHORT` };
+  }
+  if (lastClose <= range.midpoint && sw.swingHigh != null && !sw.swingHighBroken && sw.swingHighTime != null) {
+    return { price: sw.swingHigh, time: sw.swingHighTime, dir: "up", label: `↑ ${formatPrice(sw.swingHigh)} kırılırsa LONG` };
+  }
+  return null;
 }
 
 type RangeStatus = { label: string; tone: "short" | "long" | "premium" | "discount" | "none" };
@@ -119,8 +122,24 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   const data = useMemo(() => cleanCandles(candles), [candles]);
-  const markers = useMemo(() => computeMsbMarkers(candles, pivotLen), [candles, pivotLen]);
   const lastClose = candles.length ? candles[candles.length - 1].close : undefined;
+  const brk = useMemo(
+    () => nextBreak(candles, range, pivotLen, lastClose),
+    [candles, range?.high, range?.low, range?.midpoint, pivotLen, lastClose]
+  );
+  // Sadece TEK isaret: kirilmasi beklenen swing'i gosterir (spam yok).
+  const markers = useMemo<MsbMarker[]>(() => {
+    if (!brk) return [];
+    return [
+      {
+        time: toSeconds(brk.time),
+        position: brk.dir === "down" ? "belowBar" : "aboveBar",
+        color: "#f2a33c",
+        shape: brk.dir === "down" ? "arrowDown" : "arrowUp",
+        text: "kırılacak"
+      }
+    ];
+  }, [brk]);
   const status = rangeStatus(range, lastClose);
   const alert = proximityAlert(range, lastClose);
   const notifiedRef = useRef<string>("");
@@ -202,6 +221,21 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
     };
   }, [range?.high, range?.low, range?.midpoint]);
 
+  // SIRADAKI kirilacak seviye — tek turuncu cizgi.
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series || !brk) return;
+    const line = series.createPriceLine({
+      price: brk.price,
+      color: "#f2a33c",
+      lineWidth: 2,
+      lineStyle: LineStyle.Solid,
+      axisLabelVisible: true,
+      title: "KIRILACAK"
+    });
+    return () => series.removePriceLine(line);
+  }, [brk?.price, brk?.dir]);
+
   const toneColor =
     status.tone === "short" ? "#f23645" : status.tone === "long" ? "#089981" : status.tone === "premium" ? "#f2a33c" : status.tone === "discount" ? "#3c9df2" : "#97a3bd";
 
@@ -218,6 +252,7 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
           {status.label}
         </span>
       </div>
+      {brk ? <div className="crt-lite-chart__next">Sıradaki kırılım: {brk.label}</div> : null}
       {alert ? (
         <div className={`crt-lite-chart__alert crt-lite-chart__alert--${alert.edge.toLowerCase()}`}>{alert.msg}</div>
       ) : null}

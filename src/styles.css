@@ -5295,6 +5295,16 @@ button {
   margin-left: auto;
   font-weight: 600;
 }
+.crt-lite-chart__next {
+  font-size: 12px;
+  font-weight: 700;
+  color: #f2a33c;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(242, 163, 60, 0.12);
+  border: 1px solid rgba(242, 163, 60, 0.4);
+  align-self: flex-start;
+}
 .crt-lite-chart__alert {
   font-size: 12px;
   font-weight: 700;
