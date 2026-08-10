@@ -24,6 +24,7 @@
     "report:edge": "tsx scripts/edge-report.ts"
   },
   "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@vitejs/plugin-react": "^4.3.4",
     "lightweight-charts": "^4.2.3",
     "lucide-react": "^0.468.0",

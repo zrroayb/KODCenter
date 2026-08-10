@@ -8,6 +8,9 @@ import {
 } from "../src/lib/runtime/cloudSnapshot";
 import { alertableReadySignals, scanContexts } from "../src/lib/runtime/scanRuntime";
 import { buildTelegramReadyAlertPayload } from "../src/lib/telegram/alertPayload";
+import { signalAlertChartSvg } from "../src/lib/telegram/alertChartSvg";
+import { Resvg } from "@resvg/resvg-js";
+import type { TradingSignal } from "../src/lib/ict/types";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
 import { resolveStoredRules } from "../src/lib/userRules/resolveRules";
 
@@ -109,7 +112,11 @@ async function run() {
     scannedAt,
     symbols: markets.map((market) => market.symbol),
     errors,
-    alerts: readySignals.map(buildTelegramReadyAlertPayload)
+    alerts: readySignals.map((signal) => {
+      const payload = buildTelegramReadyAlertPayload(signal);
+      const chart = alertChartFor(signal);
+      return chart ? { ...payload, charts: [chart] } : payload;
+    })
   });
 
   console.log(JSON.stringify({
@@ -122,6 +129,19 @@ async function run() {
     errors,
     finalize
   }));
+}
+
+// Ready sinyal icin chart gorseli: bagimsiz SVG -> resvg ile PNG data URL.
+// Worker bunu payload.charts'tan Telegram'a foto olarak gonderir.
+function alertChartFor(signal: TradingSignal): { label: string; dataUrl: string } | undefined {
+  const rendered = signalAlertChartSvg(signal);
+  if (!rendered) return undefined;
+  try {
+    const png = new Resvg(rendered.svg, { background: "#0f131c", fitTo: { mode: "width", value: 1120 } }).render().asPng();
+    return { label: rendered.label, dataUrl: `data:image/png;base64,${Buffer.from(png).toString("base64")}` };
+  } catch {
+    return undefined;
+  }
 }
 
 run().catch((error) => {

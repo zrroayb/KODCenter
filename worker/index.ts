@@ -381,6 +381,39 @@ async function liveAlertsResponse(env: CloudflareEnv) {
   return jsonResponse({ status: "ok", alerts });
 }
 
+// data:image/...;base64,... -> Blob (worker'da atob/Blob mevcut).
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const match = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  try {
+    const bin = atob(match[2]);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: match[1] });
+  } catch {
+    return null;
+  }
+}
+
+// Alert'e ekli chart gorsellerini Telegram'a foto olarak gonderir (best-effort).
+async function sendAlertCharts(token: string, chatId: string, payload: TelegramReadyAlertPayload) {
+  const charts = Array.isArray(payload.charts) ? payload.charts : [];
+  for (const chart of charts) {
+    if (!chart?.dataUrl || !chart.dataUrl.startsWith("data:image")) continue;
+    const blob = dataUrlToBlob(chart.dataUrl);
+    if (!blob) continue;
+    try {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      if (chart.label) form.append("caption", chart.label.slice(0, 1000));
+      form.append("photo", blob, "chart.jpg");
+      await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: form });
+    } catch {
+      // foto opsiyonel; metin alarmi yine gider
+    }
+  }
+}
+
 async function sendTelegramAlert(env: CloudflareEnv, payload: TelegramReadyAlertPayload) {
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
@@ -401,6 +434,9 @@ async function sendTelegramAlert(env: CloudflareEnv, payload: TelegramReadyAlert
       });
       if (ai.status === "ready") aiCommentary = ai.text;
     }
+
+    // Once chart gorsel(ler)i (varsa) -> chat'te grafik metnin ustunde cikar.
+    await sendAlertCharts(token, chatId, payload);
 
     const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
