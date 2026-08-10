@@ -120,6 +120,7 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const breakLineRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   const data = useMemo(() => cleanCandles(candles), [candles]);
   const lastClose = candles.length ? candles[candles.length - 1].close : undefined;
@@ -183,12 +184,22 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
       wickUpColor: "#0a9981",
       wickDownColor: "#f23645"
     });
+    const breakLine = chart.addLineSeries({
+      color: "#f2a33c",
+      lineWidth: 2,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false,
+      title: "KIRILACAK"
+    });
     chartRef.current = chart;
     seriesRef.current = series;
+    breakLineRef.current = breakLine;
     return () => {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      breakLineRef.current = null;
     };
   }, []);
 
@@ -221,20 +232,22 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
     };
   }, [range?.high, range?.low, range?.midpoint]);
 
-  // SIRADAKI kirilacak seviye — tek turuncu cizgi.
+  // SIRADAKI kirilacak seviye — swing noktasindan SAGA cizgi (boydan boya DEGIL).
   useEffect(() => {
-    const series = seriesRef.current;
-    if (!series || !brk) return;
-    const line = series.createPriceLine({
-      price: brk.price,
-      color: "#f2a33c",
-      lineWidth: 2,
-      lineStyle: LineStyle.Solid,
-      axisLabelVisible: true,
-      title: "KIRILACAK"
-    });
-    return () => series.removePriceLine(line);
-  }, [brk?.price, brk?.dir]);
+    const bl = breakLineRef.current;
+    if (!bl) return;
+    if (!brk || data.length < 1) {
+      bl.setData([]);
+      return;
+    }
+    const startT = toSeconds(brk.time);
+    const endT = data[data.length - 1].time;
+    bl.setData(
+      endT > startT
+        ? [{ time: startT, value: brk.price }, { time: endT, value: brk.price }]
+        : [{ time: startT, value: brk.price }]
+    );
+  }, [brk, data]);
 
   const toneColor =
     status.tone === "short" ? "#f23645" : status.tone === "long" ? "#089981" : status.tone === "premium" ? "#f2a33c" : status.tone === "discount" ? "#3c9df2" : "#97a3bd";
