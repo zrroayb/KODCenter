@@ -21,7 +21,8 @@
     "cloud:migrate:local": "wrangler d1 migrations apply tradebot-state --local",
     "cloud:types": "wrangler types",
     "validate:continuation": "tsx scripts/validate-continuation.ts",
-    "report:edge": "tsx scripts/edge-report.ts"
+    "report:edge": "tsx scripts/edge-report.ts",
+    "report:robustness": "tsx scripts/robustness-report.ts"
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
