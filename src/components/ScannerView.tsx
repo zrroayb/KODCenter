@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, CircleAlert, CircleCheck, Clock3, Play, Sparkles } from "lucide-react";
 import type { TradingSignal } from "../lib/ict/types";
+import type { RuntimeReplayTrade } from "../lib/analytics/performance";
+import {
+  buildSetupSimilarityIndex,
+  findSimilarSetups,
+  signalToSetupLike,
+  RESOLVED_STATUSES,
+  type SimilarOutcome
+} from "../lib/analytics/setupSimilarity";
 import type { RejectedSetup } from "../lib/strategies/types";
 import { buildMarketPickPayload, fetchGeminiMarketPick, type GeminiMarketPickResponse } from "../lib/gemini/marketPick";
 import { formatPrice, formatR } from "../lib/ict/format";
@@ -153,6 +161,7 @@ export function ScannerView({
   dataErrors,
   dataHealth,
   minimumRR,
+  replayCorpus,
   onScan,
   onSelectSignal
 }: {
@@ -168,9 +177,35 @@ export function ScannerView({
   dataErrors: string[];
   dataHealth: DataHealthReport;
   minimumRR: number;
+  replayCorpus?: RuntimeReplayTrade[];
   onScan: () => void;
   onSelectSignal: (signal: TradingSignal) => void;
 }) {
+  // "Bu setup tipi geçmişte neye benziyordu, nasıl bitti?" — replay korpusundaki (App'in
+  // backtestResult.replay.trades'i) çözülmüş kurulumlardan her READY sinyale ampirik ön-olasılık.
+  // Tamamen client-side, ek server maliyeti yok. Korpus küçükse (<20) rozet gösterilmez.
+  const similarBySignal = useMemo(() => {
+    const map = new Map<string, SimilarOutcome>();
+    const resolved = (replayCorpus ?? []).filter((trade) => RESOLVED_STATUSES.has(trade.status));
+    if (resolved.length < 20) return map;
+    const index = buildSetupSimilarityIndex(resolved);
+    for (const signal of signals) {
+      if (signal.stage !== "ready" || signal.chopConflict) continue;
+      map.set(signal.id, findSimilarSetups(index, resolved, signalToSetupLike(signal), 8));
+    }
+    return map;
+  }, [replayCorpus, signals]);
+
+  const renderSimilar = (signal: TradingSignal) => {
+    const outcome = similarBySignal.get(signal.id);
+    if (!outcome || outcome.resolved < 3) return null;
+    const tone = outcome.avgR >= 0.1 ? "pos" : outcome.avgR <= -0.1 ? "neg" : "flat";
+    return (
+      <em className={`scan-signal-similar ${tone}`} title="Bu setup tipine en yakın geçmiş kurulumların gerçekleşen sonucu (replay)">
+        Geçmiş benzer: {outcome.resolved} · %{outcome.winRatePct.toFixed(0)} kazanç · {outcome.avgR >= 0 ? "+" : ""}{outcome.avgR.toFixed(2)}R ort
+      </em>
+    );
+  };
   const sortedSignals = dataLoading ? [] : sortForAction(signals);
   // İki playbook ayrı gösterilir (owner: "reversal vs continuation ayrı, aynı sinyali iki kez gösterme").
   // Continuation kendi bölümünü GÖRÜNÜR + GİZLİ havuzun birleşiminden çeker; böylece CRT'nin yüksek-RR
@@ -416,6 +451,7 @@ export function ScannerView({
                   {signal.stage !== "ready" && (
                     <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "Daha temiz confirmation bekleniyor."}</em>
                   )}
+                  {renderSimilar(signal)}
                 </>
               )}
             </button>
@@ -440,6 +476,7 @@ export function ScannerView({
               {signal.stage !== "ready" && (
                 <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "HTF trend + kabullü breakout + pullback bekleniyor."}</em>
               )}
+              {renderSimilar(signal)}
             </button>
           ))}
           {!continuationSignals.length && <p className="muted-note">Şu an trend-devamı setup'ı yok; HTF trend + kabullü breakout (BOS) + pullback FVG/OB retest bekleniyor.</p>}

@@ -1,4 +1,5 @@
 import type { RuntimeReplayTrade } from "./performance";
+import type { TradingSignal } from "../ict/types";
 
 // "Bu setup geçmişte neye benziyordu, o benzerler nasıl bitti?" — canlı bir kuruluma en yakın
 // geçmiş kurulumları bulup gerçekleşen R sonuçlarını özetler. Vektör DB / HNSW / harici bağımlılık
@@ -178,7 +179,7 @@ export type SimilarOutcome = {
   summary: string;
 };
 
-const RESOLVED_STATUSES = new Set(["tp1", "tp2", "stopped"]);
+export const RESOLVED_STATUSES = new Set(["tp1", "tp2", "stopped"]);
 
 function median(values: number[]): number {
   if (!values.length) return 0;
@@ -231,4 +232,28 @@ export function findSimilarSetups(
 // Tek adımda: korpustan index kurup en yakın k komşuyu döndürür.
 export function similarSetupOutcome(corpus: RuntimeReplayTrade[], query: SetupLike, k = 10): SimilarOutcome {
   return findSimilarSetups(buildSetupSimilarityIndex(corpus), corpus, query, k);
+}
+
+// Canlı bir TradingSignal'ı karşılaştırma betimleyicisine indir. Alan eşlemesi runtimeReplay'in
+// tradeProfile()/signalAnchorZone() eşlemesiyle BİREBİR aynı olmalı (yoksa canlı sorgu ile geçmiş
+// korpus farklı uzaylarda olur ve benzerlik anlamsızlaşır). Değişirse ikisini birlikte güncelle.
+export function signalToSetupLike(signal: TradingSignal): SetupLike {
+  const midpoint = signal.crtAnchor
+    ? (signal.crtAnchor.rangeHigh + signal.crtAnchor.rangeLow) / 2
+    : signal.context.premiumDiscount.midpoint;
+  const firstTarget = signal.plan.targets[0] ?? signal.plan.entry;
+  const eqRR = Math.abs(signal.plan.entry - firstTarget) / Math.max(signal.plan.riskDistance, 1e-9);
+  return {
+    direction: signal.direction,
+    grade: signal.grade,
+    rr: signal.plan.rr,
+    eqRR: Number(eqRR.toFixed(2)),
+    score: signal.score,
+    session: signal.context.killzones.find((zone) => zone.active)?.name ?? "Outside",
+    regime: signal.context.regime.type,
+    premiumDiscount: signal.plan.entry >= midpoint ? "premium" : "discount",
+    dailyBias: signal.context.bias.daily,
+    h4Bias: signal.context.bias.h4,
+    h1Bias: signal.context.bias.h1
+  };
 }

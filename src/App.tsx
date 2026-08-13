@@ -790,6 +790,18 @@ export default function App() {
     });
   };
 
+  // Tarama ekranındaki "geçmiş benzer setup" rozeti replay korpusunu (backtestResult.replay.trades)
+  // ister; ilk açılış demo backtest'i replay üretmez. Tarayıcı ilk açıldığında ve henüz gerçek korpus
+  // yokken replay'i bir kez arka planda (worker, ana thread'i bloklamadan) tetikle. Ref ile tek sefer.
+  const autoReplayRef = useRef(false);
+  useEffect(() => {
+    if (autoReplayRef.current) return;
+    if (activeView !== "scanner") return;
+    if (dataLoading || backtestLoading || backtestResult.replay || !contexts.length) return;
+    autoReplayRef.current = true;
+    runBacktest();
+  }, [activeView, dataLoading, backtestLoading, backtestResult, contexts.length]);
+
   const clearSelection = () => {
     setSelectedSignalState((current) => ({
       selectedSignalId: null,
@@ -971,6 +983,7 @@ export default function App() {
             dataErrors={dataState.errors}
             dataHealth={dataHealth}
             minimumRR={rules.minimumRR}
+            replayCorpus={backtestResult.replay?.trades}
             onScan={runScan}
             onSelectSignal={selectSignal}
           />

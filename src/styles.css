@@ -1168,6 +1168,32 @@ textarea:hover {
   line-height: 1.45;
 }
 
+/* "Geçmiş benzer setup'lar nasıl bitti" ampirik ön-olasılık rozeti (setupSimilarity). */
+.scan-signal-similar {
+  font-style: normal;
+  font-size: 11px;
+  margin-top: 2px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  align-self: flex-start;
+  border: 1px solid transparent;
+}
+.scan-signal-similar.pos {
+  color: #089981;
+  background: rgba(8, 153, 129, 0.12);
+  border-color: rgba(8, 153, 129, 0.35);
+}
+.scan-signal-similar.neg {
+  color: #f2597f;
+  background: rgba(242, 54, 69, 0.12);
+  border-color: rgba(242, 54, 69, 0.35);
+}
+.scan-signal-similar.flat {
+  color: var(--muted);
+  background: rgba(151, 163, 189, 0.12);
+  border-color: rgba(151, 163, 189, 0.3);
+}
+
 .scan-signal-card.inactive {
   opacity: 0.62;
 }

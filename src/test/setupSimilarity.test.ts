@@ -4,8 +4,13 @@ import {
   buildSetupSimilarityIndex,
   findSimilarSetups,
   setupDistance,
+  signalToSetupLike,
   similarSetupOutcome
 } from "../lib/analytics/setupSimilarity";
+import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
+import { buildMarketContext } from "../lib/intelligence/marketContext";
+import { createDemoMarkets } from "../data/demoData";
+import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 
 const base: RuntimeReplayTrade = {
   id: "x",
@@ -92,6 +97,23 @@ describe("setup similarity (Gower mixed-type, dependency-free)", () => {
     const within = setupDistance(clusterA[0], clusterA[1], index);
     const across = setupDistance(clusterA[0], clusterB[0], index);
     expect(across).toBeGreaterThan(within);
+  });
+
+  it("signalToSetupLike maps a live signal into a comparable descriptor", () => {
+    const ctx = attachSmtDivergences(createDemoMarkets().map((m) => buildMarketContext(m.symbol, m.timeframes))).find(
+      (c) => c.symbol === "USDJPY"
+    );
+    if (!ctx) throw new Error("USDJPY fixture missing");
+    const signal = crtStrategy.scan({ context: ctx, settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1 } }).signals[0];
+    if (!signal) throw new Error("CRT signal fixture missing");
+    const like = signalToSetupLike(signal);
+    expect(like.direction).toBe(signal.direction);
+    expect(like.rr).toBe(signal.plan.rr);
+    expect(["premium", "discount"]).toContain(like.premiumDiscount);
+    expect(typeof like.session).toBe("string");
+    // Canlı sinyal, kendisinden türetilmiş tek-elemanlı korpusa sıfır mesafede olmalı.
+    const self = { ...base, ...like, status: "tp2" as const, rMultiple: 1 };
+    expect(setupDistance(like, self, buildSetupSimilarityIndex([self]))).toBe(0);
   });
 
   it("excludes not-triggered/open neighbors from outcome stats", () => {
