@@ -1,1 +1,0 @@
-export { equityCurveFromReturns } from "./performance";
