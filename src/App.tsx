@@ -54,14 +54,12 @@ import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
-export type ViewId = "dashboard" | "charts" | "scanner" | "sessionSetups" | "silverBullet" | "backtest" | "journal" | "ai" | "settings";
+export type ViewId = "dashboard" | "charts" | "scanner" | "backtest" | "journal" | "ai" | "settings";
 
 const VIEW_TITLES: Record<ViewId, string> = {
   charts: "Chart",
   dashboard: "Bugün",
-  scanner: "Tara",
-  sessionSetups: "Session",
-  silverBullet: "Silver Bullet",
+  scanner: "Setups",
   backtest: "Replay",
   journal: "Notlar",
   ai: "AI",
@@ -489,6 +487,9 @@ export default function App() {
     [markets]
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
+  // Setups ekranı tek yüzey: Tara / Session / Silver aynı sekmenin altında. Üç ayrı üst-menü
+  // yerine tek "Setups" — hepsi "şu an alınacak setup ne?" sorusunun farklı playbook'ları.
+  const [setupsTab, setSetupsTab] = useState<"scan" | "session" | "silver">("scan");
   const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("XAUUSD");
   const [strategyId] = useState(strategyRegistry[0].id);
   const [rules, setRules] = useState<UserRules>(() => loadUserRules());
@@ -970,29 +971,44 @@ export default function App() {
           />
         )}
         {activeView === "scanner" && (
-          <ScannerView
-            marketCount={contexts.length}
-            signals={visibleSignals}
-            lowQualitySignals={hiddenSignals}
-            inactiveSignals={inactiveSignals}
-            rejectedSetups={rejectedSetups}
-            selectedSignalId={selectedSignalState.selectedSignalId}
-            lastScanTime={lastScanTime}
-            dataSource={dataState.source}
-            dataLoading={dataLoading}
-            dataErrors={dataState.errors}
-            dataHealth={dataHealth}
-            minimumRR={rules.minimumRR}
-            replayCorpus={backtestResult.replay?.trades}
-            onScan={runScan}
-            onSelectSignal={selectSignal}
-          />
-        )}
-        {activeView === "sessionSetups" && (
-          <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} />
-        )}
-        {activeView === "silverBullet" && (
-          <SilverBulletSection logs={silverBulletLogs} setups={silverBulletSetups} />
+          <div className="setups-workspace">
+            <div className="setups-subtabs" role="tablist" aria-label="Setup playbook">
+              <button role="tab" aria-selected={setupsTab === "scan"} className={setupsTab === "scan" ? "active" : ""} onClick={() => setSetupsTab("scan")} type="button">
+                <strong>Tara</strong><span>Tüm playbook radarı</span>
+              </button>
+              <button role="tab" aria-selected={setupsTab === "session"} className={setupsTab === "session" ? "active" : ""} onClick={() => setSetupsTab("session")} type="button">
+                <strong>Session</strong><span>CRT akışı</span>
+              </button>
+              <button role="tab" aria-selected={setupsTab === "silver"} className={setupsTab === "silver" ? "active" : ""} onClick={() => setSetupsTab("silver")} type="button">
+                <strong>Silver</strong><span>NY 10-11</span>
+              </button>
+            </div>
+            {setupsTab === "scan" && (
+              <ScannerView
+                marketCount={contexts.length}
+                signals={visibleSignals}
+                lowQualitySignals={hiddenSignals}
+                inactiveSignals={inactiveSignals}
+                rejectedSetups={rejectedSetups}
+                selectedSignalId={selectedSignalState.selectedSignalId}
+                lastScanTime={lastScanTime}
+                dataSource={dataState.source}
+                dataLoading={dataLoading}
+                dataErrors={dataState.errors}
+                dataHealth={dataHealth}
+                minimumRR={rules.minimumRR}
+                replayCorpus={backtestResult.replay?.trades}
+                onScan={runScan}
+                onSelectSignal={selectSignal}
+              />
+            )}
+            {setupsTab === "session" && (
+              <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} />
+            )}
+            {setupsTab === "silver" && (
+              <SilverBulletSection logs={silverBulletLogs} setups={silverBulletSetups} />
+            )}
+          </div>
         )}
         {activeView === "charts" && (
           <ChartsView
