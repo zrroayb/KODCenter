@@ -1,19 +1,5 @@
 import type { Candle, MarketSymbol, Ohlc } from "../ict/types";
-
-const SYNTHETIC_SPREAD: Record<MarketSymbol, number> = {
-  XAUUSD: 0.35,
-  NAS100: 4,
-  EURUSD: 0.00008,
-  GBPUSD: 0.0001,
-  USDJPY: 0.012,
-  AUDUSD: 0.0001,
-  USDCHF: 0.00012,
-  BTCUSD: 35,
-  ETHUSD: 2,
-  XRPUSD: 0.002,
-  BNBUSD: 0.5,
-  SOLUSD: 0.09
-};
+import { SYMBOL_SPEC } from "../ict/symbolSpec";
 
 function shift(ohlc: Ohlc, amount: number): Ohlc {
   return {
@@ -25,7 +11,7 @@ function shift(ohlc: Ohlc, amount: number): Ohlc {
 }
 
 export function enrichWithSyntheticBidAsk(candles: Candle[], symbol: MarketSymbol): Candle[] {
-  const configuredSpread = SYNTHETIC_SPREAD[symbol];
+  const configuredSpread = SYMBOL_SPEC[symbol]?.spread;
   const halfSpread = Number.isFinite(configuredSpread) ? configuredSpread / 2 : 0;
   return candles.map((candle) => {
     const mid: Ohlc = {

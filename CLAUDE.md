@@ -37,10 +37,10 @@ npm run dev      # geliştirme (vite, 127.0.0.1)
 npm test         # vitest run — PUSH ETMEDEN ÖNCE HER ZAMAN ÇALIŞTIR
 npm run build    # tsc -b + worker typecheck + vite build
 npm start        # prod önizleme (Render bunu kullanır)
-npx tsc --noEmit # hızlı tip kontrolü
+npm run typecheck # tip kontrolü: app + node + worker (kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmez)
 ```
 
-**Kalite kapısı:** Push'tan önce `npx tsc --noEmit` **ve** `npm test` yeşil olmalı
+**Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
 (şu an 252 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
@@ -141,3 +141,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 5: Trend Continuation'da retest yalnız son 12 mum (1h) içindeyse entry'yi onaylıyor ve fiyat entry'den 1.5R'dan uzaksa blocker (kovalanmaz). Replay'de CRT dışı "confirmed" sinyaller artık sonraki mumun açılışından doluyor, R o fiyattan hesaplanıyor. PR #23.
 - 2026-09-26 — Madde 6: haber filtresi dürüstleştirildi. Haftalık şablonlar "(tahmini)" etiketli ve yalnız uyarı; uydurma "her Çarşamba FOMC" ve "Salı/Perşembe 12:30" kaldırıldı. `avoidNews` no-trade'i artık yalnız `src/data/eventCalendar.ts`'teki tarihli gerçek olaylar tetikliyor (liste boş başlar, kullanıcı doldurur). Replay'de `event-risk` stop nedeni yalnız gerçek takvim olayında. PR #23.
 - 2026-09-26 — Madde 7: hesap modeli (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %, günlük max işlem) Ayarlar'a taşındı; aynı taramada aynı `clusterExposure` yönünde 2+ READY'ye "Korelasyon: toplam riski böl" uyarısı (site + Telegram); journal'dan günün gerçekleşen R'ı -2R'a inince tarama ekranında uyarı (veto değil). PR #23.
+- 2026-09-26 — Madde 8: sembole özgü tüm sabitler (stop buffer, spread/slippage/komisyon, sentetik bid/ask, nokta değeri, korelasyon kümesi, SMT partnerleri, Yahoo ticker) tek tabloda: `src/lib/ict/symbolSpec.ts`. Nokta değeri yaklaşık olan sembollerde (XAU, NAS, USDJPY, USDCHF) boyut uyarısı "lot" değil "birim" diyor. Ayrıca kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmiyordu (tsconfig `files: []`); kalite kapısı artık `npm run typecheck` (app + node + worker) ve Madde 9 commit'indeki bir çift anahtar hatasını yakaladı. PR #23.

@@ -376,7 +376,7 @@ export function SignalDetailsPanel({
               <input inputMode="decimal" value={riskPct} onChange={(event) => setRiskPct(event.target.value)} placeholder="örn. 0.5" />
             </label>
             <label>Pozisyon
-              <input inputMode="decimal" value={positionSize} onChange={(event) => setPositionSize(event.target.value)} placeholder="lot / adet" />
+              <input inputMode="decimal" value={positionSize} onChange={(event) => setPositionSize(event.target.value)} placeholder="birim / adet" />
             </label>
             <label>Hata etiketi
               <input value={mistake} onChange={(event) => setMistake(event.target.value)} placeholder="örn. stop dar, HTF ters" />

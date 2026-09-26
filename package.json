@@ -13,6 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && npm run worker:typecheck",
     "worker:typecheck": "tsc -p tsconfig.worker.json",
     "cloud:dev": "npm run build && wrangler dev",
     "cloud:deploy": "npm run build && wrangler deploy",

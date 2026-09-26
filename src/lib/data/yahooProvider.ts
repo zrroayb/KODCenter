@@ -1,4 +1,5 @@
 import { isCryptoSymbol } from "../ict/symbols";
+import { MARKET_SYMBOLS, SYMBOL_SPEC } from "../ict/symbolSpec";
 import { createDemoMarkets, type DemoMarket } from "../../data/demoData";
 import { aggregateCandles, trimCandles } from "./candleAggregation";
 import type { Candle, MarketSymbol } from "../ict/types";
@@ -82,21 +83,11 @@ export type YahooSymbolDefinition = {
   yahoo: string;
 };
 
-export const YAHOO_SYMBOLS: YahooSymbolDefinition[] = [
-  { symbol: "XAUUSD", name: "Gold futures proxy · GC=F", yahoo: "GC=F" },
-  { symbol: "NAS100", name: "Nasdaq futures proxy · NQ=F", yahoo: "NQ=F" },
-  { symbol: "EURUSD", name: "Euro Dollar", yahoo: "EURUSD=X" },
-  { symbol: "GBPUSD", name: "Pound Dollar", yahoo: "GBPUSD=X" },
-  // Yahoo's canonical ticker for USD-base pairs drops the USD prefix ("JPY=X" is USD/JPY).
-  { symbol: "USDJPY", name: "Dollar Yen", yahoo: "JPY=X" },
-  { symbol: "AUDUSD", name: "Aussie Dollar", yahoo: "AUDUSD=X" },
-  { symbol: "USDCHF", name: "Dollar Swiss", yahoo: "CHF=X" },
-  { symbol: "BTCUSD", name: "Bitcoin", yahoo: "BTC-USD" },
-  { symbol: "ETHUSD", name: "Ethereum", yahoo: "ETH-USD" },
-  { symbol: "XRPUSD", name: "XRP", yahoo: "XRP-USD" },
-  { symbol: "BNBUSD", name: "BNB", yahoo: "BNB-USD" },
-  { symbol: "SOLUSD", name: "Solana", yahoo: "SOL-USD" }
-];
+export const YAHOO_SYMBOLS: YahooSymbolDefinition[] = MARKET_SYMBOLS.map((symbol) => ({
+  symbol,
+  name: SYMBOL_SPEC[symbol].name,
+  yahoo: SYMBOL_SPEC[symbol].yahoo
+}));
 
 function createTimeoutSignal(parentSignal?: AbortSignal, timeoutMs = 7_000) {
   const controller = new AbortController();

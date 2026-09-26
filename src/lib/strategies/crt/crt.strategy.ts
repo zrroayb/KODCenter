@@ -1,4 +1,5 @@
 import { checklistItem } from "../../brain/decisionSummary";
+import { SYMBOL_SPEC } from "../../ict/symbolSpec";
 import { formatPrice, formatR } from "../../ict/format";
 import { averageTrueRange, completedCandles } from "../../ict/candles";
 import type { Candle, CrtBiasContext, CrtPoi, CrtState, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
@@ -40,20 +41,6 @@ const RAID_PERSISTENCE_LOOKBACK = 6;
 // A tapped 4H FVG can create an origin-CRT read, but only while the tap is fresh. Old gaps
 // kept every pair in permanent WATCH and made the dashboard look smarter than the chart.
 const FVG_ORIGIN_MAX_AGE_CANDLES = 10;
-const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
-  XAUUSD: 0.8,
-  NAS100: 12,
-  EURUSD: 0.0002,
-  GBPUSD: 0.0002,
-  USDJPY: 0.03,
-  AUDUSD: 0.0002,
-  USDCHF: 0.0002,
-  BTCUSD: 120,
-  ETHUSD: 6,
-  XRPUSD: 0.005,
-  BNBUSD: 1.5,
-  SOLUSD: 0.4
-};
 
 // CRT anchor/confirmation canon: each anchor timeframe confirms on its own lower timeframe.
 //   1W range -> 4H confirmation
@@ -531,7 +518,7 @@ function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
 
 function symbolBuffer(anchor: AnchorCtx, symbol: MarketSymbol, profile: StrategyInput["settings"]["stopProfile"] = "normal"): number {
   const multiplier = profile === "aggressive" ? 0.85 : profile === "conservative" ? 1.25 : 1;
-  return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_MIN_BUFFER[symbol]) * multiplier;
+  return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_SPEC[symbol].minBuffer) * multiplier;
 }
 
 function confirmIndexAtTime(candles: Candle[], time: number): number {
@@ -992,7 +979,7 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
   const minimumRiskFloor = Math.max(
     anchor.atr * RISK_FLOOR_ATR_MULTIPLIER,
     anchor.averageRange * RISK_FLOOR_AVERAGE_RANGE_MULTIPLIER,
-    SYMBOL_MIN_BUFFER[context.symbol] * 2
+    SYMBOL_SPEC[context.symbol].minBuffer * 2
   );
   const useRiskFloor = structuralStopValid && Math.abs(entry - structuralStop) < minimumRiskFloor;
   // Widen away from the entry only. This preserves a valid manipulation/structure stop; an

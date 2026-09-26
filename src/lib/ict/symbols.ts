@@ -1,30 +1,17 @@
 import type { MarketSymbol } from "./types";
+import { SYMBOL_SPEC, symbolSpec, type SymbolCluster } from "./symbolSpec";
 
-const CRYPTO_SYMBOLS: ReadonlySet<MarketSymbol> = new Set(["BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"]);
+export type { SymbolCluster } from "./symbolSpec";
 
 export function isCryptoSymbol(symbol: MarketSymbol): boolean {
-  return CRYPTO_SYMBOLS.has(symbol);
+  return symbolSpec(symbol)?.crypto ?? false;
 }
 
 // Korelasyon kümeleri: aynı kümedeki semboller aynı makro bahsi paylaşır. Hem replay'in
-// küme-günü ölçümü hem de bias tablosunun sıralaması buradan beslenir — tek kaynak.
-// `usdInverse`: sembol yükselince dolar zayıflıyorsa true (EURUSD), tersiyse false (USDJPY).
-export type SymbolCluster = "dollar-fx" | "metal" | "index" | "crypto" | "other";
-
-export const SYMBOL_CLUSTERS: Record<string, { cluster: SymbolCluster; usdInverse: boolean }> = {
-  EURUSD: { cluster: "dollar-fx", usdInverse: true },
-  GBPUSD: { cluster: "dollar-fx", usdInverse: true },
-  AUDUSD: { cluster: "dollar-fx", usdInverse: true },
-  USDJPY: { cluster: "dollar-fx", usdInverse: false },
-  USDCHF: { cluster: "dollar-fx", usdInverse: false },
-  XAUUSD: { cluster: "metal", usdInverse: true },
-  NAS100: { cluster: "index", usdInverse: true },
-  BTCUSD: { cluster: "crypto", usdInverse: true },
-  ETHUSD: { cluster: "crypto", usdInverse: true },
-  XRPUSD: { cluster: "crypto", usdInverse: true },
-  BNBUSD: { cluster: "crypto", usdInverse: true },
-  SOLUSD: { cluster: "crypto", usdInverse: true }
-};
+// küme-günü ölçümü hem de bias tablosunun sıralaması buradan beslenir. Kaynak: SYMBOL_SPEC.
+export const SYMBOL_CLUSTERS: Record<string, { cluster: SymbolCluster; usdInverse: boolean }> = Object.fromEntries(
+  Object.entries(SYMBOL_SPEC).map(([symbol, spec]) => [symbol, { cluster: spec.cluster, usdInverse: spec.usdInverse }])
+);
 
 export const CLUSTER_ORDER: SymbolCluster[] = ["dollar-fx", "metal", "index", "crypto", "other"];
 
