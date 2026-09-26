@@ -44,7 +44,7 @@ For local Vite development, place secrets in `.env` and restart:
 TELEGRAM_BOT_TOKEN=123456:your_bot_token
 TELEGRAM_CHAT_ID=123456789
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 Only `READY` setups send Telegram notifications. The alert includes entry, stop, TP1, RR, grade, score, and the main reasons. If the env values are empty, alerts stay disabled and the app keeps running.

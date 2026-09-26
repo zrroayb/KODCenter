@@ -235,7 +235,7 @@ async function callGemini(
   }
 ) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
 
   const controller = new AbortController();
