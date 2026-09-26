@@ -16,10 +16,10 @@ import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
 
 const CRT_STRATEGY_ID = "crt";
-const DEFAULT_MINIMUM_RR = 1.5;
-// A DOL target can look attractive while the configured full exit at EQ pays too
-// little to justify the risk. READY must clear both numbers.
-const MIN_MANAGEMENT_RR = 1;
+// Exit model is eq-full: the whole position closes at EQ/TP1, so the READY RR gate is the EQ
+// net RR (user rule `crtExitMinimumRR`, default 1.0). DOL/TP2 is extension info only — it used
+// to be gated at 1.5 while the model exited at EQ, so the trader expected 1.5R and got ~1R.
+const DEFAULT_EXIT_MINIMUM_RR = 1;
 const RISK_FLOOR_ATR_MULTIPLIER = 1;
 const RISK_FLOOR_AVERAGE_RANGE_MULTIPLIER = 0.8;
 // Freshness windows in confirmation-TF candles: a sweep older than ~24 bars no longer
@@ -1016,10 +1016,9 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     ...(useRiskFloor
       ? [`Structure stop gürültü bandında kaldı; risk tabanı ${formatPrice(minimumRiskFloor)} uygulandı.`]
       : [`Stop ${structuralStopSource === "manipulation" ? "manipulation wick" : "CRT structure"} dışına ${formatPrice(buffer)} buffer ile kondu.`]),
-    ...(costs.netRR < minimumRR ? [`TP2/DOL net RR ${costs.netRR.toFixed(2)}, minimum ${minimumRR}. READY değil.`] : []),
-    ...(managementCosts.netRR < MIN_MANAGEMENT_RR
-      ? [`EQ/TP1 net RR ${managementCosts.netRR.toFixed(2)}, minimum ${MIN_MANAGEMENT_RR}. Tam-EQ çıkışta READY değil.`]
-      : [`Tam-EQ yönetim net RR ${managementCosts.netRR.toFixed(2)}.`]),
+    ...(managementCosts.netRR < minimumRR
+      ? [`EQ/TP1 net RR ${managementCosts.netRR.toFixed(2)}, minimum ${minimumRR}. Tam-EQ çıkışta READY değil.`]
+      : [`Tam-EQ çıkış net RR ${managementCosts.netRR.toFixed(2)}; DOL uzatması ${costs.netRR.toFixed(2)}R (bilgi, hedef değil).`]),
     ...(!choch ? [`${anchor.spec.confirmTf} ChoCH/Just mum kapanışı bekleniyor.`] : []),
     // Retest zorunlu (retest-mandatory-for-entry): ChoCH var ama retest yoksa plan WATCH'ta bekler.
     ...(choch && entryStatus === "pending" ? [`ChoCH kapandı; giriş ${formatPrice(entry)} retest teması bekleniyor (kapanış kovalanmaz).`] : [])
@@ -1047,14 +1046,16 @@ function buildAnchorPlan(context: MarketContext, anchor: AnchorCtx, direction: T
     stopLoss,
     targets: [tp1, tp2],
     invalidation: stopLoss,
-    rr: costs.netRR,
-    grossRR: costs.grossRR,
+    rr: managementCosts.netRR,
+    grossRR: managementCosts.grossRR,
     managementRR: managementCosts.netRR,
+    extensionRR: costs.netRR,
+    minimumRR,
     riskDistance,
     stopSource,
     stopBuffer: buffer,
     targetSource: "crt-dol",
-    executionCosts: costs,
+    executionCosts: managementCosts,
     planWarnings
   };
 }
@@ -1090,7 +1091,7 @@ function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromInd
 
 // Score communicates quality; it never redefines the CRT model. It feeds ONLY the grade
 // (readyEligible has no score threshold). Split so the grade actually varies (2026-09-26):
-//   base 12 + CORE 58 (manipulation 20, ChoCH 18, DOL RR 12, EQ management RR 8) = 70 → B
+//   base 12 + CORE 58 (manipulation 20, ChoCH 18, exit/EQ net RR 20) = 70 → B
 //   QUALITY up to 38 (HTF alignment, SMT, killzone raid, session, location tier, reference
 //   candle, displacement, linked shift FVG/retest, range respect, key open) → A / A+ only with
 //   evidence. Before this split the core alone summed to 100 and every READY setup printed A+.
@@ -1099,7 +1100,6 @@ export function scoreCrtSetup(input: {
   choch: boolean;
   rr: number;
   minimumRR: number;
-  managementRR: number;
   htfAlignment: Pick<CrtHtfAlignment, "aligned" | "fullyAligned">;
   smtAligned: boolean;
   sessionTimedRaid: boolean;
@@ -1115,8 +1115,8 @@ export function scoreCrtSetup(input: {
   const core = 12
     + (input.manipulation ? 20 : 0)
     + (input.choch ? 18 : 0)
-    + (input.rr >= input.minimumRR ? 12 : Math.max(0, Math.min(11, Math.round(input.rr * 4))))
-    + (input.managementRR >= MIN_MANAGEMENT_RR ? 8 : 0);
+    // Exit (EQ) net RR clearing the READY gate; partial credit below it.
+    + (input.rr >= input.minimumRR ? 20 : Math.max(0, Math.min(19, Math.round(input.rr * 10))));
   const quality = (input.htfAlignment.fullyAligned ? 6 : input.htfAlignment.aligned ? 3 : 0)
     + (input.smtAligned ? 5 : 0)
     + (input.sessionTimedRaid ? 4 : 0)
@@ -1133,7 +1133,9 @@ export function scoreCrtSetup(input: {
 }
 
 function buildAnchorSetup(context: MarketContext, settings: StrategyInput["settings"], anchor: AnchorCtx): CrtSetup | undefined {
-  const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
+  // CRT's RR gate is the exit's (EQ) net RR; the generic `minimumRR` rule belongs to
+  // strategies whose exit is the final target.
+  const minimumRR = typeof settings.exitMinimumRR === "number" ? settings.exitMinimumRR : DEFAULT_EXIT_MINIMUM_RR;
   const picked = directionForAnchor(context, anchor);
   if (!picked) return undefined;
   const { direction, source: directionSource } = picked;
@@ -1280,12 +1282,11 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !pdAligned ? "CRT range P/D yanlış: long discounttan, short premiumdan gelmeli." : undefined,
-    managementRR < MIN_MANAGEMENT_RR
-      ? `Tam-EQ çıkış net RR yetersiz (${managementRR.toFixed(2)} < ${MIN_MANAGEMENT_RR}).`
+    plan.rr < minimumRR
+      ? `Tam-EQ çıkış net RR yetersiz (${plan.rr.toFixed(2)} < ${minimumRR}).`
       : undefined,
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
     settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
-    plan.rr < minimumRR ? `TP2/DOL RR minimumun altında (${plan.rr.toFixed(2)} < ${minimumRR}).` : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
@@ -1324,7 +1325,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     choch: Boolean(choch),
     rr: plan.rr,
     minimumRR,
-    managementRR,
     htfAlignment,
     smtAligned,
     sessionTimedRaid,
@@ -1360,7 +1360,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const readyEligible = !intradayTracking
     && plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
-    && managementRR >= MIN_MANAGEMENT_RR
     && blockers.length === 0
     && pdAligned
     && Boolean(manipulation) && !eqConsumed
@@ -1448,7 +1447,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alındı: ${formatPrice(setup.manipulation.level)}. HTF kapanışı beklenmez.` : `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alınması bekleniyor.`),
     checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
     checklistItem("Entry", setup.plan.entryStatus === "confirmed" ? "pass" : "neutral", setup.plan.entryStatus === "confirmed" ? `${formatPrice(setup.plan.entry)} ${setup.plan.entrySource} entry aktif.` : "ChoCH kapanışı gelmeden entry yok."),
-    checklistItem("RR to DOL", setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "fail", `Karşı CRT kenarı ${formatPrice(setup.plan.targets[1])}; net RR ${formatR(setup.plan.rr)}.`),
+    checklistItem("EQ RR (çıkış)", setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "fail", `Tam çıkış EQ ${formatPrice(setup.plan.targets[0])}; net RR ${formatR(setup.plan.rr)}. DOL ${formatPrice(setup.plan.targets[1])} uzatma bilgisi (${formatR(setup.plan.extensionRR ?? 0)}), hedef değil.`),
     checklistItem("POI", setup.poi ? "pass" : "neutral", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)} kalite bonusu.` : "FVG/OB yok; CRT yine ChoCH kapanışıyla geçerli olabilir."),
     checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : "neutral", bias.summary),
     checklistItem("Premium / Discount", pdAligned ? "pass" : "neutral", `Entry ${crtZone}; ideal ${expectedPd(direction)}. Kalite notu, hard gate değil.`),
@@ -1465,12 +1464,12 @@ function crtDecisionSummary(context: MarketContext, anchor: AnchorCtx, setup: Cr
     `${context.symbol} ${side} CRT: ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}.`,
     setup.manipulation ? `Manipulation ${formatPrice(setup.manipulation.level)} seviyesinde tamam.` : "Manipulation bekleniyor.",
     setup.choch ? `${anchor.spec.confirmTf} dağılım kapanışı ${formatPrice(setup.choch.level)} iç yapısını kırdı.` : `${anchor.spec.confirmTf} iç yapı kapanışı bekleniyor.`,
-    `Plan ${formatPrice(setup.plan.entry)} giriş, ${formatPrice(setup.plan.stopLoss)} stop, karşı CRT kenarı ${formatPrice(setup.plan.targets[1])}.`,
-    `Grade ${grade}, net RR ${formatR(setup.plan.rr)}.`,
+    `Plan ${formatPrice(setup.plan.entry)} giriş, ${formatPrice(setup.plan.stopLoss)} stop, tam çıkış EQ ${formatPrice(setup.plan.targets[0])} (DOL ${formatPrice(setup.plan.targets[1])} yalnız uzatma bilgisi).`,
+    `Grade ${grade}, EQ net RR ${formatR(setup.plan.rr)}.`,
     ...riskWarnings
   ].join(" ");
   return {
-    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} · range → manipulation → distribution · RR ${formatR(setup.plan.rr)}.`,
+    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} · range → manipulation → EQ · RR ${formatR(setup.plan.rr)}.`,
     fullReasoning,
     checklist,
     warnings: Array.from(new Set([...setup.warnings, ...riskWarnings])).slice(0, 8),
@@ -1623,8 +1622,8 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
       }
     },
     { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `Kapalı ChoCH mumundan ${formatPrice(setup.plan.entry)} entry aktif; retest şart değil.` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
-    { id: "eq-management", label: "EQ / TP1", status: "neutral", detail: `Tam çıkış hedefi EQ ${formatPrice(setup.plan.targets[0])}; DOL beklenmez (Hepsi-EQ yönetimi).`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
-    { id: "dol-target", label: "DOL / TP2", status: setup.plan.rr >= DEFAULT_MINIMUM_RR ? "pass" : "warning", detail: `Final DOL target ${formatPrice(setup.plan.targets[1])}, RR ${formatR(setup.plan.rr)}.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
+    { id: "eq-management", label: "EQ / TP1 (çıkış)", status: setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "warning", detail: `Tam çıkış hedefi EQ ${formatPrice(setup.plan.targets[0])}, net RR ${formatR(setup.plan.rr)}; DOL beklenmez (tam-EQ yönetimi).`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
+    { id: "dol-target", label: "DOL (uzatma)", status: "neutral", detail: `DOL ${formatPrice(setup.plan.targets[1])}, net ${formatR(setup.plan.extensionRR ?? 0)}; bilgi amaçlı — tam-EQ modelinde pozisyon DOL'a taşınmaz.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
 }
 
@@ -1679,8 +1678,10 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
     symbol: context.symbol,
     entry: setup.plan.entry,
     stopLoss: setup.plan.stopLoss,
-    target: setup.plan.targets[1] ?? setup.plan.targets[0],
-    grade
+    // eq-full: the trade exits at EQ, so size/gain are measured to EQ, not the DOL.
+    target: setup.plan.targets[0],
+    grade,
+    minimumRR: setup.plan.minimumRR
   });
   return {
     id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${anchor.spec.rangeTf}${anchor.origin ? `-${anchor.origin.kind}-${anchor.origin.originIndex}` : ""}`,
@@ -1798,7 +1799,7 @@ export const crtStrategy: StrategyModule = {
   description: "Candle Range Theory: range, tek taraflı manipulation, LTF dağılım kapanışı ve karşı range kenarı hedefi.",
   requiredTimeframes: ["1M", "1w", "1d", "4h", "1h", "15m", "5m"],
   defaultSettings: {
-    minimumRR: 1.5,
+    exitMinimumRR: DEFAULT_EXIT_MINIMUM_RR,
     mode: "watch_ready",
     useExecutionCosts: true,
     slippageStress: "normal",

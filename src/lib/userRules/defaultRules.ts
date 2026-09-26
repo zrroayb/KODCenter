@@ -6,6 +6,7 @@ export const defaultRules: UserRules = {
   useExecutionCosts: true,
   slippageStress: "normal",
   minimumRR: 1.5,
+  crtExitMinimumRR: 1,
   minimumScore: MIN_VISIBLE_SIGNAL_SCORE,
   partialTpEnabled: true,
   moveToBreakevenAtR: 1,

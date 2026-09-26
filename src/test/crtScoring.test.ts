@@ -58,3 +58,24 @@ describe("CRT score / grade split", () => {
     expect(scoreCrtSetup({ ...coreOnly, choch: false })).toBe(52);
   });
 });
+
+describe("CRT exit model (eq-full) speaks one RR everywhere", () => {
+  it("plan.rr is the EQ exit net RR; DOL is extension info; READY gates on the exit RR", async () => {
+    const { createDemoMarkets } = await import("../data/demoData");
+    const { buildMarketContext } = await import("../lib/intelligence/marketContext");
+    const { crtStrategy } = await import("../lib/strategies/crt/crt.strategy");
+    const markets = createDemoMarkets();
+    const signals = markets.flatMap((market) => crtStrategy.scan({
+      context: buildMarketContext(market.symbol, market.timeframes),
+      settings: { ...crtStrategy.defaultSettings }
+    }).signals);
+    expect(signals.length).toBeGreaterThan(0);
+    for (const signal of signals) {
+      expect(signal.plan.rr).toBe(signal.plan.managementRR);
+      expect(signal.plan.minimumRR).toBe(1);
+      expect(signal.plan.extensionRR ?? 0).toBeGreaterThanOrEqual(signal.plan.rr - 1e-9);
+      if (signal.stage === "ready") expect(signal.plan.rr).toBeGreaterThanOrEqual(1);
+      expect(signal.governance.blockers.join(" ")).not.toContain("TP2/DOL RR");
+    }
+  });
+});

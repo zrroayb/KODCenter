@@ -97,6 +97,8 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   if (signal.plan.entryModel.cisdConfirmed && signal.plan.entryStatus !== "confirmed") {
     needs.push(retestRequirement ?? "Dağılım kapanışı onaylansın; sonra giriş planı aktif olsun.");
   }
+  // The plan carries the RR its own strategy gates with (CRT: EQ exit RR).
+  minimumRR = signal.plan.minimumRR ?? minimumRR;
   if (signal.plan.executionCosts.stress !== "off" && signal.plan.grossRR >= minimumRR && signal.plan.rr < minimumRR) {
     needs.push(`Spread/slippage fazla. Kağıt üstünde ${formatR(signal.plan.grossRR)}, gerçek hesapta ${formatR(signal.plan.rr)}.`);
   }
@@ -321,8 +323,8 @@ export function ScannerView({
                 <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
                 <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
                 <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-                <div><span>EQ RR</span><strong>{formatR(best.plan.managementRR ?? 0)}</strong></div>
-                <div><span>DOL RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+                <div><span>EQ RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+                <div><span>DOL uzatma</span><strong>{formatR(best.plan.extensionRR ?? best.plan.rr)}</strong></div>
               </div>
             )}
             <section className="simple-structure-box">

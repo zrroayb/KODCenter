@@ -25,6 +25,7 @@ export type TelegramReadyAlertPayload = {
   rr: number;
   grossRR: number;
   managementRR?: number;
+  extensionRR?: number;
   reasons: string[];
   riskPct?: number;
   priority?: "high" | "normal" | "low";
@@ -126,8 +127,8 @@ function crtReadyReasons(signal: TradingSignal): string[] {
     passed.has("Manipulation") ? "Manipulation: CRT high/low alındı" : null,
     passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
     passed.has("Entry") ? "Giriş aktif" : null,
-    passed.has("RR to DOL") ? "Karşı CRT kenarı hedef" : null,
-    `EQ net RR ${formatR(signal.plan.managementRR ?? 0)} · DOL net RR ${formatR(signal.plan.rr)}`
+    passed.has("EQ RR (çıkış)") ? "Tam çıkış EQ'da" : null,
+    `EQ net RR ${formatR(signal.plan.rr)} · DOL uzatma ${formatR(signal.plan.extensionRR ?? 0)} (bilgi)`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 6);
 }
@@ -170,6 +171,7 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     rr: signal.plan.rr,
     grossRR: signal.plan.grossRR,
     managementRR: signal.plan.managementRR,
+    extensionRR: signal.plan.extensionRR,
     reasons: readyReasons(signal),
     riskPct,
     priority,

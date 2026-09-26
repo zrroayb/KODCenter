@@ -2,6 +2,9 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — one exit model: eq-full, gate on EQ net RR
+- The READY RR gate was DOL net RR ≥ 1.5 while the model closed everything at EQ (~1R). Now CRT `plan.rr` = EQ net RR, gated by user rule `crtExitMinimumRR` (default 1.0, same as the old management gate). DOL is `plan.extensionRR`, info only. Replay R is now net of execution costs (was gross vs. a net gate).
+
 ## 2026-09-26 — manipulation = anchor-range raid only
 - A closed raid candle that closed beyond the swept edge with no later close back inside is acceptance, not a raid. HTF raid `reclaimed` is now measured on confirm-TF closes (blocker when missing) instead of hard-coded `true`. The internal confirm-TF swing-sweep path is removed; bias-only direction (no HTF raid) stays context/WATCH and cannot be READY.
 

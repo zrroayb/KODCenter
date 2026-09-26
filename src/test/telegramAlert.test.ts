@@ -140,7 +140,7 @@ function fvgOriginContextSignal() {
 }
 
 describe("Telegram READY alert payload", () => {
-  it("formats a READY payload with both effective-EQ and DOL RR", () => {
+  it("formats a READY payload with the EQ exit RR as the headline and DOL as extension", () => {
     const signal = readySignal();
     // The fixture's volatility-floor stop leaves less than 1R to EQ, so the stricter
     // live gate correctly keeps it WATCH. The formatter itself receives READY signals
@@ -155,14 +155,16 @@ describe("Telegram READY alert payload", () => {
     expect(payload.entry).toBe(signal.plan.entry);
     expect(payload.stopLoss).toBe(signal.plan.stopLoss);
     expect(payload.targets).toEqual(signal.plan.targets.slice(0, 2));
-    expect(payload.rr).toBeGreaterThanOrEqual(1.5);
+    // eq-full: the headline RR is the EQ exit's net RR; DOL is extension info only.
+    expect(payload.rr).toBe(signal.plan.managementRR);
+    expect(payload.extensionRR).toBeGreaterThanOrEqual(1.5);
     expect(payload.managementRR).toBe(signal.plan.managementRR);
+    expect(payload.reasons.join(" ")).toContain("DOL uzatma");
     expect(payload.reasons.join(" ")).toContain("EQ net RR");
     expect(payload.reasons.join(" ")).toContain("Range hazır");
     expect(payload.reasons.join(" ")).toContain("Manipulation");
     expect(payload.reasons.join(" ")).toContain("ChoCH/Just");
     expect(payload.reasons.join(" ")).toContain("Giriş aktif");
-    expect(payload.reasons.join(" ")).toContain("Karşı CRT kenarı hedef");
     expect(payload.tradeContext?.symbol).toBe("XAUUSD");
     expect(payload.tradeContext?.checklist.length).toBeGreaterThan(0);
     expect(payload.tradeContext?.evidence.length).toBeGreaterThan(0);

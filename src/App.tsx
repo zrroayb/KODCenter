@@ -777,6 +777,7 @@ export default function App() {
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
+        exitMinimumRR: rules.crtExitMinimumRR,
         stopProfile: rules.stopProfile,
         useExecutionCosts: rules.useExecutionCosts,
         slippageStress: rules.slippageStress,

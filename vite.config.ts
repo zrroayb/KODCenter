@@ -293,13 +293,15 @@ function telegramCaption(payload: ReadyTelegramPayload) {
     : undefined;
   return [
     `<b>${priorityTag}</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())}`,
-    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}`,
+    // plan.rr is the EXIT's net RR (CRT: full close at EQ). DOL is extension info only.
+    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}${(payload.strategyId ?? "crt") === "crt" ? " (tam çıkış EQ)" : ""}`,
     ...(riskLine ? [riskLine] : []),
     "",
     `Entry: <b>${formatTelegramPrice(payload.entry)}</b>`,
     `Stop: <b>${formatTelegramPrice(payload.stopLoss)}</b>`,
-    `EQ / TP1: <b>${formatTelegramPrice(eqTarget)}</b>`,
-    `DOL / TP2: <b>${formatTelegramPrice(dolTarget)}</b>`,
+    ...((payload.strategyId ?? "crt") === "crt"
+      ? [`Çıkış EQ: <b>${formatTelegramPrice(eqTarget)}</b>`, `DOL (uzatma, bilgi): ${formatTelegramPrice(dolTarget)}`]
+      : [`TP1: <b>${formatTelegramPrice(eqTarget)}</b>`, ...(dolTarget !== eqTarget ? [`TP2: <b>${formatTelegramPrice(dolTarget)}</b>`] : [])]),
     "",
     "<b>Neden READY?</b>",
     reasons || "- Entry/SL/TP planı aktif",

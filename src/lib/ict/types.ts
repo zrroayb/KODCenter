@@ -326,11 +326,16 @@ export type TradePlan = {
   stopLoss: number;
   targets: number[];
   invalidation: number;
+  // Net RR of the configured EXIT (the R the trade actually realises). CRT closes the full
+  // position at EQ/TP1 (exitModel "eq-full"), so for CRT `rr` is the EQ net RR (2026-09-26).
   rr: number;
   grossRR: number;
-  // The net R actually realised by the configured management exit. CRT currently
-  // closes the full position at EQ/TP1, while `rr` remains the DOL/TP2 potential.
+  // Kept for existing consumers: equals `rr` for CRT eq-full.
   managementRR?: number;
+  // Information only: net RR if price ran to the DOL/TP2. Not a gate, not the exit.
+  extensionRR?: number;
+  // The minimum `rr` the producing strategy gated READY with (UI/rules compare against it).
+  minimumRR?: number;
   riskDistance: number;
   stopSource: StopSource;
   stopBuffer: number;

@@ -217,16 +217,24 @@ function rAtPrice(signal: TradingSignal, price: number): number {
     : (price - signal.plan.entry) / risk;
 }
 
+// Realised R is NET of execution costs, in the same units as plan.rr (estimateExecutionCosts):
+// a win pays (reward − cost) / (risk + cost), a full stop is −1. Before 2026-09-26 replay
+// paid gross target R while the READY gate used net RR, so replay read optimistic.
+function toNetR(signal: TradingSignal, grossR: number): number {
+  const cost = (signal.plan.executionCosts?.total ?? 0) / Math.max(signal.plan.riskDistance, 0.000001);
+  return cost > 0 ? (grossR - cost) / (1 + cost) : grossR;
+}
+
 function expiryCloseR(signal: TradingSignal, candles: Candle[]): number {
   const last = candles[candles.length - 1];
   if (!last) return 0;
   const exitSide = signal.direction === "short" ? "buy" : "sell";
-  return Number(Math.max(-1, rAtPrice(signal, executableClose(last, exitSide))).toFixed(2));
+  return Number(Math.max(-1, toNetR(signal, rAtPrice(signal, executableClose(last, exitSide)))).toFixed(2));
 }
 
 function targetR(signal: TradingSignal, targetIndex: 0 | 1): number {
   const target = signal.plan.targets[targetIndex] ?? signal.plan.targets[0] ?? signal.plan.entry;
-  return Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001));
+  return toNetR(signal, Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001)));
 }
 
 function stopHit(signal: TradingSignal, candle: Candle): boolean {

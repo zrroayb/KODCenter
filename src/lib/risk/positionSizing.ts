@@ -10,6 +10,8 @@ export type PositionSizeInput = {
   target: number;
   pointValue?: number;
   grade?: QualityGrade;
+  // The minimum RR the producing strategy gates with (CRT: EQ exit RR). Defaults to the account's.
+  minimumRR?: number;
 };
 
 export type PositionSizeResult = {
@@ -64,7 +66,7 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
   const potentialGain = Math.abs(input.target - input.entry) * pointValue * positionSize;
   const warnings: string[] = [];
   if (approximate) warnings.push("Symbol point value yaklaşık.");
-  if (rr < input.account.minimumRR) warnings.push("Risk reward minimumun altında.");
+  if (rr < (input.minimumRR ?? input.account.minimumRR)) warnings.push("Risk reward minimumun altında.");
   if (input.grade && gradeRiskFactor < 1) {
     const pct = (input.account.riskPerTradePct * gradeRiskFactor).toFixed(2);
     warnings.push(`${input.grade} grade: risk %${input.account.riskPerTradePct} yerine %${pct}'e düşürüldü (grade'e göre boyut).`);

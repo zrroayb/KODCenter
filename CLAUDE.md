@@ -81,9 +81,12 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Gates (blockers)** = hard engeller; biri varsa setup READY olamaz.
 - **Quality (warnings + score)** = yumuşak; skoru ve grade'i etkiler ama tek başına
   veto etmez. Skor yalnızca **grade** belirler; `readyEligible`'da skor eşiği YOKTUR.
-- **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=minimumRR` +
-  `managementRR>=1` + `blockers.length===0` + PD hizası + manipulation +
+- **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=exitMinimumRR` (CRT'de
+  `plan.rr` = tam-EQ çıkışın net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
+  `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) +
   gerçek hedef + geçerli stop + model hazır + `dataConfidence>=35`.
+- **Çıkış modeli = eq-full**: pozisyonun tamamı EQ'da kapanır. DOL (`plan.extensionRR`) yalnız
+  uzatma bilgisidir, kapı değildir. UI/Telegram/replay hepsi `plan.rr`'ı (EQ net) konuşur.
 - **Anchor aileleri**: gerçek ANCHORS (1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
   (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
@@ -126,3 +129,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-09-26 — Madde 1: CRT skor/grade ayrıştırıldı. Çekirdek (manipulation + ChoCH + DOL RR + EQ RR) taban 12 ile 70'e (B) çıkar; kalite kalemleri (HTF uyumu, SMT, killzone raid, session, location tier, reference candle, displacement, shift FVG/retest, range respect, key open) 38 puana yayıldı. Artık her READY A+ değil; grade'e göre boyut tekrar çalışıyor. `scoreCrtSetup` export edildi, `crtScoring.test.ts` eklendi. PR #23 (branch `claude/kodcenter-trade-logic-fixes-dpg821`).
 - 2026-09-26 — Madde 2-3: manipulation tanımı sıkılaştırıldı. Range dışında kapanıp geri alınmayan raid mumu artık acceptance (raid değil); HTF raid için `reclaimed` confirm-TF kapanışından ölçülüyor, reclaim yoksa blocker. İç confirm-TF swing sweep'i (`swingSweep`) manipulation sayılmıyor; yönü yalnızca bias'tan gelen setup READY olamaz (context/WATCH). PR #23.
+- 2026-09-26 — Madde 4: çıkış modeli tek: tam-EQ (eq-full). CRT `plan.rr` artık EQ net RR; READY kapısı `crtExitMinimumRR` (varsayılan 1.0, Ayarlar'da). DOL RR ≥ 1.5 kapısı kaldırıldı, DOL `extensionRR` olarak yalnız bilgi. Telegram başlığı/checklist/UI EQ RR gösteriyor; boyutlandırma EQ'ya göre. Replay R'ı artık execution cost dahil net; `performanceFromSignals` TP1'e MFE yazmıyor. PR #23.

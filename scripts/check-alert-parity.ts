@@ -24,10 +24,10 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
   const isCrt = (payload.strategyId ?? "crt") === "crt";
   const playbookLine = payload.playbook ? ` · ${escapeHtml(payload.playbook)}` : "";
   const rrLine = isCrt
-    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.managementRR ?? 0)} · DOL net RR ${formatR(payload.rr)}`
+    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.rr)} (tam çıkış) · DOL uzatma ${formatR(payload.extensionRR ?? 0)}`
     : `${escapeHtml(payload.grade)} · Score ${payload.score} · net RR ${formatR(payload.rr)}`;
   const tp1Label = isCrt ? "EQ / TP1" : "TP1";
-  const tp2Label = isCrt ? "DOL / TP2" : "TP2";
+  const tp2Label = isCrt ? "DOL (uzatma, bilgi)" : "TP2";
   const targetLines = [`${tp1Label}: <b>${formatPrice(payload.targets[0])}</b>`];
   if (payload.targets[1] !== undefined && payload.targets[1] !== payload.targets[0]) targetLines.push(`${tp2Label}: <b>${formatPrice(payload.targets[1])}</b>`);
   return [

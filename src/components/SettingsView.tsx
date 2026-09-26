@@ -18,7 +18,7 @@ export function SettingsView({
   memory: RuntimeMarketMemory;
   onRulesChange: (rules: UserRules) => void;
 }) {
-  const updateNumber = (key: "minimumRR" | "minimumScore" | "maxSignalsPerScan" | "moveToBreakevenAtR", value: number) => {
+  const updateNumber = (key: "minimumRR" | "crtExitMinimumRR" | "minimumScore" | "maxSignalsPerScan" | "moveToBreakevenAtR", value: number) => {
     const next = Number.isFinite(value) ? value : 0;
     const normalized = key === "minimumScore" ? Math.min(100, Math.max(MIN_VISIBLE_SIGNAL_SCORE, next)) : next;
     onRulesChange({ ...rules, [key]: normalized });
@@ -65,13 +65,14 @@ export function SettingsView({
               <option value="high">Yüksek volatilite</option>
             </select>
           </label>
-          <label>Minimum RR<input type="number" step="0.1" value={rules.minimumRR} onChange={(event) => updateNumber("minimumRR", Number(event.target.value))} /></label>
+          <label>Minimum RR (continuation)<input type="number" step="0.1" value={rules.minimumRR} onChange={(event) => updateNumber("minimumRR", Number(event.target.value))} /></label>
+          <label>CRT EQ çıkış min RR<input type="number" step="0.1" min="0.5" value={rules.crtExitMinimumRR} onChange={(event) => updateNumber("crtExitMinimumRR", Number(event.target.value))} /></label>
           <label>Minimum kalite (olasılık değil)<input type="number" min={MIN_VISIBLE_SIGNAL_SCORE} max="100" value={rules.minimumScore} onChange={(event) => updateNumber("minimumScore", Number(event.target.value))} /></label>
           <label>Max sinyal<input type="number" min="1" value={rules.maxSignalsPerScan} onChange={(event) => updateNumber("maxSignalsPerScan", Number(event.target.value))} /></label>
           <label>BE tetikleyici R<input type="number" step="0.25" min="0" value={rules.moveToBreakevenAtR} onChange={(event) => updateNumber("moveToBreakevenAtR", Number(event.target.value))} /></label>
         </div>
         <div className="toggle-grid">
-          <label><input type="checkbox" checked={rules.partialTpEnabled} onChange={(event) => onRulesChange({ ...rules, partialTpEnabled: event.target.checked })} /> EQ'da kısmi kâr</label>
+          <label><input type="checkbox" checked={rules.partialTpEnabled} onChange={(event) => onRulesChange({ ...rules, partialTpEnabled: event.target.checked })} /> EQ'da kısmi kâr (yalnız eq-partial-be replay modeli; CRT canlı model tam-EQ)</label>
           <label><input type="checkbox" checked={rules.useExecutionCosts} onChange={(event) => onRulesChange({ ...rules, useExecutionCosts: event.target.checked })} /> Spread / slippage dahil</label>
           <label><input type="checkbox" checked={rules.avoidNews} onChange={(event) => onRulesChange({ ...rules, avoidNews: event.target.checked })} /> Haber saatinde no trade</label>
           <label><input type="checkbox" checked={rules.usePremiumDiscountFilter} onChange={(event) => onRulesChange({ ...rules, usePremiumDiscountFilter: event.target.checked })} /> Premium / Discount</label>
