@@ -285,7 +285,7 @@ def _gemini_commentary(payload: dict[str, Any]) -> dict[str, Any]:
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         return _fallback_commentary(payload, "GEMINI_API_KEY missing")
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
     prompt = _build_gemini_prompt(payload)
     try:
         _, body = _post_json(

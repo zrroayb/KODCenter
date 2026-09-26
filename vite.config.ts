@@ -637,7 +637,7 @@ function fallbackMarketPick(input: GeminiMarketPickPayload, reason?: string) {
 
 async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }
@@ -685,7 +685,7 @@ async function generateGeminiMarketPick(input: GeminiMarketPickPayload, env: Tel
 
 async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }
@@ -776,7 +776,7 @@ const CRT_ANALYSIS_RESPONSE_SCHEMA = {
 
 async function generateGeminiCrtAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   const events = Array.isArray((payload as { events?: unknown }).events) ? (payload as { events: Array<{ id?: string }> }).events : [];
   const knownIds = new Set(events.map((event) => event?.id).filter((id): id is string => typeof id === "string"));
@@ -865,7 +865,7 @@ const SESSION_ANALYSIS_RESPONSE_SCHEMA = {
 
 async function generateGeminiSessionAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   const events = Array.isArray(payload.deterministic_events)
     ? payload.deterministic_events as Array<{ id?: unknown }>
@@ -983,7 +983,7 @@ const SILVER_BULLET_RESPONSE_SCHEMA = {
 
 async function generateGeminiSilverBulletAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   const knownIds = new Set((Array.isArray(payload.allowed_event_ids) ? payload.allowed_event_ids : []).filter((id): id is string => typeof id === "string"));
   const controller = new AbortController();
@@ -1129,7 +1129,7 @@ function fallbackReplayReview(input: GeminiReplayPayload, reason?: string) {
 
 async function generateGeminiReplayReview(input: GeminiReplayPayload, env: TelegramEnv) {
   const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
   if (!apiKey) {
     return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
   }

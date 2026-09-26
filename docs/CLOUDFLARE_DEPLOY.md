@@ -35,7 +35,7 @@ npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put SCAN_TOKEN
 ```
 
-`GEMINI_MODEL` is optional. The default is `gemini-2.0-flash`.
+`GEMINI_MODEL` is optional. The default is `gemini-3.8-flash`.
 
 Health endpoints:
 
