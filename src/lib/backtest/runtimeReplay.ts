@@ -323,12 +323,6 @@ function tradeTags(signal: TradingSignal): string[] {
     signal.context.smtDivergences.some((item) => item.direction === signal.direction) ? "smt:aligned" : "smt:none",
     signalAnchorZone(signal) === expectedPd(signal) ? "pd:aligned" : "pd:mismatch",
     crtAligned || signal.context.bias.daily === expected || signal.context.bias.h4 === expected ? "htf:aligned" : "htf:conflict",
-    // Master §8 açık sorusu: yön anchor'dan mı yoksa iki-taraflı bias motorundan mı gelmeli?
-    // Kural defteri "bias per-anchor yönü HENÜZ geçersiz kılmaz" diyor; bu tag o "henüz"ü
-    // ölçülebilir yapar — bias yönü setup yönüne KARŞI olan işlemler ayrı ölçülür.
-    signal.crtAnchor?.biasDirection && signal.crtAnchor.biasDirection !== "neutral"
-      && (signal.crtAnchor.biasDirection === "bullish" ? "long" : "short") !== signal.direction
-      ? "bias:opposes" : "bias:not-opposing",
     signal.plan.rr >= 2 ? "rr:2plus" : signal.plan.rr >= 1.5 ? "rr:ok" : "rr:low",
     signal.governance.status === "allow" ? "governance:allow" : `governance:${signal.governance.status}`
   ]));

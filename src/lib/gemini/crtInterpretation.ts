@@ -24,13 +24,6 @@ export type CrtGeminiPayload = {
   stage: string;
   grade: string;
   score: number;
-  directional_bias: {
-    direction?: string;
-    bullish_score?: number;
-    bearish_score?: number;
-    confidence?: number;
-    external_draw?: string;
-  };
   crt: {
     reference_timeframe?: string;
     confirmation_timeframe?: string;
@@ -170,13 +163,6 @@ export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
     stage: signal.stage,
     grade: signal.grade,
     score: signal.score,
-    directional_bias: {
-      direction: anchor?.biasDirection,
-      bullish_score: anchor?.biasBullishScore,
-      bearish_score: anchor?.biasBearishScore,
-      confidence: anchor?.biasConfidence,
-      external_draw: anchor?.biasExternalDraw
-    },
     crt: {
       reference_timeframe: anchor?.rangeTf,
       confirmation_timeframe: anchor?.confirmTf,
