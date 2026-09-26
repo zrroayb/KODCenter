@@ -35,13 +35,22 @@ function mergeBucket(bucket: Candle[], bucketTime: number, targetTimeframe: Time
   };
 }
 
-function bucketStart(time: number, targetTimeframe: Timeframe): number {
+export type AggregationOptions = {
+  // FX / futures weeks open Sunday ~17:00 New York: a Sunday-dated bar is the NEW week's first
+  // session, not the old week's last (2026-09-26). Crypto (Binance) weeks run Monday–Sunday UTC,
+  // so it keeps the default.
+  sundayOpensWeek?: boolean;
+};
+
+function bucketStart(time: number, targetTimeframe: Timeframe, options: AggregationOptions = {}): number {
   // Weekly and monthly candles must align to the calendar: epoch-based 7d buckets start on
   // Thursdays and fixed 30d "months" drift across real month boundaries, which corrupts any
   // HTF bias read from those candles.
   if (targetTimeframe === "1w") {
     const date = new Date(time);
-    const daysFromMonday = (date.getUTCDay() + 6) % 7;
+    const day = date.getUTCDay();
+    // Buckets stay labeled by their Monday date; a Sunday bar moves to the following Monday.
+    const daysFromMonday = options.sundayOpensWeek && day === 0 ? -1 : (day + 6) % 7;
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysFromMonday);
   }
   if (targetTimeframe === "1M") {
@@ -61,7 +70,7 @@ function bucketStart(time: number, targetTimeframe: Timeframe): number {
   return Math.floor(time / bucketSize) * bucketSize;
 }
 
-export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe): Candle[] {
+export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe, options: AggregationOptions = {}): Candle[] {
   if (candles.length === 0) return [];
   const sorted = [...candles].sort((a, b) => a.time - b.time);
   const step = sourceStep(sorted);
@@ -70,7 +79,7 @@ export function aggregateCandles(candles: Candle[], targetTimeframe: Timeframe):
   const buckets = new Map<number, Candle[]>();
 
   for (const candle of sorted) {
-    const bucketTime = bucketStart(candle.time, targetTimeframe);
+    const bucketTime = bucketStart(candle.time, targetTimeframe, options);
     const bucket = buckets.get(bucketTime) ?? [];
     bucket.push(candle);
     buckets.set(bucketTime, bucket);

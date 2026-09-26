@@ -2,6 +2,9 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — weekly bucket: Sunday opens the FX/futures week
+- A Sunday-session bar used to join the PREVIOUS week (weekly high/low, 1W anchor, PWH/PWL polluted). FX/futures now start the week on Sunday; crypto keeps Mon–Sun UTC. Yahoo 1d stamps round to the nearest UTC midnight. Daily NY-17:00 anchoring waits for a timestamp measurement (`scripts/measure-candle-boundaries.ts`).
+
 ## 2026-09-26 — live == replay (closed candles decide state)
 - Sweep, retest, EQ-consumed, reclaim and signal outcome are read from CLOSED confirm candles only; the forming candle is just the current price. Replay now feeds a forming HTF candle rebuilt from the 15m bars closed so far, so the forming-raid path exists in replay too. Locked by a parity test.
 
