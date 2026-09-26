@@ -1,3 +1,5 @@
+// TEST FİKSTÜRÜ: registry'de değil, canlı tarama/alert bunu çalıştırmaz. Birçok test hazır bir
+// READY/WATCH sinyali üretmek için kullanıyor; yeni özellik buraya eklenmez (2026-09-26).
 import { buildDecisionSummary } from "../../brain/financialBrain";
 import { SYMBOL_SPEC } from "../../ict/symbolSpec";
 import type { Candle, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, SignalEvidenceItem, SignalStage, StopSource, TargetSource, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";

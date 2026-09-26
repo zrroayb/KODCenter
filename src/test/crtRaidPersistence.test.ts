@@ -216,7 +216,7 @@ describe("CRT direction sources", () => {
 
     const result = crtStrategy.scan({
       context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
     });
     const signal = result.signals.find((item) => item.crtAnchor?.origin === "fvg-origin");
 
@@ -229,6 +229,10 @@ describe("CRT direction sources", () => {
     expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("CRT yine geçerlidir");
     expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
     expect(signal?.governance.blockers.join(" ")).toContain("ChoCH");
+
+    // Varsayılan: deneysel aileler canlı listede yok (WATCH gürültüsü).
+    const defaults = crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false } });
+    expect(defaults.signals.some((item) => item.crtAnchor?.origin === "fvg-origin" || item.crtAnchor?.origin === "active-crt")).toBe(false);
   });
 
   it("surfaces the current Daily CRT candle as visible context instead of hiding it", () => {
@@ -253,7 +257,7 @@ describe("CRT direction sources", () => {
 
     const result = crtStrategy.scan({
       context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
     });
     const dailyActive = result.signals.find((signal) => signal.crtAnchor?.origin === "active-crt" && signal.crtAnchor.rangeTf === "1d");
 

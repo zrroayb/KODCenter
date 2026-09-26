@@ -424,7 +424,7 @@ export function ScannerView({
         )}
         {(best ?? latestInactive) && (
           <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
-            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}{(best ?? latestInactive)?.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
+            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}{(best ?? latestInactive)?.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{best?.readyHoldExpiresAt && <span className="ready-hold-tag">kilitli</span>}</strong>
             <span>
               {best
                 ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
@@ -444,7 +444,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
+              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               {signal.chopConflict ? (
                 <>
                   <b className="chop-note">Zıt yönlü raid</b>
@@ -476,7 +476,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (

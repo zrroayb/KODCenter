@@ -22,7 +22,8 @@ function heldReadySignal(record: ReadyHoldRecord, current: TradingSignal): Tradi
       ...record.signal.decisionSummary,
       warnings: Array.from(new Set([holdWarning, ...record.signal.decisionSummary.warnings]))
     },
-    riskWarnings: Array.from(new Set([holdWarning, ...record.signal.riskWarnings]))
+    riskWarnings: Array.from(new Set([holdWarning, ...record.signal.riskWarnings])),
+    readyHoldExpiresAt: record.expiresAt
   };
 }
 

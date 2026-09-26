@@ -197,7 +197,7 @@ export function SignalDetailsPanel({
       <header className="panel-head">
         <div>
           <span className={`eyebrow playbook-eyebrow ${signal.strategyId}`}>{playbookLabel(signal.strategyId)}</span>
-          <h2>{signal.symbol} {signal.direction.toUpperCase()}</h2>
+          <h2>{signal.symbol} {signal.direction.toUpperCase()}{signal.readyHoldExpiresAt && <span className="ready-hold-tag">kilitli READY</span>}</h2>
           {signal.crtAnchor && (
             <p className="muted-note">{signal.crtAnchor.originLabel ?? `CRT mumu: ${signal.crtAnchor.rangeTf.toUpperCase()}`} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>
           )}

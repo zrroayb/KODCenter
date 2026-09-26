@@ -1746,10 +1746,14 @@ function signalPriority(signal: TradingSignal): number {
 const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1h": 3 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
+  // Deneysel aileler (FVG-origin, Active CRT) daima blocker'lı WATCH üretir ve replay'de ayrı
+  // ölçülmez; sembol başına birkaç gürültü satırı ekliyordu. Varsayılan kapalı (2026-09-26);
+  // `experimentalAnchors: true` ile tekrar açılır.
+  const experimental = settings.experimentalAnchors === true;
   const signals = [
     ...ANCHORS.map((spec) => anchorSignal(context, settings, spec)),
-    ...buildActiveCrtAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor)),
-    ...buildFvgOriginAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor))
+    ...(experimental ? buildActiveCrtAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor)) : []),
+    ...(experimental ? buildFvgOriginAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor)) : [])
   ]
     .filter((signal): signal is TradingSignal => Boolean(signal))
     .sort((a, b) => (STAGE_RANK[a.stage] ?? 9) - (STAGE_RANK[b.stage] ?? 9)
@@ -1797,11 +1801,11 @@ export const crtStrategy: StrategyModule = {
     noAutoExecution: true,
     useHtfAlignmentFilter: true,
     exitModel: "eq-full",
-    // Owner decision 2026-07-22: 1H→5M anchor promoted to LIVE (produces READY + alerts),
-    // consciously overriding the 30-trade rule on the demo-window result (PF 2.94). Same
-    // quality gates apply; RANGE_TF_RANK keeps 1H sorted last so it only surfaces when it is
-    // the best available signal. Revert to "tracking" to demote.
-    intradayAnchorMode: "tracking"
+    // 1H→5M anchor is in TRACKING: it shows as WATCH, never READY/alert, while replay collects
+    // its own evidence (Master §14). A 2026-07-22 note promoted it to LIVE, but the value was
+    // later set back to "tracking"; set "live" only as a deliberate owner decision.
+    intradayAnchorMode: "tracking",
+    experimentalAnchors: false
   },
   scan(input: StrategyInput): StrategyResult {
     const signals = signalsFromContext(input.context, input.settings);

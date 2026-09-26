@@ -208,11 +208,12 @@ export function buildCrtContext(input: {
   const selectedBias = [...macroBiases].reverse().find((bias) => bias.direction !== "neutral") ?? macroBiases[macroBiases.length - 1];
   const activeRange = buildCrtRange(input.h4.length >= 2 ? input.h4 : input.daily);
   const pullback = validCrtPullback(input.h4.length ? input.h4 : input.daily, selectedBias.direction);
-  const direction = selectedBias.direction === "neutral" ? "long" : selectedBias.direction;
+  // OTE yön ister: neutral bias'ta premium/discount tarafı yok, OTE POI üretilmez (eskiden
+  // sessizce "long" sayılıyordu).
   const pois = [
     ...input.fairValueGaps.map(poiFromGap),
     ...input.orderBlocks.map(poiFromOrderBlock),
-    otePoi(activeRange, direction)
+    ...(selectedBias.direction === "neutral" ? [] : [otePoi(activeRange, selectedBias.direction)])
   ];
 
   return {

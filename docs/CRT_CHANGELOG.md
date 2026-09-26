@@ -2,6 +2,9 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — experimental anchors off by default; neutral bias has no OTE
+- FVG-origin and Active CRT families were always blocked (WATCH only) and never measured separately in replay, so they only added noise. They now run only with `experimentalAnchors: true`. A neutral CRT bias no longer produces a "long" OTE POI.
+
 ## 2026-09-26 — weekly bucket: Sunday opens the FX/futures week
 - A Sunday-session bar used to join the PREVIOUS week (weekly high/low, 1W anchor, PWH/PWL polluted). FX/futures now start the week on Sunday; crypto keeps Mon–Sun UTC. Yahoo 1d stamps round to the nearest UTC midnight. Daily NY-17:00 anchoring waits for a timestamp measurement (`scripts/measure-candle-boundaries.ts`).
 
