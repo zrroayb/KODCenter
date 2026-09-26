@@ -948,6 +948,10 @@ export default function App() {
             <button className="ghost-btn" onClick={() => void refreshMarketData()} type="button" disabled={dataLoading || dataRefreshing}>
               Yenile
             </button>
+            <span className="build-stamp" title={`Bu sürüm ${new Date(__BUILD_TIME__).toLocaleString("tr-TR")} tarihinde derlendi. Değişmiyorsa yeni deploy inmemiştir.`}>
+              <small>Sürüm</small>
+              <strong>{new Date(__BUILD_TIME__).toLocaleString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</strong>
+            </span>
           </div>
         </header>
         <Suspense fallback={<div className="view-loading">Yükleniyor…</div>}>
