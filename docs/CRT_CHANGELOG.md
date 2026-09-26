@@ -2,6 +2,9 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — score/grade split (grade is alive again)
+- Core (manipulation + ChoCH + DOL RR + EQ RR) now tops out at 70 (B); quality evidence (HTF, SMT, killzone raid, location, reference candle, displacement, shift FVG) carries the remaining ~38. Before, the core alone reached 100 and every READY setup printed A+, so grade-based sizing and alert priority were dead. `readyEligible` is unchanged (no score threshold).
+
 ## 2026-07-29 — surface stale/frozen data ("veri eski" badge)
 - Owner: "how is there old data on NAS100?!" End-to-end check: it is NOT NAS100-specific and NOT our
   code. The RAW Yahoo response (parsing bypassed) for EURUSD=X returned its last bar at 07:39 UTC

@@ -118,3 +118,10 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - `main`'e **PR ile** merge et (önceki akış: PR aç → merge). Merge → Render deploy.
 - API anahtarı / secret'ı asla commit etme. Commit mesajlarında model adı yazma.
 - Push: `git push -u origin <branch>`, network hatasında exponential backoff ile retry.
+
+## 10. Değişiklik günlüğü
+
+Her repo değişikliği buraya tarihli bir satır olarak yazılır (ne yapıldı, hangi PR/commit).
+Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
+
+- 2026-09-26 — Madde 1: CRT skor/grade ayrıştırıldı. Çekirdek (manipulation + ChoCH + DOL RR + EQ RR) taban 12 ile 70'e (B) çıkar; kalite kalemleri (HTF uyumu, SMT, killzone raid, session, location tier, reference candle, displacement, shift FVG/retest, range respect, key open) 38 puana yayıldı. Artık her READY A+ değil; grade'e göre boyut tekrar çalışıyor. `scoreCrtSetup` export edildi, `crtScoring.test.ts` eklendi. PR #23 (branch `claude/kodcenter-trade-logic-fixes-dpg821`).

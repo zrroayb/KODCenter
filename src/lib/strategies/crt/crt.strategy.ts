@@ -1087,6 +1087,50 @@ function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromInd
   return best;
 }
 
+// Score communicates quality; it never redefines the CRT model. It feeds ONLY the grade
+// (readyEligible has no score threshold). Split so the grade actually varies (2026-09-26):
+//   base 12 + CORE 58 (manipulation 20, ChoCH 18, DOL RR 12, EQ management RR 8) = 70 → B
+//   QUALITY up to 38 (HTF alignment, SMT, killzone raid, session, location tier, reference
+//   candle, displacement, linked shift FVG/retest, range respect, key open) → A / A+ only with
+//   evidence. Before this split the core alone summed to 100 and every READY setup printed A+.
+export function scoreCrtSetup(input: {
+  manipulation: boolean;
+  choch: boolean;
+  rr: number;
+  minimumRR: number;
+  managementRR: number;
+  htfAlignment: Pick<CrtHtfAlignment, "aligned" | "fullyAligned">;
+  smtAligned: boolean;
+  sessionTimedRaid: boolean;
+  inSession: boolean;
+  locationTier: CrtSetup["locationTier"];
+  referenceCandleScore?: number;
+  displacementStrength: CrtSetup["displacementStrength"];
+  shiftFvgOrRetest: boolean;
+  rangeRespect: boolean;
+  keyOpenRaid: boolean;
+  pdAligned: boolean;
+}): number {
+  const core = 12
+    + (input.manipulation ? 20 : 0)
+    + (input.choch ? 18 : 0)
+    + (input.rr >= input.minimumRR ? 12 : Math.max(0, Math.min(11, Math.round(input.rr * 4))))
+    + (input.managementRR >= MIN_MANAGEMENT_RR ? 8 : 0);
+  const quality = (input.htfAlignment.fullyAligned ? 6 : input.htfAlignment.aligned ? 3 : 0)
+    + (input.smtAligned ? 5 : 0)
+    + (input.sessionTimedRaid ? 4 : 0)
+    + (input.inSession ? 2 : 0)
+    + (input.locationTier === "weekly" ? 5 : input.locationTier === "daily" ? 4 : input.locationTier === "fvg" ? 2 : 0)
+    // reference_candle_score: an A imbalance range candle earns ~6, a D/arbitrary candle ~1.
+    + Math.round(((input.referenceCandleScore ?? 0) / 100) * 6)
+    + (input.displacementStrength === "strong" ? 4 : input.displacementStrength === "medium" ? 2 : 0)
+    + (input.shiftFvgOrRetest ? 3 : 0)
+    + (input.rangeRespect ? 2 : 0)
+    + (input.keyOpenRaid ? 1 : 0);
+  // Wrong-half entry costs score (not a second veto — pdAligned already gates READY).
+  return Math.max(0, Math.min(100, core + quality - (input.pdAligned ? 0 : 8)));
+}
+
 function buildAnchorSetup(context: MarketContext, settings: StrategyInput["settings"], anchor: AnchorCtx): CrtSetup | undefined {
   const minimumRR = typeof settings.minimumRR === "number" ? settings.minimumRR : DEFAULT_MINIMUM_RR;
   const picked = directionForAnchor(context, anchor);
@@ -1270,29 +1314,24 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !sessionTimedRaid && anchor.raid ? "Raid bir killzone dışında oluştu; session-sweep anlatısı zayıf." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
-  // Score communicates quality; it never redefines the CRT model. Core completion alone earns
-  // a tradable score, while FVG/SMT/session/location add confidence without veto power.
-  const score = Math.max(0, Math.min(100,
-    20
-    + (manipulation ? 30 : 0)
-    + (choch ? 25 : 0)
-    + (plan.rr >= minimumRR ? 15 : Math.max(0, Math.round(plan.rr * 5)))
-    + (managementRR >= MIN_MANAGEMENT_RR ? 10 : 0)
-    + (linkedShiftFvg || typeof retestIndex === "number" ? 5 : 0)
-    + (htfAlignment.fullyAligned ? 6 : htfAlignment.aligned ? 3 : 0)
-    + (smtAligned ? 3 : 0)
-    + (inSession || isCryptoSymbol(context.symbol) ? 2 : 0)
-    + (anchorAtKeyLevel || fvgConfluence ? 2 : 0)
-    + (rangeRespect ? 2 : 0)
-    + (sessionTimedRaid ? 2 : 0)
-    + (keyOpenRaid ? 1 : 0)
-    // reference_candle_score: an A imbalance range candle earns ~9, a D/arbitrary candle ~2.
-    + Math.round(((referenceCandle?.score ?? 50) / 100) * 10)
-    // Two-sided bias gate (Master §8): a confident OPPOSING macro bias costs score (not a veto —
-    // the anchor still owns direction; htfAlignment already vetoes a hard opposing HTF).
-    - (!pdAligned ? 8 : 0)
-    - (!inSession ? 6 : 0)
-  ));
+  const score = scoreCrtSetup({
+    manipulation: Boolean(manipulation),
+    choch: Boolean(choch),
+    rr: plan.rr,
+    minimumRR,
+    managementRR,
+    htfAlignment,
+    smtAligned,
+    sessionTimedRaid,
+    inSession,
+    locationTier,
+    referenceCandleScore: referenceCandle?.score,
+    displacementStrength,
+    shiftFvgOrRetest: linkedShiftFvg || typeof retestIndex === "number",
+    rangeRespect,
+    keyOpenRaid,
+    pdAligned
+  });
   if (referenceCandle && (referenceCandle.grade === "D" || referenceCandle.grade === "C")) {
     warnings.push(`CRT range mumu zayıf (reference_candle_score ${referenceCandle.score}/${referenceCandle.grade}): ${referenceCandle.reasons[0]} Alelade mum güçlü imbalance mumu kadar güvenilir değildir.`);
   }
@@ -1384,7 +1423,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   };
 }
 
-function gradeFromScore(score: number): QualityGrade {
+export function gradeFromScore(score: number): QualityGrade {
   // Doctrine tiers: 90+ institutional, 80-89 high probability, 70-79 tradable, below reject.
   if (score >= 90) return "A+";
   if (score >= 80) return "A";
