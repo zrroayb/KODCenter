@@ -4,6 +4,7 @@ import { loadEnv, type Plugin } from "vite";
 import process from "node:process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createAlertStore, isAuthorizedScan, type AlertStore } from "./server/alertGate";
+import { eqFullManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
 import { CRT_ANALYSIS_SYSTEM_INSTRUCTION, SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
 
 const yahooUserAgent = "Mozilla/5.0";
@@ -358,7 +359,7 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
     neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı.";
     beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle.";
   } else if (geometryBroken) {
-    karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
+    karar = input.stage === "watch" ? "Karar: Bekle; plan geometrisi bozuk, trade edilmez." : "Karar: Trade edilmez; plan geometrisi bozuk.";
     neden = `Neden: Stop ${formatTelegramPrice(input.stopLoss)}, entry ${formatTelegramPrice(input.entry)} seviyesinin yanlış tarafında duruyor.`;
     beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle.";
   } else if (evidenceStatus("manipulation") === "fail") {
@@ -372,9 +373,9 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   } else if (input.stage === "ready") {
     karar = "Karar: Plan hazır; disiplinle uygula.";
     neden = `Neden: ${audit?.decision || "CRT sırası tamam: bias, manipulation, ChoCH ve retest okunuyor."}`;
-    beklenen = `Beklenen: Entry ${formatTelegramPrice(input.entry)}; EQ seviyesinde kısmi al, kalanı DOL'a taşı.`;
+    beklenen = eqFullManagementLine(formatTelegramPrice(input.entry), formatTelegramPrice(input.targets?.[0]));
   } else {
-    karar = "Karar: Onay geldi; retest bekle, displacement kovalanmaz.";
+    karar = "Karar: Bekle; onay geldi, retest gelsin, displacement kovalanmaz.";
     neden = `Neden: ${audit?.decision || decisionLine || "Kalite/RR filtreleri henüz READY vermiyor."}`;
     beklenen = `Beklenen: Fiyat ${formatTelegramPrice(input.entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok.`;
   }
@@ -424,12 +425,13 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
   return clampText(`
 Sen deneyimli bir Candle Range Theory (CRT) mentorusun; öğrencinin chartını okuyup net ve doğrudan konuşursun.
 CRT modelin: bir önceki kapanmış HTF mumu range'dir. Range high/low'unun süpürülmesi manipulation, karşı tarafa dönen hareket distribution'dır.
-SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → TP1 range EQ (0.5) → TP2 DOL veya range karşı ucu.
+SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → çıkış range EQ (0.5), pozisyonun tamamı; DOL yalnız uzatma bilgisi.
 Sıra disiplini bozulmaz: sweep yoksa "manipulation bekle" dersin, ChoCH yoksa "kapanış onayı bekle" dersin, retest kaçtıysa "kovalanmaz, yeni model bekle" dersin.
 Stop entry'nin yanlış tarafındaysa veya TP entry'nin gerisindeyse bunu sert söyle: bu plan geometrisi bozuk, trade edilmez.
 Killzone dışı FX/endeks setup'ı zayıftır; zamanlamayı her zaman değerlendir.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
 Türkçe yaz. Teknik terimleri koru. Tam 4 kısa satır yaz.
+${TRADE_COMMENTARY_STAGE_RULE}
 StructureAudit gerçek kaynak. Audit ile çelişme, audit dışı pattern uydurma.
 Chartı gerçekten oku: CRT range high/low/mid, DOL, POI, manipulation sweep, ChoCH/Just, entry, stop ve TP mesafesini beraber değerlendir.
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
@@ -730,7 +732,10 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
       if (attempt === 0) continue;
       return fallbackTradeCommentary(input, lastError);
     }
-    return { status: "ready" as const, commentary: cleanModelCommentary(commentary, 900), model };
+    const cleaned = cleanModelCommentary(commentary, 900);
+    const violation = tradeCommentaryViolation(cleaned, input.stage);
+    if (violation) return fallbackTradeCommentary(input, violation);
+    return { status: "ready" as const, commentary: cleaned, model };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       if (attempt === timeouts.length - 1) return fallbackTradeCommentary(input, lastError);

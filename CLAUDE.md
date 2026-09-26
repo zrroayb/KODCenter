@@ -111,6 +111,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
   `src/lib/gemini/systemInstructions.ts`; `vite.config.ts`, `worker/index.ts` ve
   `crtInterpretation.ts` oradan import eder.
+- Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
+  watch → "Bekle…", kısmi TP dili yok (çıkış tam EQ). Uymayan Gemini metni lokal fallback'e düşer.
 
 ## 8. UI konvansiyonları
 
@@ -142,3 +144,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 6: haber filtresi dürüstleştirildi. Haftalık şablonlar "(tahmini)" etiketli ve yalnız uyarı; uydurma "her Çarşamba FOMC" ve "Salı/Perşembe 12:30" kaldırıldı. `avoidNews` no-trade'i artık yalnız `src/data/eventCalendar.ts`'teki tarihli gerçek olaylar tetikliyor (liste boş başlar, kullanıcı doldurur). Replay'de `event-risk` stop nedeni yalnız gerçek takvim olayında. PR #23.
 - 2026-09-26 — Madde 7: hesap modeli (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %, günlük max işlem) Ayarlar'a taşındı; aynı taramada aynı `clusterExposure` yönünde 2+ READY'ye "Korelasyon: toplam riski böl" uyarısı (site + Telegram); journal'dan günün gerçekleşen R'ı -2R'a inince tarama ekranında uyarı (veto değil). PR #23.
 - 2026-09-26 — Madde 8: sembole özgü tüm sabitler (stop buffer, spread/slippage/komisyon, sentetik bid/ask, nokta değeri, korelasyon kümesi, SMT partnerleri, Yahoo ticker) tek tabloda: `src/lib/ict/symbolSpec.ts`. Nokta değeri yaklaşık olan sembollerde (XAU, NAS, USDJPY, USDCHF) boyut uyarısı "lot" değil "birim" diyor. Ayrıca kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmiyordu (tsconfig `files: []`); kalite kapısı artık `npm run typecheck` (app + node + worker) ve Madde 9 commit'indeki bir çift anahtar hatasını yakaladı. PR #23.
+- 2026-09-26 — Madde 13: trade yorumu kontratı (`src/lib/gemini/commentaryGuard.ts`): stage=ready ise Karar "Plan hazır", watch ise "Bekle" ile başlamalı; "kısmi al / kalanı DOL'a" dili reddedilir (çıkış tam EQ). Kontrata uymayan Gemini metni sunucuda ve istemcide lokal fallback'e düşer. Fallback yönetim cümlesi artık "pozisyonun tamamı EQ'da kapanır". PR #23.
