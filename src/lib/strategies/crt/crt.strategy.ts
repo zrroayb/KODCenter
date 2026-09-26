@@ -292,10 +292,17 @@ function raidFromPair(range: DealingRange, raidCandle: Candle, closed: boolean):
   return undefined;
 }
 
-// A raid stays alive only while every later close holds the reclaim (a close beyond the
-// swept extreme was a breakout) and the distribution target is untouched (a touch of the
-// opposite extreme means the setup played out and is consumed).
+// A raid stays alive only while every later close holds the reclaim (a close beyond the swept
+// extreme was a breakout) and the distribution target is untouched (a touch of the opposite
+// extreme means the setup played out and is consumed). Since 2026-09-26 the raid candle's OWN
+// close counts too: closed beyond the edge and never reclaimed = acceptance, not manipulation.
 function raidStillActive(rangeCandles: Candle[], raidIndex: number, range: DealingRange, direction: TradeDirection): boolean {
+  const raidCandle = rangeCandles[raidIndex];
+  const raidClosedBeyond = direction === "short" ? raidCandle.close > range.high : raidCandle.close < range.low;
+  // A closed raid candle that closed beyond the edge with no later close back inside is an
+  // accepted breakout: no reversal is looked for. A later close back inside is the reclaim
+  // (the loop below then requires every later close to keep holding it).
+  if (raidClosedBeyond && raidIndex === rangeCandles.length - 1) return false;
   for (let index = raidIndex + 1; index < rangeCandles.length; index += 1) {
     const candle = rangeCandles[index];
     if (direction === "short" ? candle.close > range.high : candle.close < range.low) return false;
@@ -602,6 +609,7 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
       side: expectedSweepSide(direction),
       level: direction === "long" ? origin.fvg.low : origin.fvg.high,
       candleIndex: tapConfirmIndex,
+      // fvgTapHeld already requires the latest HTF close back beyond the gap: the tap held.
       reclaimed: true
     };
   }
@@ -611,6 +619,7 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
       side: expectedSweepSide(direction),
       level: direction === "long" ? originCandle.low : originCandle.high,
       candleIndex: confirmIndexAtTime(anchor.confirmCandles, originCandle.time),
+      // A "reversal" CRT bias candle closed back inside by definition (buildCrtBias).
       reclaimed: true
     };
   }
@@ -619,11 +628,18 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
   if (anchor.raid && anchor.raid.direction === direction) {
     const candleIndex = confirmSweepIndex(anchor, direction);
     if (typeof candleIndex !== "number") return undefined;
+    // Reclaim is measured, not assumed: a CLOSED confirm-TF candle since the sweep must have
+    // closed back inside the swept edge. A forming HTF raid that is still trading beyond the
+    // edge is a sweep in progress, not a reclaimed manipulation.
+    const edge = direction === "short" ? anchor.range.high : anchor.range.low;
+    const reclaimed = anchor.liveConfirmCandles
+      .slice(candleIndex)
+      .some((candle) => candle.closed !== false && (direction === "short" ? candle.close < edge : candle.close > edge));
     return {
       side: expectedSweepSide(direction),
       level: anchor.raid.level,
       candleIndex,
-      reclaimed: true
+      reclaimed
     };
   }
   const candles = anchor.confirmCandles;
@@ -651,25 +667,10 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
       reclaimed: true
     };
   }
-  const swingSide = direction === "short" ? "high" : "low";
-  const swingSweep = anchor.swings
-    .filter((point) => point.side === swingSide)
-    .filter((point) => direction === "short" ? lastClose < point.level : lastClose > point.level)
-    .flatMap((point) => candles
-      .map((candle, candleIndex) => ({ point, candle, candleIndex }))
-      .filter(({ candleIndex }) => candleIndex > point.candleIndex && candleIndex >= freshnessStart)
-      .filter(({ candle }) => direction === "short"
-        ? candle.high > point.level && candle.close < point.level
-        : candle.low < point.level && candle.close > point.level))
-    .sort((a, b) => b.candleIndex - a.candleIndex)[0];
-  return swingSweep
-    ? {
-        side: expectedSweepSide(direction),
-        level: legExtremeSince(swingSweep.candleIndex, direction === "short" ? swingSweep.candle.high : swingSweep.candle.low),
-        candleIndex: swingSweep.candleIndex,
-        reclaimed: true
-      }
-    : undefined;
+  // A sweep of an internal confirm-TF swing is NOT a CRT manipulation: the anchor range
+  // extreme was never taken. It used to count ("swingSweep", removed 2026-09-26) and could
+  // walk a 15m internal wick all the way to READY.
+  return undefined;
 }
 
 export type CrtChochRead = {
@@ -1263,6 +1264,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // opposite range edge. Everything else belongs in quality warnings, not this gate list.
     anchor.origin ? `${anchor.origin.kind === "fvg-origin" ? "FVG-origin" : "Active CRT"} deneysel model; ana CRT ile ayrı ölçülene kadar yalnızca WATCH.` : undefined,
     !manipulation ? `Manipulation yok: ${anchor.spec.rangeTf.toUpperCase()} CRT high/low henüz alınmadı.` : undefined,
+    manipulation && !manipulation.reclaimed ? `${anchor.spec.rangeTf.toUpperCase()} CRT kenarı alındı ama ${anchor.spec.confirmTf} kapanışı henüz range içine dönmedi (reclaim yok).` : undefined,
+    // Direction guessed from the anchor candle's bias (no HTF raid) is context, not a trade:
+    // the setup stays WATCH until the anchor range extreme is actually raided.
+    directionSource === "bias" ? `${anchor.spec.rangeTf.toUpperCase()} raid yok; yön yalnızca CRT bias'tan — context/WATCH, READY olamaz.` : undefined,
     // "ChoCH yok" yanıltıcıydı: LTF'de bir ChoCH OLABİLİR ama bu HTF setup'ın onayı, sweep'ten
     // ÖNCEki korunan swing'in kırılmasıdır. Mesaj artık o SEVİYEYİ söyler, böylece "ama grafikte
     // ChoCH var" karışıklığı biter — o küçük LTF kırılımı bu anchor'ı onaylamaz (2026-07-28).
