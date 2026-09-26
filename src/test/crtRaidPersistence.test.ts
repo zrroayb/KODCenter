@@ -92,16 +92,21 @@ function patchCandles<T extends { open: number; high: number; low: number; close
 
 function scanWithH4(patches: Record<number, CandlePatch>, executionClose = 98) {
   const base = createStructureContext();
-  const h4 = patchCandles(base.timeframes.h4, patches);
+  const patched = patchCandles(base.timeframes.h4, patches);
+  // Shift the 4H series one 15m bar earlier: the forming 4H's first 15m candle has closed.
+  const h4 = patched.map((candle) => ({ ...candle, time: candle.time - 15 * 60 * 1000 }));
   const liveH4 = h4[h4.length - 1];
-  // Keep the confirmation TF's last close consistent with the h4 story.
+  // Keep the confirmation TF's last close consistent with the h4 story. The live 4H extremes
+  // print on the last CLOSED 15m candle: state changes (sweep, EQ touch) are read from closed
+  // confirm candles only (live == replay), the forming 15m just carries the current price.
+  const last = base.timeframes.m15.length - 1;
   const m15 = base.timeframes.m15.map((candle, index) => ({
     ...candle,
     open: executionClose,
-    high: index === base.timeframes.m15.length - 1 ? Math.max(executionClose + 0.4, liveH4.high) : executionClose + 0.4,
-    low: index === base.timeframes.m15.length - 1 ? Math.min(executionClose - 0.4, liveH4.low) : executionClose - 0.4,
+    high: index === last - 1 ? Math.max(executionClose + 0.4, liveH4.high) : executionClose + 0.4,
+    low: index === last - 1 ? Math.min(executionClose - 0.4, liveH4.low) : executionClose - 0.4,
     close: executionClose,
-    closed: index === base.timeframes.m15.length - 1 ? false : true
+    closed: index !== last
   }));
   const context = createStructureContext({
     timeframes: { ...base.timeframes, h4, m15, m5: m15 },
@@ -211,7 +216,7 @@ describe("CRT direction sources", () => {
 
     const result = crtStrategy.scan({
       context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
     });
     const signal = result.signals.find((item) => item.crtAnchor?.origin === "fvg-origin");
 
@@ -224,6 +229,10 @@ describe("CRT direction sources", () => {
     expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("CRT yine geçerlidir");
     expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
     expect(signal?.governance.blockers.join(" ")).toContain("ChoCH");
+
+    // Varsayılan: deneysel aileler canlı listede yok (WATCH gürültüsü).
+    const defaults = crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false } });
+    expect(defaults.signals.some((item) => item.crtAnchor?.origin === "fvg-origin" || item.crtAnchor?.origin === "active-crt")).toBe(false);
   });
 
   it("surfaces the current Daily CRT candle as visible context instead of hiding it", () => {
@@ -248,7 +257,7 @@ describe("CRT direction sources", () => {
 
     const result = crtStrategy.scan({
       context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
     });
     const dailyActive = result.signals.find((signal) => signal.crtAnchor?.origin === "active-crt" && signal.crtAnchor.rangeTf === "1d");
 
@@ -281,7 +290,8 @@ describe("CRT raid persistence", () => {
     expect(signal.crtAnchor?.raidClosed).toBe(false);
     expect(signal.crtAnchor?.setupPhase).toBe("raid");
     expect(signal.governance.blockers.join(" ")).toContain("15m ChoCH");
-    expect(signal.governance.blockers.join(" ")).not.toContain("reclaim");
+    // Price is still trading above the swept high: the reclaim is measured, not assumed.
+    expect(signal.governance.blockers.join(" ")).toContain("reclaim yok");
     expect(signal.governance.blockers.join(" ")).not.toContain("4H CRT origin mumu");
   });
 
@@ -302,7 +312,7 @@ describe("CRT raid persistence", () => {
     expect(signal.crtAnchor?.raidClosed).toBe(false);
     expect(signal.crtAnchor?.setupPhase).toBe("raid");
     expect(signal.governance.blockers.join(" ")).toContain("15m ChoCH");
-    expect(signal.governance.blockers.join(" ")).not.toContain("reclaim");
+    expect(signal.governance.blockers.join(" ")).toContain("reclaim yok");
   });
 
   it("drops a raided setup once price has already reached the CRT midpoint", () => {
@@ -386,9 +396,9 @@ describe("CRT raid persistence", () => {
     expect(signal.direction).toBe("short");
   });
 
-  it("recognizes the newer low raid even when that second 4H candle closes beyond the low", () => {
-    // The older long is consumed, but h4[22] itself takes h4[21]'s low. Under the simplified
-    // rule that newer raid is visible immediately; only its LTF confirmation can make it READY.
+  it("treats a closed raid candle that closed beyond the low (no reclaim) as acceptance, not a raid", () => {
+    // The older long is consumed, and h4[22] takes h4[21]'s low but CLOSES below it with no
+    // later close back inside. That is an accepted breakout (2026-09-26): no long manipulation.
     const signal = scanWithH4({
       20: { open: 100, high: 101, low: 95, close: 99 },
       21: { open: 98, high: 98.4, low: 94.6, close: 96 },
@@ -396,8 +406,41 @@ describe("CRT raid persistence", () => {
       23: { open: 94.2, high: 94.6, low: 93.9, close: 94.3 }
     }, 94.3);
 
-    expect(signal?.direction).toBe("long");
-    expect(signal?.crtAnchor?.raidActive).toBe(true);
-    expect(signal?.stage).toBe("watch");
+    expect(signal?.stage).not.toBe("ready");
+    expect(signal?.crtAnchor?.raidActive && signal.direction === "long" && signal.crtAnchor.rangeLow === 94.6).toBeFalsy();
+  });
+
+  it("detectAnchorRaid ignores a closed raid candle that closed beyond the edge", () => {
+    const candles: Candle[] = [
+      { time: 0, open: 95, high: 100, low: 90, close: 95, volume: 1, closed: true },
+      { time: 1, open: 104, high: 110, low: 100, close: 104, volume: 1, closed: true },
+      { time: 2, open: 106, high: 114, low: 103, close: 113, volume: 1, closed: true }
+    ];
+    expect(detectAnchorRaid(candles, { rangeTf: "4h", confirmTf: "15m" }).raid).toBeUndefined();
+    // Same sweep, but the next candle closes back inside: that is the reclaim — a live raid.
+    const reclaimed = [...candles, { time: 3, open: 112, high: 113, low: 106, close: 107, volume: 1, closed: true }];
+    expect(detectAnchorRaid(reclaimed, { rangeTf: "4h", confirmTf: "15m" }).raid?.direction).toBe("short");
+  });
+});
+
+describe("CRT manipulation must be an anchor-range raid", () => {
+  it("a bias-only direction (no HTF raid) is context/WATCH and can never be READY", () => {
+    const base = createStructureContext();
+    const h4 = patchCandles(base.timeframes.h4, {
+      21: { open: 96, high: 99, low: 95, close: 98.8, closed: true },
+      22: { open: 98.8, high: 101, low: 98.2, close: 100.6, closed: true },
+      23: { open: 100.6, high: 100.9, low: 99.6, close: 100, closed: false }
+    });
+    const context = createStructureContext({ timeframes: { ...base.timeframes, h4 } });
+    const signals = crtStrategy.scan({
+      context,
+      settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
+    }).signals;
+    const biasOnly = signals.filter((signal) => signal.governance.blockers.some((blocker) => blocker.includes("yön yalnızca CRT bias")));
+    for (const signal of biasOnly) expect(signal.stage).not.toBe("ready");
+    const h4Standard = signals.find((signal) => signal.crtAnchor?.rangeTf === "4h" && signal.crtAnchor.origin === "standard");
+    expect(h4Standard?.crtAnchor?.raidActive).toBe(false);
+    expect(h4Standard?.governance.blockers.join(" ")).toContain("raid yok");
+    expect(h4Standard?.stage).not.toBe("ready");
   });
 });

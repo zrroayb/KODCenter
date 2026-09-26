@@ -38,6 +38,9 @@ describe("ready signal hold", () => {
     expect(second.signals[0].stage).toBe("ready");
     expect(second.signals[0].id).toBe(ready.id);
     expect(second.signals[0].riskWarnings.join(" ")).toContain("READY sinyal kilidi");
+    // UI "kilitli" rozeti bu işarete bakar; motorun kendi READY'sinde işaret yok.
+    expect(second.signals[0].readyHoldExpiresAt).toBe(first.records[readyHoldSignature(ready)].expiresAt);
+    expect(first.signals[0].readyHoldExpiresAt).toBeUndefined();
   });
 
   it("clears the hold when the same setup becomes invalidated", () => {

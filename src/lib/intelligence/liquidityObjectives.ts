@@ -26,16 +26,16 @@ function previousClosed(candles: Candle[]): Candle | undefined {
   return candles.length >= 2 ? candles[candles.length - 2] : undefined;
 }
 
-function previousRange(candles: Candle[], timeframe: "1w" | "1M"): Candle | undefined {
-  const aggregated = aggregateCandles(candles, timeframe);
+function previousRange(candles: Candle[], timeframe: "1w" | "1M", sundayOpensWeek: boolean): Candle | undefined {
+  const aggregated = aggregateCandles(candles, timeframe, { sundayOpensWeek });
   return previousClosed(aggregated);
 }
 
-export function buildLiquidityObjectives(dailyCandles: Candle[], dealingRange: DealingRange): LiquidityObjective[] {
+export function buildLiquidityObjectives(dailyCandles: Candle[], dealingRange: DealingRange, options: { sundayOpensWeek?: boolean } = {}): LiquidityObjective[] {
   const objectives: LiquidityObjective[] = [];
   const previousDay = previousClosed(dailyCandles);
-  const previousWeek = previousRange(dailyCandles, "1w");
-  const previousMonth = previousRange(dailyCandles, "1M");
+  const previousWeek = previousRange(dailyCandles, "1w", options.sundayOpensWeek === true);
+  const previousMonth = previousRange(dailyCandles, "1M", false);
 
   if (previousDay) {
     objectives.push(objective("PDH", "buy-side", previousDay.high, "1d", "Previous daily high"));

@@ -1,18 +1,5 @@
-import type { Candle, MarketContext, MarketSymbol, SmtDivergence, TradeDirection } from "../ict/types";
-
-const SMT_PARTNERS: Partial<Record<MarketSymbol, MarketSymbol[]>> = {
-  EURUSD: ["GBPUSD", "AUDUSD"],
-  GBPUSD: ["EURUSD", "AUDUSD"],
-  AUDUSD: ["EURUSD", "GBPUSD"],
-  USDJPY: ["USDCHF"],
-  USDCHF: ["USDJPY"],
-  NAS100: ["BTCUSD"],
-  BTCUSD: ["ETHUSD", "NAS100"],
-  ETHUSD: ["BTCUSD", "SOLUSD"],
-  SOLUSD: ["ETHUSD", "BTCUSD"],
-  XRPUSD: ["BTCUSD"],
-  BNBUSD: ["BTCUSD"]
-};
+import type { Candle, MarketContext, SmtDivergence, TradeDirection } from "../ict/types";
+import { SYMBOL_SPEC } from "../ict/symbolSpec";
 
 function executionCandles(context: MarketContext): Candle[] {
   return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
@@ -95,7 +82,7 @@ function divergenceForSide(input: {
 }
 
 export function detectSmtDivergences(context: MarketContext, allContexts: MarketContext[], lookback = 20): SmtDivergence[] {
-  const partners = SMT_PARTNERS[context.symbol] ?? [];
+  const partners = SYMBOL_SPEC[context.symbol]?.smtPartners ?? [];
   const primaryCandles = executionCandles(context);
   if (primaryCandles.length < lookback + 2) return [];
 

@@ -67,3 +67,25 @@ describe("candle aggregation", () => {
     expect(latestClosed(source).time).toBe(start);
   });
 });
+
+describe("weekly bucket and the Sunday open", () => {
+  // 2026-09-18 Fri, 2026-09-20 Sun, 2026-09-21 Mon.
+  const fri = candle(Date.UTC(2026, 8, 18), 100, 101, 99, 100);
+  const sun = candle(Date.UTC(2026, 8, 20), 100, 130, 99, 120);
+  const mon = candle(Date.UTC(2026, 8, 21), 120, 121, 110, 115);
+
+  it("FX/futures: a Sunday-session bar opens the NEW week and never pollutes last week's high", () => {
+    const weeks = aggregateCandles([fri, sun, mon], "1w", { sundayOpensWeek: true });
+    expect(weeks).toHaveLength(2);
+    expect(weeks[0].high).toBe(101);
+    expect(weeks[1].time).toBe(Date.UTC(2026, 8, 21));
+    expect(weeks[1].open).toBe(100);
+    expect(weeks[1].high).toBe(130);
+  });
+
+  it("crypto keeps the Monday–Sunday UTC week", () => {
+    const weeks = aggregateCandles([fri, sun, mon], "1w");
+    expect(weeks[0].high).toBe(130);
+    expect(weeks[1].high).toBe(121);
+  });
+});

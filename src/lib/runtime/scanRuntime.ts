@@ -4,6 +4,7 @@ import { getStrategy, PLAYBOOK_STRATEGIES } from "../strategies/registry";
 import type { RejectedSetup, StrategyModule } from "../strategies/types";
 import { ruleAllowsContext, ruleAllowsSignal } from "../userRules/applyRules";
 import type { UserRules } from "../userRules/userRules";
+import { applyCorrelationWarnings } from "../risk/portfolioRisk";
 
 const SIGNAL_STAGE_RANK: Record<TradingSignal["stage"], number> = {
   ready: 4,
@@ -75,12 +76,16 @@ export function scanContexts(
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
+        exitMinimumRR: rules.crtExitMinimumRR,
         stopProfile: rules.stopProfile,
         useExecutionCosts: rules.useExecutionCosts,
         slippageStress: rules.slippageStress,
         partialTpEnabled: rules.partialTpEnabled,
         moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
+        accountSize: rules.accountSize,
+        riskPerTradePct: rules.riskPerTradePct,
+        maxTradesPerDay: rules.maxTradesPerDay,
         avoidNews: rules.avoidNews,
         useHtfAlignmentFilter: rules.useHtfAlignmentFilter
       }
@@ -104,6 +109,9 @@ export function scanContexts(
   const cappedVisible = visibleCandidates.slice(0, rules.maxSignalsPerScan);
   const cutHtfContext = visibleCandidates.slice(rules.maxSignalsPerScan).filter(isHtfContext);
   const visibleSignals = [...cappedVisible, ...cutHtfContext];
+  // Same-scan correlation: 2+ READY on one macro exposure get a "split the risk" warning
+  // (site + Telegram). A warning, never a veto.
+  applyCorrelationWarnings(visibleSignals);
   const promotedIds = new Set(visibleSignals.map((signal) => signal.id));
   const hiddenCandidates = [
     ...invalidCandidates,

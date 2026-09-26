@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import { loadEnv, type Plugin } from "vite";
 import process from "node:process";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createAlertStore, isAuthorizedScan, type AlertStore } from "./server/alertGate";
+import { eqFullManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
+import { CRT_ANALYSIS_SYSTEM_INSTRUCTION, SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
 
 const yahooUserAgent = "Mozilla/5.0";
 
@@ -12,6 +15,8 @@ type YahooProxyResponse = ServerResponse;
 
 type ReadyTelegramPayload = {
   id?: string;
+  strategyId?: string;
+  extensionRR?: number;
   symbol?: string;
   direction?: string;
   alertKind?: string;
@@ -210,6 +215,10 @@ type GeminiMarketPickPayload = {
 };
 
 type TelegramEnv = {
+  // Shared secret between the GitHub Actions scanner and this server. Without it the alert
+  // endpoint is closed (fail-closed): nobody can post to Telegram through the public URL.
+  SCAN_TOKEN?: string;
+  ALERT_STORE_PATH?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   GEMINI_API_KEY?: string;
@@ -293,13 +302,15 @@ function telegramCaption(payload: ReadyTelegramPayload) {
     : undefined;
   return [
     `<b>${priorityTag}</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())}`,
-    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}`,
+    // plan.rr is the EXIT's net RR (CRT: full close at EQ). DOL is extension info only.
+    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}${(payload.strategyId ?? "crt") === "crt" ? " (tam çıkış EQ)" : ""}`,
     ...(riskLine ? [riskLine] : []),
     "",
     `Entry: <b>${formatTelegramPrice(payload.entry)}</b>`,
     `Stop: <b>${formatTelegramPrice(payload.stopLoss)}</b>`,
-    `EQ / TP1: <b>${formatTelegramPrice(eqTarget)}</b>`,
-    `DOL / TP2: <b>${formatTelegramPrice(dolTarget)}</b>`,
+    ...((payload.strategyId ?? "crt") === "crt"
+      ? [`Çıkış EQ: <b>${formatTelegramPrice(eqTarget)}</b>`, `DOL (uzatma, bilgi): ${formatTelegramPrice(dolTarget)}`]
+      : [`TP1: <b>${formatTelegramPrice(eqTarget)}</b>`, ...(dolTarget !== eqTarget ? [`TP2: <b>${formatTelegramPrice(dolTarget)}</b>`] : [])]),
     "",
     "<b>Neden READY?</b>",
     reasons || "- Entry/SL/TP planı aktif",
@@ -348,7 +359,7 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
     neden = "Neden: Entry retest'i verilmeden fiyat hedefe yürüdü; geç girişin RR'ı kalmadı.";
     beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (sweep → ChoCH → retest) bekle.";
   } else if (geometryBroken) {
-    karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
+    karar = input.stage === "watch" ? "Karar: Bekle; plan geometrisi bozuk, trade edilmez." : "Karar: Trade edilmez; plan geometrisi bozuk.";
     neden = `Neden: Stop ${formatTelegramPrice(input.stopLoss)}, entry ${formatTelegramPrice(input.entry)} seviyesinin yanlış tarafında duruyor.`;
     beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle.";
   } else if (evidenceStatus("manipulation") === "fail") {
@@ -362,9 +373,9 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   } else if (input.stage === "ready") {
     karar = "Karar: Plan hazır; disiplinle uygula.";
     neden = `Neden: ${audit?.decision || "CRT sırası tamam: bias, manipulation, ChoCH ve retest okunuyor."}`;
-    beklenen = `Beklenen: Entry ${formatTelegramPrice(input.entry)}; EQ seviyesinde kısmi al, kalanı DOL'a taşı.`;
+    beklenen = eqFullManagementLine(formatTelegramPrice(input.entry), formatTelegramPrice(input.targets?.[0]));
   } else {
-    karar = "Karar: Onay geldi; retest bekle, displacement kovalanmaz.";
+    karar = "Karar: Bekle; onay geldi, retest gelsin, displacement kovalanmaz.";
     neden = `Neden: ${audit?.decision || decisionLine || "Kalite/RR filtreleri henüz READY vermiyor."}`;
     beklenen = `Beklenen: Fiyat ${formatTelegramPrice(input.entry)} retest seviyesine dönsün; temas + tutunma görmeden emir yok.`;
   }
@@ -414,12 +425,13 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
   return clampText(`
 Sen deneyimli bir Candle Range Theory (CRT) mentorusun; öğrencinin chartını okuyup net ve doğrudan konuşursun.
 CRT modelin: bir önceki kapanmış HTF mumu range'dir. Range high/low'unun süpürülmesi manipulation, karşı tarafa dönen hareket distribution'dır.
-SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → TP1 range EQ (0.5) → TP2 DOL veya range karşı ucu.
+SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → çıkış range EQ (0.5), pozisyonun tamamı; DOL yalnız uzatma bilgisi.
 Sıra disiplini bozulmaz: sweep yoksa "manipulation bekle" dersin, ChoCH yoksa "kapanış onayı bekle" dersin, retest kaçtıysa "kovalanmaz, yeni model bekle" dersin.
 Stop entry'nin yanlış tarafındaysa veya TP entry'nin gerisindeyse bunu sert söyle: bu plan geometrisi bozuk, trade edilmez.
 Killzone dışı FX/endeks setup'ı zayıftır; zamanlamayı her zaman değerlendir.
 Bu otomatik emir sistemi değildir; al/sat emri verme, kesinlik konuşma, yatırım tavsiyesi yazma.
 Türkçe yaz. Teknik terimleri koru. Tam 4 kısa satır yaz.
+${TRADE_COMMENTARY_STAGE_RULE}
 StructureAudit gerçek kaynak. Audit ile çelişme, audit dışı pattern uydurma.
 Chartı gerçekten oku: CRT range high/low/mid, DOL, POI, manipulation sweep, ChoCH/Just, entry, stop ve TP mesafesini beraber değerlendir.
 Hangi mum/level bekleniyor ise açık söyle. "Şu mumun high/low kapanışı" gibi somut ol.
@@ -720,7 +732,10 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
       if (attempt === 0) continue;
       return fallbackTradeCommentary(input, lastError);
     }
-    return { status: "ready" as const, commentary: cleanModelCommentary(commentary, 900), model };
+    const cleaned = cleanModelCommentary(commentary, 900);
+    const violation = tradeCommentaryViolation(cleaned, input.stage);
+    if (violation) return fallbackTradeCommentary(input, violation);
+    return { status: "ready" as const, commentary: cleaned, model };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
       if (attempt === timeouts.length - 1) return fallbackTradeCommentary(input, lastError);
@@ -734,7 +749,6 @@ async function generateGeminiTradeCommentary(input: GeminiTradePayload, env: Tel
 // Master §10/§14/§15: the CRT interpretation layer. Gemini gets deterministic evidence events
 // (each with a unique id) and returns validated JSON — it must not invent events, and may only
 // reference provided event ids. Additive endpoint; the freeform mentor commentary is untouched.
-const CRT_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic Candle Range Theory trading system. You do NOT detect market events. All candles, ranges, structure breaks, liquidity sweeps, displacement events, targets and invalidation levels come only from the supplied evidence events. Reasoning order: external liquidity draw -> HTF structure -> dealing-range location -> liquidity sweep -> return inside -> displacement -> LTF confirmation -> target -> invalidation. Do not force a directional conclusion. Do not invent missing evidence. Do not assume every large candle is a valid CRT reference candle or every wick a valid sweep. You may only reference event ids present in the events array. The "knowledge" array holds reference CRT definitions — use them to ground your reasoning, but they are NOT market facts and you must not treat them as events. If evidence is insufficient set crt_analysis.status to "insufficient_evidence". Keep every reasoning/summary field concise — one or two short sentences, at most ~35 words each — so the JSON stays complete. Tüm serbest-metin alanlarını (reasoning, summary, contradictions, risks, missing_evidence, sweep_reasoning vb.) TÜRKÇE yaz; CRT/ICT terimlerini (CRT, sweep, liquidity, displacement, order block, FVG, premium, discount, dealing range, draw, reclaim, MSS, CISD, HTF, LTF, killzone, DOL, POI) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme. Return ONLY valid JSON matching the schema.`;
 
 const CRT_ANALYSIS_RESPONSE_SCHEMA = {
   type: "object",
@@ -840,15 +854,6 @@ async function handleGeminiCrtAnalysis(request: JsonRequest, response: YahooProx
   }
 }
 
-const SESSION_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic CRT and trading-session analysis system.
-You do not independently detect sessions, ranges, candles, sweeps, structure breaks, FVGs, displacement events, entries, stops or targets.
-Every market fact comes only from deterministic_events in the supplied payload.
-Explain the sequence in this order: HTF draw -> locked reference-session range -> trigger-session interaction -> sweep versus acceptance -> reclaim -> displacement -> lower-timeframe CRT confirmation -> target -> invalidation.
-Do not infer a bullish setup only because a low was swept, or a bearish setup only because a high was swept.
-Do not change timestamps, range prices, direction, lifecycle status, score or plan levels.
-Reference only event ids supplied in deterministic_events. If evidence is incomplete, return developing or insufficient_evidence.
-Tüm serbest-metin alanlarını TÜRKÇE yaz; CRT/ICT terimlerini (CRT, sweep, liquidity, displacement, order block, FVG, premium, discount, dealing range, draw, reclaim, MSS, CISD, HTF, LTF, killzone, DOL, POI) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
-Keep the answer concise and return ONLY valid JSON matching the response schema.`;
 
 const SESSION_ANALYSIS_RESPONSE_SCHEMA = {
   type: "object",
@@ -928,14 +933,6 @@ async function handleGeminiSessionAnalysis(request: JsonRequest, response: Yahoo
 
 // Master §33-§34: Silver Bullet interpretation layer — deterministic facts in, validated JSON
 // out; a post-11:00 entry can never be approved.
-const SILVER_BULLET_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic ICT Silver Bullet trading system.
-The active strategy profile is the New York AM 09:00 hourly-range reversal model: the 09:00-10:00 New York H1 candle is the reference range and the only execution window is 10:00-11:00 New York time.
-You do not independently detect candles, sweeps, MSS, CISD, FVGs, entries, stops or targets — every market fact comes only from the supplied deterministic evidence and events.
-Reasoning order: reference-range quality -> swept side -> sweep quality -> failure or acceptance outside -> reclaim -> displacement -> MSS or CISD -> entry-array quality -> entry timing -> stop validity -> target availability -> risk-to-reward -> HTF agreement -> contradictions.
-A high sweep is not automatically bearish and a low sweep is not automatically bullish; acceptance outside the range indicates continuation, not reversal.
-Never approve a setup whose entry did not fill before 11:00 New York (trade_plan.entryFilledUtc missing or late). Do not invent prices, events or targets and reference only allowed_event_ids.
-Tüm serbest-metin alanlarını TÜRKÇE yaz; ICT/Silver Bullet terimlerini (sweep, liquidity, MSS, CISD, FVG, displacement, reference range, reclaim, HTF, LTF, killzone, order block) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
-Keep every field concise (max ~30 words) and return ONLY valid JSON matching the schema.`;
 
 const SILVER_BULLET_RESPONSE_SCHEMA = {
   type: "object",
@@ -1276,23 +1273,58 @@ async function handleGeminiReplayReview(request: JsonRequest, response: YahooPro
   }
 }
 
+let alertStore: AlertStore | undefined;
+function alertStoreFor(env: TelegramEnv): AlertStore {
+  alertStore ??= createAlertStore(env.ALERT_STORE_PATH || ".data/alert-log.json");
+  return alertStore;
+}
+
+// Single alert engine (2026-09-26): only the authenticated server-side scanner may send.
 async function handleTelegramReadyAlert(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
   if (request.method !== "POST") {
     jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
     return;
   }
+  if (!env.SCAN_TOKEN) {
+    jsonResponse(response, 503, { status: "disabled", reason: "SCAN_TOKEN missing: alerts are sent only by the server-side scanner" });
+    return;
+  }
+  if (!isAuthorizedScan(request.headers.authorization, env.SCAN_TOKEN)) {
+    jsonResponse(response, 401, { status: "error", error: "Unauthorized" });
+    return;
+  }
+  const store = alertStoreFor(env);
+  let dedupeKey: string | undefined;
   try {
-    const payload = await readJsonBody(request) as ReadyTelegramPayload;
+    const payload = await readJsonBody(request) as ReadyTelegramPayload & { dedupeKey?: string; record?: unknown };
     const acceptedWatchAlert = payload.stage === "watch" && (payload.alertKind === "raid" || payload.alertKind === "context");
     if (payload.stage !== "ready" && !acceptedWatchAlert) {
       jsonResponse(response, 400, { status: "error", error: "Only READY, CRT raid or CRT context alerts are accepted" });
       return;
     }
-    const result = await sendTelegramReadyAlert(payload, env);
+    dedupeKey = payload.dedupeKey || `payload|${payload.id ?? ""}`;
+    if (!store.claim(dedupeKey)) {
+      jsonResponse(response, 200, { status: "duplicate", dedupeKey });
+      return;
+    }
+    const { record, ...alert } = payload;
+    const result = await sendTelegramReadyAlert(alert, env);
+    if (result.status === "sent") store.markSent(dedupeKey, record ?? { dedupeKey, signalId: payload.id, symbol: payload.symbol, sentAt: Date.now() });
+    else store.release(dedupeKey);
     jsonResponse(response, result.status === "error" ? 502 : 200, result);
   } catch (error) {
+    if (dedupeKey) store.release(dedupeKey);
     jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
   }
+}
+
+// Sent-alert history for every device (was per-browser localStorage only).
+function handleLiveAlerts(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
+  if (request.method !== "GET") {
+    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
+    return;
+  }
+  jsonResponse(response, 200, { status: "ok", alerts: alertStoreFor(env).recent() });
 }
 
 async function handleYahooProxy(request: YahooProxyRequest, response: YahooProxyResponse) {
@@ -1332,6 +1364,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleTelegramReadyAlert(request, response, env);
       });
+      server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
+        handleLiveAlerts(request, response, env);
+      });
       server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiTradeCommentary(request, response, env);
       });
@@ -1357,6 +1392,9 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleTelegramReadyAlert(request, response, env);
+      });
+      server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
+        handleLiveAlerts(request, response, env);
       });
       server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiTradeCommentary(request, response, env);

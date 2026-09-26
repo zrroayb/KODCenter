@@ -12,6 +12,7 @@ import {
 import type { RejectedSetup } from "../lib/strategies/types";
 import { buildMarketPickPayload, fetchGeminiMarketPick, type GeminiMarketPickResponse } from "../lib/gemini/marketPick";
 import { formatPrice, formatR } from "../lib/ict/format";
+import { SCAN_SOURCE_NOTE } from "../lib/ict/symbolSpec";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
 import type { DataHealthReport } from "../lib/data/dataHealth";
 import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason } from "../lib/signals/signalClassification";
@@ -97,6 +98,8 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   if (signal.plan.entryModel.cisdConfirmed && signal.plan.entryStatus !== "confirmed") {
     needs.push(retestRequirement ?? "Dağılım kapanışı onaylansın; sonra giriş planı aktif olsun.");
   }
+  // The plan carries the RR its own strategy gates with (CRT: EQ exit RR).
+  minimumRR = signal.plan.minimumRR ?? minimumRR;
   if (signal.plan.executionCosts.stress !== "off" && signal.plan.grossRR >= minimumRR && signal.plan.rr < minimumRR) {
     needs.push(`Spread/slippage fazla. Kağıt üstünde ${formatR(signal.plan.grossRR)}, gerçek hesapta ${formatR(signal.plan.rr)}.`);
   }
@@ -162,6 +165,7 @@ export function ScannerView({
   dataHealth,
   minimumRR,
   replayCorpus,
+  riskBrake,
   onScan,
   onSelectSignal
 }: {
@@ -178,6 +182,8 @@ export function ScannerView({
   dataHealth: DataHealthReport;
   minimumRR: number;
   replayCorpus?: RuntimeReplayTrade[];
+  // Günlük -2R freni (journal'dan). Uyarı; READY'leri gizlemez.
+  riskBrake?: string;
   onScan: () => void;
   onSelectSignal: (signal: TradingSignal) => void;
 }) {
@@ -302,6 +308,7 @@ export function ScannerView({
             <h2>{actionTitle}</h2>
           </div>
         </header>
+        {riskBrake && <p className="risk-brake-note">⚠ {riskBrake}</p>}
         {best ? (
           <>
             <div className="trade-now-main">
@@ -321,8 +328,8 @@ export function ScannerView({
                 <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
                 <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
                 <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-                <div><span>EQ RR</span><strong>{formatR(best.plan.managementRR ?? 0)}</strong></div>
-                <div><span>DOL RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+                <div><span>EQ RR</span><strong>{formatR(best.plan.rr)}</strong></div>
+                <div><span>DOL uzatma</span><strong>{formatR(best.plan.extensionRR ?? best.plan.rr)}</strong></div>
               </div>
             )}
             <section className="simple-structure-box">
@@ -410,6 +417,7 @@ export function ScannerView({
           <div><span>Sinyal</span><strong>{signals.length} / {readySignals.length} ready</strong></div>
           <div><span>Geçmiş</span><strong>{inactiveSignals.length}</strong></div>
         </div>
+        <p className="muted-note data-source-note">{SCAN_SOURCE_NOTE}</p>
         {dataErrors.length > 0 && (
           <div className={`provider-warning ${dataSource}`}>
             <strong>Veri uyarısı</strong>
@@ -418,7 +426,7 @@ export function ScannerView({
         )}
         {(best ?? latestInactive) && (
           <div className={`decision-strip ${(best ?? latestInactive)?.stage}`}>
-            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}{(best ?? latestInactive)?.counterTrend && <span className="counter-trend-tag">trende karşı</span>}</strong>
+            <strong>{best ? signalDecisionLabel(best) : "GEÇMİŞ"} · {(best ?? latestInactive)?.direction.toUpperCase()} {(best ?? latestInactive)?.stage.toUpperCase()}{(best ?? latestInactive) && <span className={`playbook-tag ${(best ?? latestInactive)!.strategyId}`}>{playbookShortLabel((best ?? latestInactive)!.strategyId)}</span>}{(best ?? latestInactive)?.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{best?.readyHoldExpiresAt && <span className="ready-hold-tag">kilitli</span>}</strong>
             <span>
               {best
                 ? `Entry ${formatPrice(best.plan.entry)} · SL ${formatPrice(best.plan.stopLoss)} · Net RR ${formatR(best.plan.rr)} · Stop ${stopSourceText(best)}`
@@ -438,7 +446,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
+              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               {signal.chopConflict ? (
                 <>
                   <b className="chop-note">Zıt yönlü raid</b>
@@ -470,7 +478,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               <b>Kalite {signal.grade}/{signal.score}</b>
               <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
               {signal.stage !== "ready" && (

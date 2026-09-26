@@ -1,57 +1,22 @@
+// Single Telegram alert engine (2026-09-26): this scanner runs the CURRENT engine in GitHub
+// Actions and posts each READY payload to the live site (Render) at
+// `${CLOUD_SCAN_URL}/api/telegram/ready-alert` with the SCAN_TOKEN bearer. The server dedupes
+// and sends; the browser never sends alerts. The Cloudflare Worker is no longer in this path.
 import { loadYahooMarketBatch, YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { buildMarketContext } from "../src/lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../src/lib/intelligence/smtEngine";
-import type { MarketSymbol } from "../src/lib/ict/types";
-import {
-  leanMarketForStorage,
-  scanSnapshotForSymbol
-} from "../src/lib/runtime/cloudSnapshot";
 import { alertableReadySignals, scanContexts } from "../src/lib/runtime/scanRuntime";
-import { buildTelegramReadyAlertPayload } from "../src/lib/telegram/alertPayload";
+import { buildTelegramReadyAlertPayload, telegramAlertRecordFromPayload } from "../src/lib/telegram/alertPayload";
 import { signalAlertChartSvg } from "../src/lib/telegram/alertChartSvg";
 import { Resvg } from "@resvg/resvg-js";
 import type { TradingSignal } from "../src/lib/ict/types";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
-import { resolveStoredRules } from "../src/lib/userRules/resolveRules";
 
 const cloudUrl = process.env.CLOUD_SCAN_URL?.replace(/\/+$/, "");
 const scanToken = process.env.SCAN_TOKEN;
 
-if (!cloudUrl) throw new Error("CLOUD_SCAN_URL missing");
+if (!cloudUrl) throw new Error("CLOUD_SCAN_URL missing (live site base URL, e.g. the Render URL)");
 if (!scanToken) throw new Error("SCAN_TOKEN missing");
-
-const headers = {
-  authorization: `Bearer ${scanToken}`,
-  "content-type": "application/json"
-};
-
-async function postJson(path: string, payload: unknown) {
-  const response = await fetch(`${cloudUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`${path}: HTTP ${response.status} ${body.slice(0, 800)}`);
-  }
-  return body ? JSON.parse(body) as unknown : undefined;
-}
-
-async function postSnapshot(path: string, symbol: MarketSymbol, scannedAt: number, payload: unknown) {
-  const url = new URL(`${cloudUrl}${path}`);
-  url.searchParams.set("symbol", symbol);
-  url.searchParams.set("scannedAt", String(scannedAt));
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
-  const body = await response.text();
-  if (!response.ok) {
-    throw new Error(`${path} ${symbol}: HTTP ${response.status} ${body.slice(0, 800)}`);
-  }
-}
 
 function chunks<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -61,18 +26,22 @@ function chunks<T>(items: T[], size: number): T[][] {
   return result;
 }
 
-// Site ile aynı kurallar: Ayar ekranı /api/rules'a yazar, bot buradan okur. Erişilemezse
-// defaultRules'a düşer — kural senkronu hiçbir zaman taramayı durduramaz.
-async function fetchCloudRules(): Promise<{ rules: typeof defaultRules; source: "cloud" | "default" }> {
-  try {
-    const response = await fetch(`${cloudUrl}/api/rules`, { headers });
-    if (!response.ok) return { rules: defaultRules, source: "default" };
-    const body = await response.json() as { rules?: unknown } | null;
-    if (!body?.rules) return { rules: defaultRules, source: "default" };
-    return { rules: resolveStoredRules(body.rules), source: "cloud" };
-  } catch {
-    return { rules: defaultRules, source: "default" };
-  }
+async function postAlert(signal: TradingSignal): Promise<{ symbol: string; status: string; httpStatus: number }> {
+  const payload = buildTelegramReadyAlertPayload(signal);
+  const chart = alertChartFor(signal);
+  const body = {
+    ...payload,
+    ...(chart ? { charts: [chart] } : {}),
+    // The server stores this record as the shared alert history (/api/live-alerts).
+    record: telegramAlertRecordFromPayload({ ...payload, rangeTf: signal.crtAnchor?.rangeTf, confirmTf: signal.crtAnchor?.confirmTf })
+  };
+  const response = await fetch(`${cloudUrl}/api/telegram/ready-alert`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${scanToken}`, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const result = await response.json().catch(() => ({})) as { status?: string };
+  return { symbol: signal.symbol, status: result.status ?? "unknown", httpStatus: response.status };
 }
 
 async function run() {
@@ -99,40 +68,28 @@ async function run() {
   const contexts = attachSmtDivergences(
     markets.map((market) => buildMarketContext(market.symbol, market.timeframes))
   );
-  const { rules, source: rulesSource } = await fetchCloudRules();
-  const result = scanContexts(contexts, "crt", rules);
-
-  for (const market of markets) {
-    await postSnapshot("/api/ingest-market", market.symbol, scannedAt, leanMarketForStorage(market));
-    await postSnapshot("/api/ingest-scan", market.symbol, scannedAt, scanSnapshotForSymbol(market.symbol, result));
-  }
-
+  // Default rules: the live site has no server-side rules store (the old Worker D1 mirror is
+  // out of the alert path). Change defaultRules to change what the scanner alerts on.
+  const result = scanContexts(contexts, "crt", defaultRules);
   const readySignals = alertableReadySignals(result);
-  const finalize = await postJson("/api/finalize-scan", {
-    scannedAt,
-    symbols: markets.map((market) => market.symbol),
-    errors,
-    alerts: readySignals.map((signal) => {
-      const payload = buildTelegramReadyAlertPayload(signal);
-      const chart = alertChartFor(signal);
-      return chart ? { ...payload, charts: [chart] } : payload;
-    })
-  });
+  const alerts = [];
+  for (const signal of readySignals) alerts.push(await postAlert(signal));
+  const failed = alerts.filter((alert) => alert.httpStatus >= 400);
 
   console.log(JSON.stringify({
-    status: "ok",
+    status: failed.length ? "partial" : "ok",
     scannedAt,
-    rulesSource,
     markets: markets.length,
     ready: readySignals.length,
     watch: result.signals.filter((signal) => signal.stage === "watch").length,
     errors,
-    finalize
+    alerts
   }));
+  if (failed.length) process.exitCode = 1;
 }
 
 // Ready sinyal icin chart gorseli: bagimsiz SVG -> resvg ile PNG data URL.
-// Worker bunu payload.charts'tan Telegram'a foto olarak gonderir.
+// Sunucu bunu payload.charts'tan Telegram'a foto olarak gonderir.
 function alertChartFor(signal: TradingSignal): { label: string; dataUrl: string } | undefined {
   const rendered = signalAlertChartSvg(signal);
   if (!rendered) return undefined;

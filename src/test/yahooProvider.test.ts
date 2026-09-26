@@ -146,3 +146,13 @@ describe("Yahoo data provider", () => {
     expect(result.background).not.toBe(true);
   });
 });
+
+describe("Yahoo daily bar dates", () => {
+  it("keeps a London-midnight FX daily stamp (23:00 UTC in summer) on its own trade date", () => {
+    const mondayLondonMidnight = Date.UTC(2026, 8, 20, 23, 0) / 1000; // Mon 21 Sep 00:00 BST
+    const candles = parseYahooChartResponse({
+      chart: { result: [{ timestamp: [mondayLondonMidnight], indicators: { quote: [{ open: [1], high: [2], low: [0.5], close: [1.5], volume: [0] }] } }] }
+    }, "1d", Date.UTC(2026, 8, 25));
+    expect(candles[0].time).toBe(Date.UTC(2026, 8, 21));
+  });
+});

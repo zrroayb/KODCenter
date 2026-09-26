@@ -2,6 +2,24 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — experimental anchors off by default; neutral bias has no OTE
+- FVG-origin and Active CRT families were always blocked (WATCH only) and never measured separately in replay, so they only added noise. They now run only with `experimentalAnchors: true`. A neutral CRT bias no longer produces a "long" OTE POI.
+
+## 2026-09-26 — weekly bucket: Sunday opens the FX/futures week
+- A Sunday-session bar used to join the PREVIOUS week (weekly high/low, 1W anchor, PWH/PWL polluted). FX/futures now start the week on Sunday; crypto keeps Mon–Sun UTC. Yahoo 1d stamps round to the nearest UTC midnight. Daily NY-17:00 anchoring waits for a timestamp measurement (`scripts/measure-candle-boundaries.ts`).
+
+## 2026-09-26 — live == replay (closed candles decide state)
+- Sweep, retest, EQ-consumed, reclaim and signal outcome are read from CLOSED confirm candles only; the forming candle is just the current price. Replay now feeds a forming HTF candle rebuilt from the 15m bars closed so far, so the forming-raid path exists in replay too. Locked by a parity test.
+
+## 2026-09-26 — one exit model: eq-full, gate on EQ net RR
+- The READY RR gate was DOL net RR ≥ 1.5 while the model closed everything at EQ (~1R). Now CRT `plan.rr` = EQ net RR, gated by user rule `crtExitMinimumRR` (default 1.0, same as the old management gate). DOL is `plan.extensionRR`, info only. Replay R is now net of execution costs (was gross vs. a net gate).
+
+## 2026-09-26 — manipulation = anchor-range raid only
+- A closed raid candle that closed beyond the swept edge with no later close back inside is acceptance, not a raid. HTF raid `reclaimed` is now measured on confirm-TF closes (blocker when missing) instead of hard-coded `true`. The internal confirm-TF swing-sweep path is removed; bias-only direction (no HTF raid) stays context/WATCH and cannot be READY.
+
+## 2026-09-26 — score/grade split (grade is alive again)
+- Core (manipulation + ChoCH + DOL RR + EQ RR) now tops out at 70 (B); quality evidence (HTF, SMT, killzone raid, location, reference candle, displacement, shift FVG) carries the remaining ~38. Before, the core alone reached 100 and every READY setup printed A+, so grade-based sizing and alert priority were dead. `readyEligible` is unchanged (no score threshold).
+
 ## 2026-07-29 — surface stale/frozen data ("veri eski" badge)
 - Owner: "how is there old data on NAS100?!" End-to-end check: it is NOT NAS100-specific and NOT our
   code. The RAW Yahoo response (parsing bypassed) for EURUSD=X returned its last bar at 07:39 UTC

@@ -1,6 +1,7 @@
 import type { MarketSymbol, QualityGrade } from "../ict/types";
 import type { AccountModel } from "./accountModel";
 import { riskReward } from "./riskReward";
+import { SYMBOL_SPEC } from "../ict/symbolSpec";
 
 export type PositionSizeInput = {
   account: AccountModel;
@@ -10,6 +11,8 @@ export type PositionSizeInput = {
   target: number;
   pointValue?: number;
   grade?: QualityGrade;
+  // The minimum RR the producing strategy gates with (CRT: EQ exit RR). Defaults to the account's.
+  minimumRR?: number;
 };
 
 export type PositionSizeResult = {
@@ -35,26 +38,10 @@ export const GRADE_RISK_FACTOR: Record<QualityGrade, number> = {
   D: 0.15
 };
 
-const APPROX_POINT_VALUE: Record<MarketSymbol, number> = {
-  XAUUSD: 100,
-  NAS100: 1,
-  EURUSD: 100_000,
-  GBPUSD: 100_000,
-  // USD-quote pairs pay 100k per lot per 1.0 move; USDJPY P&L is in JPY, so the per-lot
-  // value is roughly 100k / rate (~145) converted back to USD.
-  USDJPY: 700,
-  AUDUSD: 100_000,
-  USDCHF: 110_000,
-  BTCUSD: 1,
-  ETHUSD: 1,
-  XRPUSD: 1,
-  BNBUSD: 1,
-  SOLUSD: 1
-};
-
 export function calculatePositionSize(input: PositionSizeInput): PositionSizeResult {
-  const pointValue = input.pointValue ?? APPROX_POINT_VALUE[input.symbol] ?? 1;
-  const approximate = input.pointValue === undefined;
+  const spec = SYMBOL_SPEC[input.symbol];
+  const pointValue = input.pointValue ?? spec?.pointValue ?? 1;
+  const approximate = input.pointValue === undefined && (spec?.pointValueApprox ?? true);
   const gradeRiskFactor = input.grade ? GRADE_RISK_FACTOR[input.grade] : 1;
   const baseRisk = input.account.accountSize * (input.account.riskPerTradePct / 100);
   const riskAmount = baseRisk * gradeRiskFactor;
@@ -63,8 +50,8 @@ export function calculatePositionSize(input: PositionSizeInput): PositionSizeRes
   const rr = riskReward(input.entry, input.stopLoss, input.target);
   const potentialGain = Math.abs(input.target - input.entry) * pointValue * positionSize;
   const warnings: string[] = [];
-  if (approximate) warnings.push("Symbol point value yaklaşık.");
-  if (rr < input.account.minimumRR) warnings.push("Risk reward minimumun altında.");
+  if (approximate) warnings.push("Nokta değeri yaklaşık (brokera göre değişir): boyutu 'lot' değil yaklaşık 'birim' olarak oku.");
+  if (rr < (input.minimumRR ?? input.account.minimumRR)) warnings.push("Risk reward minimumun altında.");
   if (input.grade && gradeRiskFactor < 1) {
     const pct = (input.account.riskPerTradePct * gradeRiskFactor).toFixed(2);
     warnings.push(`${input.grade} grade: risk %${input.account.riskPerTradePct} yerine %${pct}'e düşürüldü (grade'e göre boyut).`);

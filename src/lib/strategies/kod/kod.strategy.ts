@@ -1,4 +1,7 @@
+// TEST FİKSTÜRÜ: registry'de değil, canlı tarama/alert bunu çalıştırmaz. Birçok test hazır bir
+// READY/WATCH sinyali üretmek için kullanıyor; yeni özellik buraya eklenmez (2026-09-26).
 import { buildDecisionSummary } from "../../brain/financialBrain";
+import { SYMBOL_SPEC } from "../../ict/symbolSpec";
 import type { Candle, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, SignalEvidenceItem, SignalStage, StopSource, TargetSource, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
 import { executableClose, executableHigh, executableLow } from "../../data/bidAsk";
 import { calculatePositionSize } from "../../risk/positionSizing";
@@ -15,20 +18,6 @@ import { kodGrade, kodScore } from "./kod.scoring";
 
 const KOD_STRATEGY_ID = "kod-turtle-soup-reclaim";
 const DEFAULT_MINIMUM_RR = 1.5;
-const SYMBOL_MIN_BUFFER: Record<MarketSymbol, number> = {
-  XAUUSD: 0.8,
-  NAS100: 12,
-  EURUSD: 0.0002,
-  GBPUSD: 0.0002,
-  USDJPY: 0.03,
-  AUDUSD: 0.0002,
-  USDCHF: 0.0002,
-  BTCUSD: 120,
-  ETHUSD: 6,
-  XRPUSD: 0.005,
-  BNBUSD: 1.5,
-  SOLUSD: 0.4
-};
 
 const STOP_PROFILE_MULTIPLIERS = {
   aggressive: { buffer: 0.75, floor: 0.82 },
@@ -352,7 +341,7 @@ export function buildStructureRiskPlan(
   const candles = context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
   const entryModel = buildKodEntryModel(context, direction);
   const entry = entryModel.level;
-  const minBuffer = SYMBOL_MIN_BUFFER[context.symbol];
+  const minBuffer = SYMBOL_SPEC[context.symbol].minBuffer;
   const profile = STOP_PROFILE_MULTIPLIERS[stopProfile];
   const stopBuffer = Math.max(context.volatility.atr * 0.2 * profile.buffer, context.volatility.averageRange * 0.15 * profile.buffer, minBuffer);
   const minimumRiskDistance = Math.max(context.volatility.atr * profile.floor, context.volatility.averageRange * 0.8 * profile.floor, minBuffer * 2);

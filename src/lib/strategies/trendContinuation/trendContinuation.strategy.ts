@@ -15,6 +15,12 @@ const DEFAULT_MINIMUM_RR = 1.5;
 // Taze BOS yoksa pullback POI'yi son bu kadar exec mumunda ararız (mature trendde kırılım geçmişte
 // kalmış olabilir; çok eski POI'yi almamak için pencere).
 const CONTINUATION_POI_LOOKBACK = 120;
+// A retest only confirms an entry while it is fresh (exec TF = 1h → 12 bars ≈ half a day). An
+// older touch is last session's fill, not a live entry (2026-09-26: `mitigated` alone made a POI
+// touched 100 bars ago READY).
+const RETEST_FRESHNESS_CANDLES = 12;
+// Same chase guard as CRT's retestFar: price more than 1.5R away from entry is not this entry.
+const MAX_ENTRY_DISTANCE_R = 1.5;
 
 // İKİNCİ PLAYBOOK — Trend Continuation (CRT Reversal'ın tersi mantık).
 //   HTF trend → trend yönünde kabullü breakout (BOS, CHoCH DEĞİL) → pullback/FVG-OB retest →
@@ -132,8 +138,14 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
 
   // Retest zorunlu (owner kuralı ile tutarlı): POI mitigate olduysa (fiyat geri dönüp temas etti)
   // confirmed; henüz temas yoksa pending. Through-close olan gap yön filtresinde zaten elenir.
-  const retested = poiHit?.retested ?? false;
-  const entryStatus: TradePlan["entryStatus"] = poiHit ? (retested ? "confirmed" : "pending") : "fallback";
+  const retestIndex = poiHit
+    ? exec.findIndex((candle, index) => index > poiHit.poi.candleIndex && candle.low <= poiHit.poi.high && candle.high >= poiHit.poi.low)
+    : -1;
+  const retestAge = retestIndex >= 0 ? exec.length - 1 - retestIndex : Number.POSITIVE_INFINITY;
+  const retested = (poiHit?.retested ?? false) && retestIndex >= 0;
+  const retestStale = retested && retestAge > RETEST_FRESHNESS_CANDLES;
+  const entryFar = poiHit ? Math.abs(lastClose - entry) > riskDistance * MAX_ENTRY_DISTANCE_R : false;
+  const entryStatus: TradePlan["entryStatus"] = poiHit ? (retested && !retestStale ? "confirmed" : "pending") : "fallback";
 
   const blockers = [
     opposingChoch ? "Ters yönde CHoCH var; bu continuation değil, reversal bölgesi." : undefined,
@@ -141,6 +153,8 @@ function continuationSignal(context: MarketContext, settings: ContinuationSettin
     !stopValid ? "Stop girişin yanlış tarafında; plan geometrisi bozuk." : undefined,
     !targetValid ? "Trend yönünde ulaşılabilir likidite hedefi yok." : undefined,
     costs.netRR < settings.minimumRR ? `RR ${costs.netRR.toFixed(2)} < minimum ${settings.minimumRR}.` : undefined,
+    retestStale ? `Retest bayat (${retestAge} mum önce); taze pullback bekleniyor.` : undefined,
+    entryFar ? "Fiyat entry'den 1.5R'dan fazla uzak; kovalanmaz." : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
 

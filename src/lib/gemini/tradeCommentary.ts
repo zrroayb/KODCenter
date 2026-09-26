@@ -3,6 +3,7 @@ import { formatPrice, formatR } from "../ict/format";
 import { selectedSignalAnnotations } from "../charts/selectedSignal";
 import { buildStructureAudit } from "../signals/structureAudit";
 import { closeConfirmationRequirement } from "../signals/waitingGuidance";
+import { eqFullManagementLine, tradeCommentaryViolation } from "./commentaryGuard";
 
 export type GeminiTradeCommentaryPayload = {
   id: string;
@@ -156,7 +157,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
       : "Neden: Fiyat planlanan giriş alanını bırakıp dağılıma başladı; geç girişin RR'ı kalmadı.";
     beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (range → sweep → ChoCH) bekle.";
   } else if (geometryBroken) {
-    karar = "Karar: Trade edilmez; plan geometrisi bozuk.";
+    karar = signal.stage === "watch" ? "Karar: Bekle; plan geometrisi bozuk, trade edilmez." : "Karar: Trade edilmez; plan geometrisi bozuk.";
     neden = `Neden: Stop ${formatPrice(plan.stopLoss)}, entry ${formatPrice(plan.entry)} seviyesinin yanlış tarafında duruyor.`;
     beklenen = "Beklenen: Geçerli manipulation wick'i oluşup stop doğru tarafa oturana kadar sadece izle.";
   } else if (evidenceStatus("manipulation") === "fail") {
@@ -173,13 +174,13 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
   } else if (plan.entryStatus === "confirmed" && (signal.stage === "watch" || signal.stage === "ready")) {
     karar = signal.stage === "ready"
       ? "Karar: Plan hazır; disiplinle uygula."
-      : "Karar: Onay geldi ama plan henüz uygun değil.";
+      : "Karar: Bekle; onay geldi ama plan henüz uygun değil.";
     neden = `Neden: ${audit.decision}`;
     beklenen = signal.stage === "ready"
-      ? `Beklenen: Entry ${formatPrice(plan.entry)}; EQ ${formatPrice(plan.targets[0])} seviyesinde kısmi al, kalanı DOL'a taşı.`
+      ? eqFullManagementLine(formatPrice(plan.entry), formatPrice(plan.targets[0]))
       : `Beklenen: ${signal.governance.blockers[0] ?? "RR ve plan geometrisi uygun hale gelsin."}`;
   } else {
-    karar = `Karar: ${audit.headline}`;
+    karar = signal.stage === "watch" ? `Karar: Bekle; ${audit.headline}` : `Karar: ${audit.headline}`;
     neden = `Neden: ${audit.decision}`;
     beklenen = `Beklenen: ${signal.governance.blockers[0] ?? "CRT sırasının tamamlanmasını bekle."}`;
   }
@@ -415,7 +416,11 @@ export async function fetchGeminiTradeCommentary(signal: TradingSignal): Promise
     if (result.status === "error") {
       return localTradeCommentary(signal, result.error ?? result.reason);
     }
-    if (result.status === "ready") commentaryCache.set(key, result);
+    if (result.status === "ready") {
+      const violation = tradeCommentaryViolation(result.commentary ?? "", signal.stage);
+      if (violation) return localTradeCommentary(signal, violation);
+      commentaryCache.set(key, result);
+    }
     return result;
   } catch (error) {
     return localTradeCommentary(signal, error instanceof Error ? error.message : String(error));

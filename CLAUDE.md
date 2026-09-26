@@ -21,7 +21,12 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 - İkonlar: `lucide-react`. Ekstra ağır bağımlılık yok — sade tut.
 - `vite preview` hem SPA'yı **hem de** `/api/gemini/*` ve Telegram endpoint'lerini
   serve eder (middleware `vite.config.ts` içindeki `configurePreviewServer`/
-  `configureServer`). **Ayrı bir Node server dosyası yoktur.**
+  `configureServer`). **Ayrı bir Node server süreci yoktur**; `server/alertGate.ts` yalnızca
+  vite.config'in kullandığı yardımcı modüldür (alert auth + sunucu tarafı dedupe).
+- **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
+  motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
+  Dedupe sunucuda (`.data/alert-log.json`), geçmiş `/api/live-alerts`. Tarayıcı alert
+  GÖNDERMEZ, yalnızca geçmişi gösterir. Worker alert'i yalnız `WORKER_ALERTS=on` ise atar.
 - İkincil hedef: Cloudflare Worker (`worker/index.ts`, `wrangler.jsonc`, D1
   `tradebot-state`). Canlı site DEĞİL — aşağıya bak.
 
@@ -32,10 +37,10 @@ npm run dev      # geliştirme (vite, 127.0.0.1)
 npm test         # vitest run — PUSH ETMEDEN ÖNCE HER ZAMAN ÇALIŞTIR
 npm run build    # tsc -b + worker typecheck + vite build
 npm start        # prod önizleme (Render bunu kullanır)
-npx tsc --noEmit # hızlı tip kontrolü
+npm run typecheck # tip kontrolü: app + node + worker (kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmez)
 ```
 
-**Kalite kapısı:** Push'tan önce `npx tsc --noEmit` **ve** `npm test` yeşil olmalı
+**Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
 (şu an 252 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
@@ -81,9 +86,12 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Gates (blockers)** = hard engeller; biri varsa setup READY olamaz.
 - **Quality (warnings + score)** = yumuşak; skoru ve grade'i etkiler ama tek başına
   veto etmez. Skor yalnızca **grade** belirler; `readyEligible`'da skor eşiği YOKTUR.
-- **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=minimumRR` +
-  `managementRR>=1` + `blockers.length===0` + PD hizası + manipulation +
+- **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=exitMinimumRR` (CRT'de
+  `plan.rr` = tam-EQ çıkışın net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
+  `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) +
   gerçek hedef + geçerli stop + model hazır + `dataConfidence>=35`.
+- **Çıkış modeli = eq-full**: pozisyonun tamamı EQ'da kapanır. DOL (`plan.extensionRR`) yalnız
+  uzatma bilgisidir, kapı değildir. UI/Telegram/replay hepsi `plan.rr`'ı (EQ net) konuşur.
 - **Anchor aileleri**: gerçek ANCHORS (1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
   (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
@@ -100,9 +108,11 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Çıktı dili: TÜRKÇE.** Sistem talimatlarında kural var: serbest-metin alanları
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
-  Yeni prompt eklersen aynı kuralı ekle. Bu talimatlar 3 yerde tekrarlanır:
-  `vite.config.ts` (canlı), `worker/index.ts`, `src/lib/gemini/crtInterpretation.ts`
-  — birini değiştirirsen diğerlerini de senkron tut.
+  Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
+  `src/lib/gemini/systemInstructions.ts`; `vite.config.ts`, `worker/index.ts` ve
+  `crtInterpretation.ts` oradan import eder.
+- Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
+  watch → "Bekle…", kısmi TP dili yok (çıkış tam EQ). Uymayan Gemini metni lokal fallback'e düşer.
 
 ## 8. UI konvansiyonları
 
@@ -118,3 +128,22 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - `main`'e **PR ile** merge et (önceki akış: PR aç → merge). Merge → Render deploy.
 - API anahtarı / secret'ı asla commit etme. Commit mesajlarında model adı yazma.
 - Push: `git push -u origin <branch>`, network hatasında exponential backoff ile retry.
+
+## 10. Değişiklik günlüğü
+
+Her repo değişikliği buraya tarihli bir satır olarak yazılır (ne yapıldı, hangi PR/commit).
+Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
+
+- 2026-09-26 — Madde 1: CRT skor/grade ayrıştırıldı. Çekirdek (manipulation + ChoCH + DOL RR + EQ RR) taban 12 ile 70'e (B) çıkar; kalite kalemleri (HTF uyumu, SMT, killzone raid, session, location tier, reference candle, displacement, shift FVG/retest, range respect, key open) 38 puana yayıldı. Artık her READY A+ değil; grade'e göre boyut tekrar çalışıyor. `scoreCrtSetup` export edildi, `crtScoring.test.ts` eklendi. PR #23 (branch `claude/kodcenter-trade-logic-fixes-dpg821`).
+- 2026-09-26 — Madde 2-3: manipulation tanımı sıkılaştırıldı. Range dışında kapanıp geri alınmayan raid mumu artık acceptance (raid değil); HTF raid için `reclaimed` confirm-TF kapanışından ölçülüyor, reclaim yoksa blocker. İç confirm-TF swing sweep'i (`swingSweep`) manipulation sayılmıyor; yönü yalnızca bias'tan gelen setup READY olamaz (context/WATCH). PR #23.
+- 2026-09-26 — Madde 4: çıkış modeli tek: tam-EQ (eq-full). CRT `plan.rr` artık EQ net RR; READY kapısı `crtExitMinimumRR` (varsayılan 1.0, Ayarlar'da). DOL RR ≥ 1.5 kapısı kaldırıldı, DOL `extensionRR` olarak yalnız bilgi. Telegram başlığı/checklist/UI EQ RR gösteriyor; boyutlandırma EQ'ya göre. Replay R'ı artık execution cost dahil net; `performanceFromSignals` TP1'e MFE yazmıyor. PR #23.
+- 2026-09-26 — Madde 12: tek alert motoru. Tarayıcı artık Telegram'a alert göndermiyor; GitHub Actions taraması (güncel motor) Render `/api/telegram/ready-alert`'e `SCAN_TOKEN` Bearer ile POST ediyor, endpoint token yoksa kapalı. Sunucu tarafı dedupe + `/api/live-alerts` geçmişi (`server/alertGate.ts`). Worker alert'i `WORKER_ALERTS=on` olmadıkça kapalı. Gemini sistem talimatları tek dosyada (`src/lib/gemini/systemInstructions.ts`). Kullanılmayan `readyAlert.ts`/`chartSnapshot.ts` silindi. PR #23.
+- 2026-09-26 — Madde 9: canlı = replay. CRT durum değişiklikleri (confirm sweep, retest, EQ consumed, reclaim) ve sinyal sonucu (outcomeEngine) yalnızca KAPANMIŞ confirm mumlarından okunuyor; forming mum sadece anlık fiyat. Replay artık tarama anına kadar 15m'den türetilmiş forming HTF mumu (1h/4h/1d/1w) veriyor, böylece forming-raid yolu replay'de de var. `runtimeReplay.test.ts`'e live == replay testi eklendi. PR #23.
+- 2026-09-26 — Madde 10: FX/futures'ta Pazar barı artık YENİ haftaya sayılıyor (kripto Pzt–Paz UTC kalıyor); PWH/PWL da aynı kuralla. Yahoo günlük barı UTC gece yarısına yuvarlanıyor (23:00 UTC damgalı Pazartesi barı Pazar'a kaymıyor). Günlük kovayı NY 17:00'a çapalamak ölçüme bağlı: bu ortamdan Yahoo'ya erişim yok, `scripts/measure-candle-boundaries.ts` eklendi. PR #23.
+- 2026-09-26 — Madde 5: Trend Continuation'da retest yalnız son 12 mum (1h) içindeyse entry'yi onaylıyor ve fiyat entry'den 1.5R'dan uzaksa blocker (kovalanmaz). Replay'de CRT dışı "confirmed" sinyaller artık sonraki mumun açılışından doluyor, R o fiyattan hesaplanıyor. PR #23.
+- 2026-09-26 — Madde 6: haber filtresi dürüstleştirildi. Haftalık şablonlar "(tahmini)" etiketli ve yalnız uyarı; uydurma "her Çarşamba FOMC" ve "Salı/Perşembe 12:30" kaldırıldı. `avoidNews` no-trade'i artık yalnız `src/data/eventCalendar.ts`'teki tarihli gerçek olaylar tetikliyor (liste boş başlar, kullanıcı doldurur). Replay'de `event-risk` stop nedeni yalnız gerçek takvim olayında. PR #23.
+- 2026-09-26 — Madde 7: hesap modeli (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %, günlük max işlem) Ayarlar'a taşındı; aynı taramada aynı `clusterExposure` yönünde 2+ READY'ye "Korelasyon: toplam riski böl" uyarısı (site + Telegram); journal'dan günün gerçekleşen R'ı -2R'a inince tarama ekranında uyarı (veto değil). PR #23.
+- 2026-09-26 — Madde 8: sembole özgü tüm sabitler (stop buffer, spread/slippage/komisyon, sentetik bid/ask, nokta değeri, korelasyon kümesi, SMT partnerleri, Yahoo ticker) tek tabloda: `src/lib/ict/symbolSpec.ts`. Nokta değeri yaklaşık olan sembollerde (XAU, NAS, USDJPY, USDCHF) boyut uyarısı "lot" değil "birim" diyor. Ayrıca kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmiyordu (tsconfig `files: []`); kalite kapısı artık `npm run typecheck` (app + node + worker) ve Madde 9 commit'indeki bir çift anahtar hatasını yakaladı. PR #23.
+- 2026-09-26 — Madde 13: trade yorumu kontratı (`src/lib/gemini/commentaryGuard.ts`): stage=ready ise Karar "Plan hazır", watch ise "Bekle" ile başlamalı; "kısmi al / kalanı DOL'a" dili reddedilir (çıkış tam EQ). Kontrata uymayan Gemini metni sunucuda ve istemcide lokal fallback'e düşer. Fallback yönetim cümlesi artık "pozisyonun tamamı EQ'da kapanır". PR #23.
+- 2026-09-26 — Madde 14: neutral CRT bias artık sessizce long sayılıp OTE POI üretmiyor (`crtEngine.ts`). Deneysel aileler (FVG-origin, Active CRT) canlı listeden çıktı, `experimentalAnchors: true` ile açılır. 1H anchor yorumu gerçek değerle (tracking) uyumlu. readyHold ile tutulan READY'ler tarama ve detay panelinde sarı "kilitli" rozetiyle görünüyor. `kod.strategy.ts` test fikstürü olarak işaretlendi; `crt.strategy.ts` bölünmesi davranış riski yüzünden bu PR'da yapılmadı. PR #23.
+- 2026-09-26 — Madde 15: "veri kaynağı" satırı: sinyal detayında sembole göre (FX = Yahoo gösterge mid, altın/NAS = GC=F/NQ=F futures proxy, kripto spot; bid/ask sentetik sabit spread), tarama ekranında genel not + cron'un 10-20 dk gecikebileceği. PR #23.

@@ -43,11 +43,10 @@ import {
   matchingSignalForAlert,
   mergeTelegramAlertHistories,
   reconcileTelegramAlertHistory,
-  saveTelegramAlertHistory,
-  upsertTelegramAlertRecord
+  saveTelegramAlertHistory
 } from "./lib/telegram/alertHistory";
-import { telegramAlertRecordFromSignal, type TelegramAlertRecord } from "./lib/telegram/alertPayload";
-import { notifyReadySignalOnce } from "./lib/telegram/readyAlert";
+import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
+import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
@@ -666,7 +665,8 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, []);
+    // Refetch the server-side alert history once per scan.
+  }, [lastScanTime]);
 
   useEffect(() => {
     const reconciled = reconcileSessionSetupStore(sessionSetups, detectedSessionSetups, sessionSetupLogs);
@@ -684,22 +684,9 @@ export default function App() {
     if (logChanged) setSilverBulletLogs(reconciled.logs);
   }, [detectedSilverBulletSetups, silverBulletLogs, silverBulletSetups]);
 
-  useEffect(() => {
-    if (dataLoading || dataState.background) return;
-    for (const signal of visibleSignals.filter((item) => item.stage === "ready")) {
-      void notifyReadySignalOnce(signal).then((result) => {
-        if (result.status === "sent") {
-          const record = telegramAlertRecordFromSignal(signal);
-          setTelegramAlerts((current) => saveTelegramAlertHistory(
-            upsertTelegramAlertRecord(current, record)
-          ));
-        }
-        if (result.status === "error") {
-          console.warn("Telegram ready alert failed", result.error);
-        }
-      });
-    }
-  }, [dataLoading, dataState.background, visibleSignals, lastScanTime]);
+  // Telegram alerts are sent ONLY by the server-side scanner (GitHub Actions → /api/telegram/
+  // ready-alert with SCAN_TOKEN, deduped on the server). The browser used to send them itself:
+  // no scan when the tab was hidden, and every device deduped separately (duplicates).
 
   useEffect(() => {
     setSelectedSignalState((current) => {
@@ -777,12 +764,16 @@ export default function App() {
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
+        exitMinimumRR: rules.crtExitMinimumRR,
         stopProfile: rules.stopProfile,
         useExecutionCosts: rules.useExecutionCosts,
         slippageStress: rules.slippageStress,
         partialTpEnabled: rules.partialTpEnabled,
         moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
+        accountSize: rules.accountSize,
+        riskPerTradePct: rules.riskPerTradePct,
+        maxTradesPerDay: rules.maxTradesPerDay,
         avoidNews: rules.avoidNews,
         // scanRuntime bunu canlı taramaya geçiriyordu ama replay'e geçmiyordu: Ayar'daki HTF
         // anahtarı açıkken replay hâlâ kapalı ölçüyor, yani ölçüm canlıdan sapıyordu.
@@ -1002,6 +993,7 @@ export default function App() {
                 dataHealth={dataHealth}
                 minimumRR={rules.minimumRR}
                 replayCorpus={backtestResult.replay?.trades}
+                riskBrake={dailyBrakeMessage(journalEntries, lastScanTime || Date.now())}
                 onScan={runScan}
                 onSelectSignal={selectSignal}
               />

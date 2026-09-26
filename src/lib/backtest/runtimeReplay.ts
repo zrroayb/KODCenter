@@ -111,12 +111,37 @@ function sliceByTime(candles: Candle[], time: number, count: number, timeframe: 
   );
 }
 
+// Live == replay (2026-09-26): the live feed always carries the still-forming HTF candle
+// (closed:false), and the CRT engine reads a forming-candle raid off it. Replay used to hand the
+// engine closed candles only, so a live READY built on a forming 4H/1D raid could never be
+// reproduced. Rebuild that forming candle from the 15m candles closed so far in its bucket.
+function withFormingCandle(closed: Candle[], series: Candle[], source15m: Candle[], time: number): Candle[] {
+  const last = closed[closed.length - 1];
+  if (!last) return closed;
+  // The forming bucket is the source series' next candle (exact across weekend gaps).
+  const bucketStart = series.find((candle) => candle.time > last.time)?.time;
+  if (typeof bucketStart !== "number" || bucketStart > time) return closed;
+  const parts = source15m.filter((candle) => candle.time >= bucketStart && candleCloseTime(candle.time, "15m") <= time);
+  if (!parts.length) return closed;
+  const forming: Candle = {
+    time: bucketStart,
+    open: parts[0].open,
+    high: Math.max(...parts.map((candle) => candle.high)),
+    low: Math.min(...parts.map((candle) => candle.low)),
+    close: parts[parts.length - 1].close,
+    volume: parts.reduce((sum, candle) => sum + (candle.volume ?? 0), 0),
+    closed: false
+  };
+  return [...closed, forming];
+}
+
 function timeframesAt(market: DemoMarket, time: number): MarketTimeframes {
   const m15 = sliceByTime(market.timeframes.m15, time, 220, "15m");
-  const h1 = sliceByTime(market.timeframes.h1, time, 180, "1h");
-  const h4 = sliceByTime(market.timeframes.h4, time, 140, "4h");
-  const daily = sliceByTime(market.timeframes.daily, time, 220, "1d");
-  const weekly = sliceByTime(market.timeframes.weekly, time, 80, "1w");
+  const source15m = market.timeframes.m15;
+  const h1 = withFormingCandle(sliceByTime(market.timeframes.h1, time, 180, "1h"), market.timeframes.h1, source15m, time);
+  const h4 = withFormingCandle(sliceByTime(market.timeframes.h4, time, 140, "4h"), market.timeframes.h4, source15m, time);
+  const daily = withFormingCandle(sliceByTime(market.timeframes.daily, time, 220, "1d"), market.timeframes.daily, source15m, time);
+  const weekly = withFormingCandle(sliceByTime(market.timeframes.weekly, time, 80, "1w"), market.timeframes.weekly, source15m, time);
   const monthly = sliceByTime(market.timeframes.monthly, time, 24, "1M");
   const m5 = sliceByTime(market.timeframes.m5, time, 220, "5m");
   return {
@@ -217,16 +242,24 @@ function rAtPrice(signal: TradingSignal, price: number): number {
     : (price - signal.plan.entry) / risk;
 }
 
+// Realised R is NET of execution costs, in the same units as plan.rr (estimateExecutionCosts):
+// a win pays (reward − cost) / (risk + cost), a full stop is −1. Before 2026-09-26 replay
+// paid gross target R while the READY gate used net RR, so replay read optimistic.
+function toNetR(signal: TradingSignal, grossR: number): number {
+  const cost = (signal.plan.executionCosts?.total ?? 0) / Math.max(signal.plan.riskDistance, 0.000001);
+  return cost > 0 ? (grossR - cost) / (1 + cost) : grossR;
+}
+
 function expiryCloseR(signal: TradingSignal, candles: Candle[]): number {
   const last = candles[candles.length - 1];
   if (!last) return 0;
   const exitSide = signal.direction === "short" ? "buy" : "sell";
-  return Number(Math.max(-1, rAtPrice(signal, executableClose(last, exitSide))).toFixed(2));
+  return Number(Math.max(-1, toNetR(signal, rAtPrice(signal, executableClose(last, exitSide)))).toFixed(2));
 }
 
 function targetR(signal: TradingSignal, targetIndex: 0 | 1): number {
   const target = signal.plan.targets[targetIndex] ?? signal.plan.targets[0] ?? signal.plan.entry;
-  return Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001));
+  return toNetR(signal, Math.max(0, Math.abs(target - signal.plan.entry) / Math.max(signal.plan.riskDistance, 0.000001)));
 }
 
 function stopHit(signal: TradingSignal, candle: Candle): boolean {
@@ -466,7 +499,9 @@ function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"
 }
 
 function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeReplayOutcomeReason {
-  if (signal.context.eventRisk.level !== "clear") return "event-risk";
+  // Only a DATED calendar event (noTrade) is a real news attribution; estimated weekday
+  // windows are not evidence that news stopped the trade.
+  if (signal.context.eventRisk.noTrade) return "event-risk";
   if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
   if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
   if (signal.context.bias.h4 !== expectedBias(signal) || signal.context.bias.daily !== expectedBias(signal)) return "partial-htf-conflict";
@@ -708,6 +743,17 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
   // to the level, and a fill hours later belongs to a different market — the order expires.
   const isRetestEntry = signal.strategyId === "crt";
   const immediateEntry = !isRetestEntry && signal.plan.entryStatus === "confirmed";
+  if (immediateEntry) {
+    // A "confirmed now" entry fills at the NEXT candle's open, not at the plan level (a POI edge
+    // price may be far away): R is measured from the price actually traded (2026-09-26).
+    const fill = futureCandles[0].open;
+    const risk = Math.abs(fill - signal.plan.stopLoss);
+    const stopValid = signal.direction === "short" ? signal.plan.stopLoss > fill : signal.plan.stopLoss < fill;
+    if (!stopValid || risk <= 0) {
+      return { status: "not-triggered", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "entry-not-filled", tags, note: "Açılış fiyatı stop'un ötesinde; işlem açılamazdı." };
+    }
+    signal = { ...signal, plan: { ...signal.plan, entry: fill, riskDistance: risk } };
+  }
   const entryIndex = immediateEntry ? 0 : futureCandles.findIndex((candle) => priceTouched(candle, signal.plan.entry));
   if (entryIndex < 0) {
     return {
@@ -1643,8 +1689,8 @@ export function runMonthlyRuntimeReplay({
 }
 
 export const __runtimeReplayInternals = {
-  evaluateForwardOutcome,
   timeframesAt,
+  evaluateForwardOutcome,
   replayPlanGeometryValid,
   calibrationFromTrades,
   buildReviewMeasurements,

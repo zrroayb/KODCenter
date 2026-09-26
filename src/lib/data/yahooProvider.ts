@@ -1,3 +1,5 @@
+import { isCryptoSymbol } from "../ict/symbols";
+import { MARKET_SYMBOLS, SYMBOL_SPEC } from "../ict/symbolSpec";
 import { createDemoMarkets, type DemoMarket } from "../../data/demoData";
 import { aggregateCandles, trimCandles } from "./candleAggregation";
 import type { Candle, MarketSymbol } from "../ict/types";
@@ -81,21 +83,11 @@ export type YahooSymbolDefinition = {
   yahoo: string;
 };
 
-export const YAHOO_SYMBOLS: YahooSymbolDefinition[] = [
-  { symbol: "XAUUSD", name: "Gold futures proxy · GC=F", yahoo: "GC=F" },
-  { symbol: "NAS100", name: "Nasdaq futures proxy · NQ=F", yahoo: "NQ=F" },
-  { symbol: "EURUSD", name: "Euro Dollar", yahoo: "EURUSD=X" },
-  { symbol: "GBPUSD", name: "Pound Dollar", yahoo: "GBPUSD=X" },
-  // Yahoo's canonical ticker for USD-base pairs drops the USD prefix ("JPY=X" is USD/JPY).
-  { symbol: "USDJPY", name: "Dollar Yen", yahoo: "JPY=X" },
-  { symbol: "AUDUSD", name: "Aussie Dollar", yahoo: "AUDUSD=X" },
-  { symbol: "USDCHF", name: "Dollar Swiss", yahoo: "CHF=X" },
-  { symbol: "BTCUSD", name: "Bitcoin", yahoo: "BTC-USD" },
-  { symbol: "ETHUSD", name: "Ethereum", yahoo: "ETH-USD" },
-  { symbol: "XRPUSD", name: "XRP", yahoo: "XRP-USD" },
-  { symbol: "BNBUSD", name: "BNB", yahoo: "BNB-USD" },
-  { symbol: "SOLUSD", name: "Solana", yahoo: "SOL-USD" }
-];
+export const YAHOO_SYMBOLS: YahooSymbolDefinition[] = MARKET_SYMBOLS.map((symbol) => ({
+  symbol,
+  name: SYMBOL_SPEC[symbol].name,
+  yahoo: SYMBOL_SPEC[symbol].yahoo
+}));
 
 function createTimeoutSignal(parentSignal?: AbortSignal, timeoutMs = 7_000) {
   const controller = new AbortController();
@@ -144,7 +136,11 @@ export function parseYahooChartResponse(payload: YahooChartResponse, interval?: 
       rawCandles.push({ time, open, high, low, close, volume });
       return;
     }
-    const bucket = Math.floor(time / intervalMs) * intervalMs;
+    // Daily bars: Yahoo stamps them at the exchange's local midnight (e.g. 23:00 UTC for a
+    // London-midnight FX bar in summer, 04:00 UTC for NY futures). Flooring pushed a 23:00 UTC
+    // stamp onto the PREVIOUS date (Monday's bar became "Sunday" and joined last week). Round to
+    // the nearest UTC midnight so the bar keeps its trade date.
+    const bucket = interval === "1d" ? Math.round(time / intervalMs) * intervalMs : Math.floor(time / intervalMs) * intervalMs;
     const existing = byBucket.get(bucket);
     if (existing) {
       existing.high = Math.max(existing.high, high);
@@ -236,7 +232,7 @@ export async function loadYahooMarket(
     name: item.name,
     timeframes: {
       monthly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1M"), 24), item.symbol),
-      weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1w"), 80), item.symbol),
+      weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1w", { sundayOpensWeek: !isCryptoSymbol(item.symbol) }), 80), item.symbol),
       daily: enrichWithSyntheticBidAsk(trimCandles(daily, 180), item.symbol),
       h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(h1, "4h"), 180), item.symbol),
       h1: enrichWithSyntheticBidAsk(trimCandles(h1, 780), item.symbol),

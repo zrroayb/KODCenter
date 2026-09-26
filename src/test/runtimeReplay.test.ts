@@ -14,9 +14,39 @@ describe("monthly runtime replay", () => {
   it("does not expose a higher-timeframe candle before that candle closes", () => {
     const market = createDemoMarkets()[0];
     const latestH4 = market.timeframes.h4.at(-1)!;
-    const sliced = __runtimeReplayInternals.timeframesAt(market, latestH4.time + 60 * 60 * 1000);
+    const scanTime = latestH4.time + 60 * 60 * 1000;
+    const sliced = __runtimeReplayInternals.timeframesAt(market, scanTime);
 
-    expect(sliced.h4.some((candle) => candle.time === latestH4.time)).toBe(false);
+    // The closed candle is not exposed; only a FORMING candle built from the 15m bars that
+    // had closed by the scan time (exactly what the live feed shows).
+    expect(sliced.h4.some((candle) => candle.time === latestH4.time && candle.closed !== false)).toBe(false);
+    const forming = sliced.h4.at(-1)!;
+    expect(forming.time).toBe(latestH4.time);
+    expect(forming.closed).toBe(false);
+    const seen = market.timeframes.m15.filter((candle) => candle.time >= latestH4.time && candle.time + 15 * 60 * 1000 <= scanTime);
+    expect(forming.high).toBe(Math.max(...seen.map((candle) => candle.high)));
+    expect(forming.close).toBe(seen.at(-1)!.close);
+  });
+
+  it("live == replay: the CRT engine ignores a forming confirm candle for state changes", async () => {
+    const { buildMarketContext } = await import("../lib/intelligence/marketContext");
+    const { crtStrategy } = await import("../lib/strategies/crt/crt.strategy");
+    const settings = { ...crtStrategy.defaultSettings };
+    for (const demo of createDemoMarkets()) {
+      for (const hoursBack of [2, 26, 50]) {
+        const scanTime = demo.timeframes.h4.at(-1)!.time - hoursBack * 60 * 60 * 1000;
+        const closedOnly = __runtimeReplayInternals.timeframesAt(demo, scanTime);
+        const lastClosed = closedOnly.m15.at(-1)!;
+        // A forming 15m candle with long wicks both ways (can tag retest, EQ and sweep levels).
+        const wick = (lastClosed.high - lastClosed.low) * 1.5;
+        const spike = { ...lastClosed, time: lastClosed.time + 15 * 60 * 1000, high: lastClosed.high + wick, low: lastClosed.low - wick, closed: false };
+        const withForming = { ...closedOnly, m15: [...closedOnly.m15, spike], m5: closedOnly.m5.length ? [...closedOnly.m5, spike] : [] };
+        const read = (tfs: typeof closedOnly) => crtStrategy.scan({ context: buildMarketContext(demo.symbol, tfs), settings }).signals
+          .map((signal) => [signal.crtAnchor?.rangeTf, signal.crtAnchor?.origin, signal.stage, signal.plan.entryStatus, signal.crtAnchor?.lifecycleState].join("|"))
+          .sort();
+        expect(read(withForming), `${demo.symbol} -${hoursBack}h`).toEqual(read(closedOnly));
+      }
+    }
   });
 
   it("rejects a READY plan whose stop is on the profit side", () => {

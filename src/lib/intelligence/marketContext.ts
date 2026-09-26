@@ -1,3 +1,4 @@
+import { isCryptoSymbol } from "../ict/symbols";
 import { latestClosed } from "../ict/candles";
 import type { Candle, MarketContext, MarketSymbol } from "../ict/types";
 import { buildCrtContext } from "./crtEngine";
@@ -32,7 +33,7 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
   // yanına, stop'ların fiilen kümelendiği seviyeleri de ekleriz. Bias motorunun external-draw
   // bileşeni (25p, en ağır girdi) artık bunları da görür.
   const liquidityObjectives = [
-    ...buildLiquidityObjectives(timeframes.daily, dealingRange),
+    ...buildLiquidityObjectives(timeframes.daily, dealingRange, { sundayOpensWeek: !isCryptoSymbol(symbol) }),
     ...equalLevelObjectives(timeframes.daily, "1d"),
     ...equalLevelObjectives(timeframes.h4.length ? timeframes.h4 : execution, "4h")
   ];

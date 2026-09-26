@@ -278,12 +278,16 @@ export type RuntimeReplaySummary = {
   sampleWarning?: string;
 };
 
+// Quick first-paint seed only (shown until the runtime replay worker returns, which is the
+// authoritative measurement). It pays what the configured EXIT pays: plan.rr is the exit's net
+// RR (CRT: full close at EQ), managementRR the first-target exit. It used to credit TP1 with
+// the whole MFE, i.e. a second, optimistic backtest contradicting the replay.
 export function performanceFromSignals(signals: TradingSignal[]): BacktestResult {
   const measuredSignals = signals.filter((signal) => signal.outcome.status === "stopped" || signal.outcome.status === "tp1" || signal.outcome.status === "tp2");
   const returns = measuredSignals.map((signal) => {
     if (signal.outcome.status === "stopped") return -1;
     if (signal.outcome.status === "tp2") return signal.plan.rr;
-    return Math.max(0, signal.outcome.maxFavorableR);
+    return signal.plan.managementRR ?? Math.min(signal.plan.rr, Math.max(0, signal.outcome.maxFavorableR));
   });
   const wins = returns.filter((value) => value > 0).length;
   const losses = returns.filter((value) => value < 0).length;

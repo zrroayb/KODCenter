@@ -3,6 +3,7 @@ import {
   CRT_GEMINI_SYSTEM_INSTRUCTION
 } from "../src/lib/gemini/crtInterpretation";
 import { SESSION_GEMINI_RESPONSE_SCHEMA } from "../src/lib/session/sessionAnalysis";
+import { SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "../src/lib/gemini/systemInstructions";
 import type { MarketSymbol, TradingSignal } from "../src/lib/ict/types";
 import { YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { type CompactSignal } from "../src/lib/runtime/cloudSnapshot";
@@ -21,6 +22,9 @@ type CloudflareEnv = {
   GOOGLE_API_KEY?: string;
   GEMINI_MODEL?: string;
   SCAN_TOKEN?: string;
+  // The single alert engine is the live site (Render) since 2026-09-26. The Worker sends
+  // Telegram only when this is explicitly "on", so the two can never alert at the same time.
+  WORKER_ALERTS?: string;
 };
 
 type StoredMarketRow = {
@@ -42,18 +46,6 @@ type StoredStateRow = {
 type StoredAlertRow = {
   payload: string | null;
 };
-
-const SESSION_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic CRT and trading-session system.
-Use only deterministic_events from the payload. Explain HTF draw, reference-session range, sweep or acceptance, reclaim, displacement, LTF confirmation, target and invalidation.
-Do not invent levels, candles or event ids. If evidence is incomplete, return developing or insufficient_evidence.
-Tüm serbest-metin alanlarını TÜRKÇE yaz; CRT/ICT terimlerini (CRT, sweep, liquidity, displacement, order block, FVG, premium, discount, dealing range, draw, reclaim, MSS, CISD, HTF, LTF, killzone, DOL, POI) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
-Return only valid JSON matching the supplied schema.`;
-
-const SILVER_BULLET_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic ICT Silver Bullet system (NY AM 09:00 hourly-range reversal; execution window 10:00-11:00 New York).
-Use only the supplied deterministic evidence and allowed_event_ids. A high sweep is not automatically bearish; acceptance outside the range is continuation, not reversal.
-Never approve a setup whose entry did not fill before 11:00 New York. Do not invent prices, events or targets.
-Tüm serbest-metin alanlarını TÜRKÇE yaz; ICT/Silver Bullet terimlerini (sweep, liquidity, MSS, CISD, FVG, displacement, reference range, reclaim, HTF, LTF, killzone, order block) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
-Keep fields concise and return only valid JSON matching the supplied schema.`;
 
 const SILVER_BULLET_RESPONSE_SCHEMA = {
   type: "object",
@@ -329,10 +321,10 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
   const playbookLine = payload.playbook ? ` · ${escapeHtml(payload.playbook)}` : "";
   // EQ/DOL sadece CRT reversal terimleri; continuation için TP1/TP2 ve düz net RR kullanılır.
   const rrLine = isCrt
-    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.managementRR ?? 0)} · DOL net RR ${formatR(payload.rr)}`
+    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.rr)} (tam çıkış) · DOL uzatma ${formatR(payload.extensionRR ?? 0)}`
     : `${escapeHtml(payload.grade)} · Score ${payload.score} · net RR ${formatR(payload.rr)}`;
   const tp1Label = isCrt ? "EQ / TP1" : "TP1";
-  const tp2Label = isCrt ? "DOL / TP2" : "TP2";
+  const tp2Label = isCrt ? "DOL (uzatma, bilgi)" : "TP2";
   const targetLines = [`${tp1Label}: <b>${formatPrice(payload.targets[0])}</b>`];
   if (payload.targets[1] !== undefined && payload.targets[1] !== payload.targets[0]) {
     targetLines.push(`${tp2Label}: <b>${formatPrice(payload.targets[1])}</b>`);
@@ -417,6 +409,7 @@ async function sendAlertCharts(token: string, chatId: string, payload: TelegramR
 }
 
 async function sendTelegramAlert(env: CloudflareEnv, payload: TelegramReadyAlertPayload) {
+  if (env.WORKER_ALERTS !== "on") return { status: "disabled" as const, reason: "Worker alerts off: the live site is the single alert engine" };
   const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) {

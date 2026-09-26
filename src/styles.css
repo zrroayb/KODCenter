@@ -5449,3 +5449,32 @@ button {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
+
+/* Günlük -2R freni: uyarı, veto değil. */
+.risk-brake-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f23645;
+  background: rgba(242, 54, 69, 0.1);
+  border: 1px solid rgba(242, 54, 69, 0.45);
+}
+
+/* READY kilidi: motor artık READY demiyor, plan 30 dk tutuluyor. Belirgin olmalı. */
+.ready-hold-tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.5);
+}
