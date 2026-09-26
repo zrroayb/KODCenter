@@ -55,11 +55,22 @@ function plan(): TradePlan {
 }
 
 describe("strategy governance engines", () => {
-  it("blocks USD symbols during modeled high-impact event windows", () => {
-    const risk = buildEventRisk("XAUUSD", Date.UTC(2026, 6, 3, 12, 35));
+  it("estimated (template) NFP window only warns, labeled tahmini — it never blocks", () => {
+    const risk = buildEventRisk("XAUUSD", Date.UTC(2026, 6, 3, 12, 35), []);
+    expect(risk.level).toBe("watch");
+    expect(risk.noTrade).toBe(false);
+    expect(risk.summary).toContain("NFP");
+    expect(risk.summary).toContain("tahmini");
+  });
+
+  it("a dated high-impact calendar event blocks USD symbols around the release", () => {
+    const calendar = [{ name: "US NFP", timeUtc: "2026-07-02T12:30:00Z", impact: "high" as const, currencies: ["USD"] }];
+    const risk = buildEventRisk("EURUSD", Date.UTC(2026, 6, 2, 12, 40), calendar);
     expect(risk.level).toBe("high");
     expect(risk.noTrade).toBe(true);
-    expect(risk.summary).toContain("NFP");
+    expect(risk.summary).toContain("US NFP");
+    expect(buildEventRisk("EURUSD", Date.UTC(2026, 6, 2, 10, 0), calendar).upcomingEvents.join(" ")).toBe("");
+    expect(buildEventRisk("EURUSD", Date.UTC(2026, 6, 2, 11, 0), calendar).upcomingEvents.join(" ")).toContain("US NFP");
   });
 
   it("surfaces active watch event windows in the summary", () => {
@@ -70,11 +81,10 @@ describe("strategy governance engines", () => {
     expect(risk.upcomingEvents.join(" ")).toContain("US cash open");
   });
 
-  it("models CPI-style inflation windows as hard USD blocks", () => {
-    const risk = buildEventRisk("EURUSD", Date.UTC(2026, 6, 8, 12, 35));
-    expect(risk.level).toBe("high");
-    expect(risk.noTrade).toBe(true);
-    expect(risk.summary).toContain("US CPI");
+  it("does not fabricate a weekly FOMC window", () => {
+    // 2026-07-15 is a Wednesday that is not an FOMC day.
+    const risk = buildEventRisk("EURUSD", Date.UTC(2026, 6, 15, 18, 5), []);
+    expect(risk.summary).not.toContain("FOMC");
   });
 
   it("classifies spike expansion as blocked regime", () => {

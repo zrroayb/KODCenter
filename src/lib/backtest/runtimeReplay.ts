@@ -499,7 +499,9 @@ function tradeProfile(signal: TradingSignal, origin: RuntimeReplayTrade["origin"
 }
 
 function stoppedReason(signal: TradingSignal, maxFavorableR: number): RuntimeReplayOutcomeReason {
-  if (signal.context.eventRisk.level !== "clear") return "event-risk";
+  // Only a DATED calendar event (noTrade) is a real news attribution; estimated weekday
+  // windows are not evidence that news stopped the trade.
+  if (signal.context.eventRisk.noTrade) return "event-risk";
   if (signal.context.regime.tradeability !== "good" || signal.context.regime.type === "chop" || signal.context.regime.type === "news-expansion") return "range-chop";
   if (signal.context.crt.selectedBias.direction !== signal.direction && signal.context.bias.daily !== expectedBias(signal) && signal.context.bias.h4 !== expectedBias(signal)) return "htf-conflict";
   if (signal.context.bias.h4 !== expectedBias(signal) || signal.context.bias.daily !== expectedBias(signal)) return "partial-htf-conflict";

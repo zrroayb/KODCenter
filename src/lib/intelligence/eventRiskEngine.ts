@@ -1,5 +1,6 @@
 import type { EventRiskContext, MarketSymbol } from "../ict/types";
 import { isCryptoSymbol } from "../ict/symbols";
+import { EVENT_CALENDAR, type CalendarEvent } from "../../data/eventCalendar";
 
 type EventTemplate = {
   name: string;
@@ -20,10 +21,6 @@ function isFirstFriday(date: Date): boolean {
   return date.getUTCDay() === 5 && date.getUTCDate() <= 7;
 }
 
-function isWednesday(date: Date): boolean {
-  return date.getUTCDay() === 3;
-}
-
 function isWeekday(date: Date): boolean {
   const day = date.getUTCDay();
   return day >= 1 && day <= 5;
@@ -41,47 +38,36 @@ function isThirdThursday(date: Date): boolean {
   return date.getUTCDay() === 4 && date.getUTCDate() >= 15 && date.getUTCDate() <= 21;
 }
 
-function isTuesdayOrThursday(date: Date): boolean {
-  return date.getUTCDay() === 2 || date.getUTCDay() === 4;
-}
-
 function isCryptoFundingWindow(date: Date): boolean {
   return date.getUTCMinutes() <= 10 && [0, 8, 16].includes(date.getUTCHours());
 }
 
+// ESTIMATED windows only (2026-09-26): weekday rules approximate typical US release slots and
+// are labeled "tahmini". They warn but never set noTrade — only a dated EVENT_CALENDAR entry can.
+// (Removed: "FOMC every Wednesday" and "every Tue/Thu 12:30" — pure fabrication.)
 const EVENT_TEMPLATES: EventTemplate[] = [
   {
-    name: "NFP / US payroll window",
+    name: "Olası NFP penceresi (tahmini)",
     hourUtc: 12,
     minuteUtc: 30,
     symbols: USD_SYMBOLS,
     activeWindowMinutes: 45,
     watchWindowMinutes: 120,
-    hardBlock: true,
+    hardBlock: false,
     occurs: isFirstFriday
   },
   {
-    name: "FOMC-style USD event window",
-    hourUtc: 18,
-    minuteUtc: 0,
-    symbols: USD_SYMBOLS,
-    activeWindowMinutes: 60,
-    watchWindowMinutes: 180,
-    hardBlock: false,
-    occurs: isWednesday
-  },
-  {
-    name: "US CPI / inflation window",
+    name: "Olası US CPI penceresi (tahmini)",
     hourUtc: 12,
     minuteUtc: 30,
     symbols: USD_SYMBOLS,
     activeWindowMinutes: 45,
     watchWindowMinutes: 150,
-    hardBlock: true,
+    hardBlock: false,
     occurs: isSecondWednesday
   },
   {
-    name: "US PPI / retail sales window",
+    name: "Olası US PPI / retail sales penceresi (tahmini)",
     hourUtc: 12,
     minuteUtc: 30,
     symbols: USD_SYMBOLS,
@@ -99,18 +85,18 @@ const EVENT_TEMPLATES: EventTemplate[] = [
     watchWindowMinutes: 45,
     hardBlock: false,
     occurs: isWeekday
-  },
-  {
-    name: "US high-impact data window",
-    hourUtc: 12,
-    minuteUtc: 30,
-    symbols: USD_SYMBOLS,
-    activeWindowMinutes: 35,
-    watchWindowMinutes: 90,
-    hardBlock: false,
-    occurs: isTuesdayOrThursday
   }
 ];
+
+// Dated calendar windows: high impact blocks from 30 min before to 45 min after the release.
+const CALENDAR_BLOCK_BEFORE_MIN = 30;
+const CALENDAR_BLOCK_AFTER_MIN = 45;
+const CALENDAR_WATCH_MIN = 120;
+
+function symbolCurrencies(symbol: MarketSymbol): string[] {
+  if (symbol === "XAUUSD" || symbol === "NAS100" || isCryptoSymbol(symbol)) return ["USD"];
+  return [symbol.slice(0, 3), symbol.slice(3, 6)];
+}
 
 function eventTime(day: Date, template: EventTemplate): number {
   return Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), template.hourUtc, template.minuteUtc);
@@ -126,7 +112,7 @@ function nextOccurrence(now: Date, template: EventTemplate): number | undefined 
   return undefined;
 }
 
-export function buildEventRisk(symbol: MarketSymbol, nowMs: number): EventRiskContext {
+export function buildEventRisk(symbol: MarketSymbol, nowMs: number, calendar: CalendarEvent[] = EVENT_CALENDAR): EventRiskContext {
   const now = new Date(nowMs);
   const activeEvents: string[] = [];
   const activeWatchEvents: string[] = [];
@@ -150,6 +136,20 @@ export function buildEventRisk(symbol: MarketSymbol, nowMs: number): EventRiskCo
     }
   }
 
+  const currencies = symbolCurrencies(symbol);
+  for (const event of calendar) {
+    const time = Date.parse(event.timeUtc);
+    if (!Number.isFinite(time) || !event.currencies.some((currency) => currencies.includes(currency))) continue;
+    const minutes = Math.round((time - nowMs) / 60_000);
+    if (minutes <= CALENDAR_BLOCK_BEFORE_MIN && minutes >= -CALENDAR_BLOCK_AFTER_MIN) {
+      if (event.impact === "high") activeEvents.push(event.name);
+      else activeWatchEvents.push(event.name);
+    } else if (minutes > 0 && minutes <= CALENDAR_WATCH_MIN) {
+      upcomingEvents.push(`${event.name} ${minutes} dk`);
+      minutesToEvents.push(minutes);
+    }
+  }
+
   if (isCryptoSymbol(symbol) && isCryptoFundingWindow(now)) {
     upcomingEvents.push("Crypto funding/liquidity reset");
   }
@@ -160,7 +160,7 @@ export function buildEventRisk(symbol: MarketSymbol, nowMs: number): EventRiskCo
   const summaryEvents = [...activeWatchEvents, ...upcomingEvents];
   const warnings = [
     ...activeEvents.map((event) => `${event} aktif: discretionary no-trade penceresi.`),
-    ...activeWatchEvents.map((event) => `${event} aktif: canlı takvimle doğrula, spike riski yüksek.`),
+    ...activeWatchEvents.map((event) => `${event} aktif: gerçek takvimle doğrula, spike riski olabilir.`),
     ...upcomingEvents.map((event) => `${event}: spread/spike riski artabilir.`)
   ];
 
