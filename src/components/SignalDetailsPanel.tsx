@@ -266,7 +266,7 @@ export function SignalDetailsPanel({
           {crtAnalysis.status === "ready" && crtAnalysis.analysis.bias && (
             <span className={`crt-bias-pill ${crtAnalysis.analysis.bias}`}>
               {crtAnalysis.analysis.bias.toUpperCase()}
-              {typeof crtAnalysis.analysis.confidence === "number" ? ` · güven ${crtAnalysis.analysis.confidence}` : ""}
+              {typeof crtAnalysis.analysis.confidence === "number" ? ` · güven %${Math.round(crtAnalysis.analysis.confidence <= 1 ? crtAnalysis.analysis.confidence * 100 : crtAnalysis.analysis.confidence)}` : ""}
             </span>
           )}
         </header>

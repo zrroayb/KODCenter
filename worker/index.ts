@@ -46,11 +46,13 @@ type StoredAlertRow = {
 const SESSION_ANALYSIS_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic CRT and trading-session system.
 Use only deterministic_events from the payload. Explain HTF draw, reference-session range, sweep or acceptance, reclaim, displacement, LTF confirmation, target and invalidation.
 Do not invent levels, candles or event ids. If evidence is incomplete, return developing or insufficient_evidence.
+Tüm serbest-metin alanlarını TÜRKÇE yaz; CRT/ICT terimlerini (CRT, sweep, liquidity, displacement, order block, FVG, premium, discount, dealing range, draw, reclaim, MSS, CISD, HTF, LTF, killzone, DOL, POI) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
 Return only valid JSON matching the supplied schema.`;
 
 const SILVER_BULLET_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic ICT Silver Bullet system (NY AM 09:00 hourly-range reversal; execution window 10:00-11:00 New York).
 Use only the supplied deterministic evidence and allowed_event_ids. A high sweep is not automatically bearish; acceptance outside the range is continuation, not reversal.
 Never approve a setup whose entry did not fill before 11:00 New York. Do not invent prices, events or targets.
+Tüm serbest-metin alanlarını TÜRKÇE yaz; ICT/Silver Bullet terimlerini (sweep, liquidity, MSS, CISD, FVG, displacement, reference range, reclaim, HTF, LTF, killzone, order block) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme.
 Keep fields concise and return only valid JSON matching the supplied schema.`;
 
 const SILVER_BULLET_RESPONSE_SCHEMA = {
