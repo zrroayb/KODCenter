@@ -46,6 +46,7 @@ import {
   saveTelegramAlertHistory
 } from "./lib/telegram/alertHistory";
 import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
+import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
 import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
@@ -770,6 +771,9 @@ export default function App() {
         partialTpEnabled: rules.partialTpEnabled,
         moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
+        accountSize: rules.accountSize,
+        riskPerTradePct: rules.riskPerTradePct,
+        maxTradesPerDay: rules.maxTradesPerDay,
         avoidNews: rules.avoidNews,
         // scanRuntime bunu canlı taramaya geçiriyordu ama replay'e geçmiyordu: Ayar'daki HTF
         // anahtarı açıkken replay hâlâ kapalı ölçüyor, yani ölçüm canlıdan sapıyordu.
@@ -989,6 +993,7 @@ export default function App() {
                 dataHealth={dataHealth}
                 minimumRR={rules.minimumRR}
                 replayCorpus={backtestResult.replay?.trades}
+                riskBrake={dailyBrakeMessage(journalEntries, lastScanTime || Date.now())}
                 onScan={runScan}
                 onSelectSignal={selectSignal}
               />

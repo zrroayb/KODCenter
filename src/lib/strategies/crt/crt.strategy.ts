@@ -3,7 +3,7 @@ import { formatPrice, formatR } from "../../ict/format";
 import { averageTrueRange, completedCandles } from "../../ict/candles";
 import type { Candle, CrtBiasContext, CrtPoi, CrtState, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
 import { isCryptoSymbol } from "../../ict/symbols";
-import { defaultAccountModel } from "../../risk/accountModel";
+import { accountFromSettings } from "../../risk/accountModel";
 import { estimateExecutionCosts } from "../../risk/executionCosts";
 import { calculatePositionSize } from "../../risk/positionSizing";
 import { performanceFromSignals } from "../../analytics/performance";
@@ -1678,7 +1678,7 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   const dailyDir = dailyBias === "bullish" ? "long" : dailyBias === "bearish" ? "short" : "none";
   const counterTrend = dailyDir !== "none" && dailyDir !== setup.direction && !setup.reversalAtExternalHtf;
   const position = calculatePositionSize({
-    account: defaultAccountModel,
+    account: accountFromSettings(settings),
     symbol: context.symbol,
     entry: setup.plan.entry,
     stopLoss: setup.plan.stopLoss,

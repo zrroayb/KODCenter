@@ -11,6 +11,10 @@ export type UserRules = {
   partialTpEnabled: boolean;
   moveToBreakevenAtR: number;
   maxDailyRiskPct: number;
+  // Account model (was a hard-coded constant): sizing and daily-risk warnings read these.
+  accountSize: number;
+  riskPerTradePct: number;
+  maxTradesPerDay: number;
   avoidNews: boolean;
   allowedSymbols: MarketSymbol[];
   allowedKillzones: string[];

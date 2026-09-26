@@ -18,7 +18,7 @@ export function SettingsView({
   memory: RuntimeMarketMemory;
   onRulesChange: (rules: UserRules) => void;
 }) {
-  const updateNumber = (key: "minimumRR" | "crtExitMinimumRR" | "minimumScore" | "maxSignalsPerScan" | "moveToBreakevenAtR", value: number) => {
+  const updateNumber = (key: "minimumRR" | "crtExitMinimumRR" | "accountSize" | "riskPerTradePct" | "maxDailyRiskPct" | "maxTradesPerDay" | "minimumScore" | "maxSignalsPerScan" | "moveToBreakevenAtR", value: number) => {
     const next = Number.isFinite(value) ? value : 0;
     const normalized = key === "minimumScore" ? Math.min(100, Math.max(MIN_VISIBLE_SIGNAL_SCORE, next)) : next;
     onRulesChange({ ...rules, [key]: normalized });
@@ -69,6 +69,10 @@ export function SettingsView({
           <label>CRT EQ çıkış min RR<input type="number" step="0.1" min="0.5" value={rules.crtExitMinimumRR} onChange={(event) => updateNumber("crtExitMinimumRR", Number(event.target.value))} /></label>
           <label>Minimum kalite (olasılık değil)<input type="number" min={MIN_VISIBLE_SIGNAL_SCORE} max="100" value={rules.minimumScore} onChange={(event) => updateNumber("minimumScore", Number(event.target.value))} /></label>
           <label>Max sinyal<input type="number" min="1" value={rules.maxSignalsPerScan} onChange={(event) => updateNumber("maxSignalsPerScan", Number(event.target.value))} /></label>
+          <label>Hesap büyüklüğü<input type="number" step="100" min="1" value={rules.accountSize} onChange={(event) => updateNumber("accountSize", Number(event.target.value))} /></label>
+          <label>İşlem başı risk %<input type="number" step="0.1" min="0.1" value={rules.riskPerTradePct} onChange={(event) => updateNumber("riskPerTradePct", Number(event.target.value))} /></label>
+          <label>Günlük max kayıp %<input type="number" step="0.5" min="0.5" value={rules.maxDailyRiskPct} onChange={(event) => updateNumber("maxDailyRiskPct", Number(event.target.value))} /></label>
+          <label>Günlük max işlem<input type="number" step="1" min="1" value={rules.maxTradesPerDay} onChange={(event) => updateNumber("maxTradesPerDay", Number(event.target.value))} /></label>
           <label>BE tetikleyici R<input type="number" step="0.25" min="0" value={rules.moveToBreakevenAtR} onChange={(event) => updateNumber("moveToBreakevenAtR", Number(event.target.value))} /></label>
         </div>
         <div className="toggle-grid">

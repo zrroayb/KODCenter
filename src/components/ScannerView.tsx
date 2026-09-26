@@ -164,6 +164,7 @@ export function ScannerView({
   dataHealth,
   minimumRR,
   replayCorpus,
+  riskBrake,
   onScan,
   onSelectSignal
 }: {
@@ -180,6 +181,8 @@ export function ScannerView({
   dataHealth: DataHealthReport;
   minimumRR: number;
   replayCorpus?: RuntimeReplayTrade[];
+  // Günlük -2R freni (journal'dan). Uyarı; READY'leri gizlemez.
+  riskBrake?: string;
   onScan: () => void;
   onSelectSignal: (signal: TradingSignal) => void;
 }) {
@@ -304,6 +307,7 @@ export function ScannerView({
             <h2>{actionTitle}</h2>
           </div>
         </header>
+        {riskBrake && <p className="risk-brake-note">⚠ {riskBrake}</p>}
         {best ? (
           <>
             <div className="trade-now-main">

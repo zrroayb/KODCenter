@@ -5449,3 +5449,15 @@ button {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
+
+/* Günlük -2R freni: uyarı, veto değil. */
+.risk-brake-note {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #f23645;
+  background: rgba(242, 54, 69, 0.1);
+  border: 1px solid rgba(242, 54, 69, 0.45);
+}

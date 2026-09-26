@@ -1,6 +1,7 @@
 import { formatR } from "../ict/format";
 import type { SignalStage, TradingSignal } from "../ict/types";
 import { buildGeminiTradeCommentaryPayload, type GeminiTradeCommentaryPayload } from "../gemini/tradeCommentary";
+import { correlationNote } from "../risk/portfolioRisk";
 import { defaultAccountModel } from "../risk/accountModel";
 import { GRADE_RISK_FACTOR } from "../risk/positionSizing";
 import { signalSetupIdentity } from "../signals/setupIdentity";
@@ -142,7 +143,10 @@ function genericReadyReasons(signal: TradingSignal): string[] {
 }
 
 function readyReasons(signal: TradingSignal): string[] {
-  return signal.strategyId === "crt" ? crtReadyReasons(signal) : genericReadyReasons(signal);
+  const reasons = signal.strategyId === "crt" ? crtReadyReasons(signal) : genericReadyReasons(signal);
+  const correlation = correlationNote(signal);
+  // The correlation line always makes it into the message (it changes the size to take).
+  return correlation ? [...reasons.slice(0, 5), correlation] : reasons;
 }
 
 export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramReadyAlertPayload {
