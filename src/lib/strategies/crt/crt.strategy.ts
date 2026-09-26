@@ -554,8 +554,9 @@ export function findFirstCrtConfirmSweepIndex(
 
 function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number | undefined {
   if (!anchor.raid) return undefined;
+  // Closed confirm candles only (live == replay): a forming 15m wick is not a state change yet.
   return findFirstCrtConfirmSweepIndex(
-    anchor.liveConfirmCandles,
+    anchor.confirmCandles,
     anchor.raid.time,
     direction,
     direction === "short" ? anchor.range.high : anchor.range.low
@@ -632,9 +633,9 @@ function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): Cr
     // closed back inside the swept edge. A forming HTF raid that is still trading beyond the
     // edge is a sweep in progress, not a reclaimed manipulation.
     const edge = direction === "short" ? anchor.range.high : anchor.range.low;
-    const reclaimed = anchor.liveConfirmCandles
+    const reclaimed = anchor.confirmCandles
       .slice(candleIndex)
-      .some((candle) => candle.closed !== false && (direction === "short" ? candle.close < edge : candle.close > edge));
+      .some((candle) => direction === "short" ? candle.close < edge : candle.close > edge);
     return {
       side: expectedSweepSide(direction),
       level: anchor.raid.level,
@@ -1144,7 +1145,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // Turtle Soup is optional evidence only. It must never replace the anchor's real HTF raid,
   // otherwise an unrelated recent LTF wick rewrites the manipulation time, stop and sequence.
   const manipulation = manipulationForAnchor(anchor, direction);
-  const eqConsumed = isCrtEqConsumed(anchor.liveConfirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex);
+  // Live == replay (2026-09-26): every STATE change (sweep, retest, EQ consumed) is read from
+  // CLOSED confirm candles. The forming candle only tells where price is now; it used to let
+  // live READY appear mid-candle, which replay (closed candles only) could never reproduce.
+  const eqConsumed = isCrtEqConsumed(anchor.confirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex);
   const chochRead = chochForAnchor(anchor, direction, manipulation, buffer);
   const structuralShift = chochRead.structuralBreak ?? chochRead.confirmation;
   const poi = poiForAnchor(anchor, direction, manipulation, structuralShift);
@@ -1156,7 +1160,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const retestKnownIndex = choch ? Math.max(choch.candleIndex, poi?.candleIndex ?? choch.candleIndex) : undefined;
   const retestIndex = typeof retestKnownIndex === "number"
     ? findCrtEntryRetestIndex(
-        anchor.liveConfirmCandles,
+        anchor.confirmCandles,
         plannedEntry,
         retestKnownIndex,
         poi && isGapPoi(poi) ? { low: poi.low, high: poi.high } : undefined

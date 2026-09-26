@@ -2,6 +2,9 @@
 
 Newest first. Each entry: date · area · what changed · why.
 
+## 2026-09-26 — live == replay (closed candles decide state)
+- Sweep, retest, EQ-consumed, reclaim and signal outcome are read from CLOSED confirm candles only; the forming candle is just the current price. Replay now feeds a forming HTF candle rebuilt from the 15m bars closed so far, so the forming-raid path exists in replay too. Locked by a parity test.
+
 ## 2026-09-26 — one exit model: eq-full, gate on EQ net RR
 - The READY RR gate was DOL net RR ≥ 1.5 while the model closed everything at EQ (~1R). Now CRT `plan.rr` = EQ net RR, gated by user rule `crtExitMinimumRR` (default 1.0, same as the old management gate). DOL is `plan.extensionRR`, info only. Replay R is now net of execution costs (was gross vs. a net gate).
 

@@ -1,5 +1,6 @@
 import type { Candle, MarketContext, SignalActionWindow, SignalOutcome, TradeDirection, TradePlan } from "../ict/types";
 import { executableHigh, executableLow } from "../data/bidAsk";
+import { completedCandles } from "../ict/candles";
 
 function executionCandles(context: MarketContext): Candle[] {
   return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
@@ -15,7 +16,8 @@ function rAtPrice(direction: TradeDirection, entry: number, risk: number, price:
 }
 
 export function evaluateSignalOutcome(context: MarketContext, direction: TradeDirection, plan: TradePlan, setupStartIndex: number): SignalOutcome {
-  const candles = executionCandles(context);
+  // Closed candles only (live == replay): a forming candle's wick is not an outcome yet.
+  const candles = completedCandles(executionCandles(context));
   const tracked = candles.slice(Math.max(0, Math.min(setupStartIndex, candles.length - 1)));
   const risk = Math.max(plan.riskDistance, 0.000001);
   const entryIndex = tracked.findIndex((candle) => priceTouched(candle, plan.entry));

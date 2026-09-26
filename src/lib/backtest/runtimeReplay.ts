@@ -111,12 +111,37 @@ function sliceByTime(candles: Candle[], time: number, count: number, timeframe: 
   );
 }
 
+// Live == replay (2026-09-26): the live feed always carries the still-forming HTF candle
+// (closed:false), and the CRT engine reads a forming-candle raid off it. Replay used to hand the
+// engine closed candles only, so a live READY built on a forming 4H/1D raid could never be
+// reproduced. Rebuild that forming candle from the 15m candles closed so far in its bucket.
+function withFormingCandle(closed: Candle[], series: Candle[], source15m: Candle[], time: number): Candle[] {
+  const last = closed[closed.length - 1];
+  if (!last) return closed;
+  // The forming bucket is the source series' next candle (exact across weekend gaps).
+  const bucketStart = series.find((candle) => candle.time > last.time)?.time;
+  if (typeof bucketStart !== "number" || bucketStart > time) return closed;
+  const parts = source15m.filter((candle) => candle.time >= bucketStart && candleCloseTime(candle.time, "15m") <= time);
+  if (!parts.length) return closed;
+  const forming: Candle = {
+    time: bucketStart,
+    open: parts[0].open,
+    high: Math.max(...parts.map((candle) => candle.high)),
+    low: Math.min(...parts.map((candle) => candle.low)),
+    close: parts[parts.length - 1].close,
+    volume: parts.reduce((sum, candle) => sum + (candle.volume ?? 0), 0),
+    closed: false
+  };
+  return [...closed, forming];
+}
+
 function timeframesAt(market: DemoMarket, time: number): MarketTimeframes {
   const m15 = sliceByTime(market.timeframes.m15, time, 220, "15m");
-  const h1 = sliceByTime(market.timeframes.h1, time, 180, "1h");
-  const h4 = sliceByTime(market.timeframes.h4, time, 140, "4h");
-  const daily = sliceByTime(market.timeframes.daily, time, 220, "1d");
-  const weekly = sliceByTime(market.timeframes.weekly, time, 80, "1w");
+  const source15m = market.timeframes.m15;
+  const h1 = withFormingCandle(sliceByTime(market.timeframes.h1, time, 180, "1h"), market.timeframes.h1, source15m, time);
+  const h4 = withFormingCandle(sliceByTime(market.timeframes.h4, time, 140, "4h"), market.timeframes.h4, source15m, time);
+  const daily = withFormingCandle(sliceByTime(market.timeframes.daily, time, 220, "1d"), market.timeframes.daily, source15m, time);
+  const weekly = withFormingCandle(sliceByTime(market.timeframes.weekly, time, 80, "1w"), market.timeframes.weekly, source15m, time);
   const monthly = sliceByTime(market.timeframes.monthly, time, 24, "1M");
   const m5 = sliceByTime(market.timeframes.m5, time, 220, "5m");
   return {
@@ -1651,6 +1676,7 @@ export function runMonthlyRuntimeReplay({
 }
 
 export const __runtimeReplayInternals = {
+  timeframesAt,
   evaluateForwardOutcome,
   timeframesAt,
   replayPlanGeometryValid,

@@ -92,16 +92,21 @@ function patchCandles<T extends { open: number; high: number; low: number; close
 
 function scanWithH4(patches: Record<number, CandlePatch>, executionClose = 98) {
   const base = createStructureContext();
-  const h4 = patchCandles(base.timeframes.h4, patches);
+  const patched = patchCandles(base.timeframes.h4, patches);
+  // Shift the 4H series one 15m bar earlier: the forming 4H's first 15m candle has closed.
+  const h4 = patched.map((candle) => ({ ...candle, time: candle.time - 15 * 60 * 1000 }));
   const liveH4 = h4[h4.length - 1];
-  // Keep the confirmation TF's last close consistent with the h4 story.
+  // Keep the confirmation TF's last close consistent with the h4 story. The live 4H extremes
+  // print on the last CLOSED 15m candle: state changes (sweep, EQ touch) are read from closed
+  // confirm candles only (live == replay), the forming 15m just carries the current price.
+  const last = base.timeframes.m15.length - 1;
   const m15 = base.timeframes.m15.map((candle, index) => ({
     ...candle,
     open: executionClose,
-    high: index === base.timeframes.m15.length - 1 ? Math.max(executionClose + 0.4, liveH4.high) : executionClose + 0.4,
-    low: index === base.timeframes.m15.length - 1 ? Math.min(executionClose - 0.4, liveH4.low) : executionClose - 0.4,
+    high: index === last - 1 ? Math.max(executionClose + 0.4, liveH4.high) : executionClose + 0.4,
+    low: index === last - 1 ? Math.min(executionClose - 0.4, liveH4.low) : executionClose - 0.4,
     close: executionClose,
-    closed: index === base.timeframes.m15.length - 1 ? false : true
+    closed: index !== last
   }));
   const context = createStructureContext({
     timeframes: { ...base.timeframes, h4, m15, m5: m15 },
