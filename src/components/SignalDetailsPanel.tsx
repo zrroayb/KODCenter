@@ -112,6 +112,13 @@ export function SignalDetailsPanel({
   }, [journalEntry, signal.id]);
 
   useEffect(() => {
+    // Tek AI yüzeyi: CRT sinyalinde aşağıdaki "CRT Analiz" kartı kullanılır, genel mentor
+    // yorumu koşulmaz — böylece bir sinyal seçilince iki değil TEK Gemini çağrısı gider.
+    if (signal.strategyId === "crt") {
+      setAiLoading(false);
+      setAiCommentary({ status: "disabled", reason: "CRT sinyalinde CRT Analiz kartı kullanılır." });
+      return;
+    }
     let active = true;
     setAiLoading(true);
     setAiCommentary({ status: "disabled", reason: "Gemini yorumu bekleniyor." });
@@ -238,6 +245,7 @@ export function SignalDetailsPanel({
           <button className={result === "loss" ? "active loss" : ""} type="button" onClick={() => saveJournal("loss", "taken", { usePlanEntry: true, useStopExit: true })}>Stop oldu</button>
         </div>
       </section>
+      {signal.strategyId !== "crt" && (
       <section className={`ai-commentary simple-ai-commentary ${aiCommentary.status}`}>
         <h3>AI mentor</h3>
         <p>
@@ -246,10 +254,11 @@ export function SignalDetailsPanel({
             : aiCommentary.status === "ready" || aiCommentary.status === "fallback"
               ? aiCommentary.commentary
               : aiCommentary.status === "disabled"
-                ? "Gemini env yok. Render Environment'a GEMINI_API_KEY veya GOOGLE_API_KEY ekleyip servisi yeniden deploy et; localde .env dosyasına ekleyip serverı yeniden başlat."
+                ? "Gemini kapalı — sunucuda GEMINI_API_KEY tanımlı değil, lokal analiz gösteriliyor."
                 : `AI yorumu alınamadı: ${aiCommentary.error ?? aiCommentary.reason ?? "bilinmeyen hata"}`}
         </p>
       </section>
+      )}
       {signal.strategyId === "crt" && (
       <section className={`crt-analysis-card ${crtAnalysis.status === "ready" ? "ready" : crtAnalysis.status}`}>
         <header className="crt-analysis-head">
@@ -285,7 +294,7 @@ export function SignalDetailsPanel({
             )}
           </div>
         ) : crtAnalysis.status === "disabled" ? (
-          <p className="crt-analysis-summary">Gemini env yok. GEMINI_API_KEY ekleyince deterministik kanıt yapısal olarak yorumlanır.</p>
+          <p className="crt-analysis-summary">Gemini kapalı — GEMINI_API_KEY eklenince kanıt yapısal olarak yorumlanır (şimdilik lokal).</p>
         ) : (
           <p className="crt-analysis-summary">CRT analizi alınamadı: {crtAnalysis.error ?? "bilinmeyen hata"}</p>
         )}
