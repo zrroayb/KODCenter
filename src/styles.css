@@ -5423,3 +5423,29 @@ button {
     display: none;
   }
 }
+
+/* Build/deploy stamp — top-right, so a stale deploy is obvious at a glance */
+.build-stamp {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  min-width: 92px;
+}
+
+.build-stamp small {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.build-stamp strong {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}

@@ -1383,6 +1383,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [yahooFinanceProxy(env), react()],
+    // Baked at build time so the running site can show exactly which build is live — the
+    // top-right stamp updates only when a new bundle is deployed.
+    define: {
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+    },
     build: {
       rollupOptions: {
         output: {
