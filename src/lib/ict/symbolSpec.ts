@@ -95,3 +95,18 @@ export const MARKET_SYMBOLS = Object.keys(SYMBOL_SPEC) as MarketSymbol[];
 export function symbolSpec(symbol: string): SymbolSpec | undefined {
   return SYMBOL_SPEC[symbol as MarketSymbol];
 }
+
+// Kullanıcıya gösterilen "veri kaynağı" satırı: fiyatın nereden geldiğini açıkça söyler.
+export function dataSourceNote(symbol: string): string {
+  const spec = symbolSpec(symbol);
+  if (!spec) return "Veri kaynağı: bilinmiyor.";
+  const spread = `bid/ask sentetik (sabit spread ${spec.spread})`;
+  if (spec.yahoo.endsWith("=F")) {
+    return `Veri kaynağı: Yahoo ${spec.yahoo} futures proxy; spot/CFD fiyatı ve seans saatleri farklı olabilir; ${spread}.`;
+  }
+  if (spec.crypto) return `Veri kaynağı: Yahoo ${spec.yahoo} spot; ${spread}.`;
+  return `Veri kaynağı: Yahoo ${spec.yahoo} gösterge mid kotasyonu (broker fiyatı değil); ${spread}.`;
+}
+
+export const SCAN_SOURCE_NOTE =
+  "Veri: Yahoo (FX gösterge mid, altın/NAS futures proxy GC=F/NQ=F), bid/ask sentetik sabit spread. Telegram alert'leri GitHub Actions taramasından gelir; 5 dk cron gerçekte 10-20 dk gecikebilir.";

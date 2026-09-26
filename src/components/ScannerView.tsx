@@ -12,6 +12,7 @@ import {
 import type { RejectedSetup } from "../lib/strategies/types";
 import { buildMarketPickPayload, fetchGeminiMarketPick, type GeminiMarketPickResponse } from "../lib/gemini/marketPick";
 import { formatPrice, formatR } from "../lib/ict/format";
+import { SCAN_SOURCE_NOTE } from "../lib/ict/symbolSpec";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
 import type { DataHealthReport } from "../lib/data/dataHealth";
 import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason } from "../lib/signals/signalClassification";
@@ -416,6 +417,7 @@ export function ScannerView({
           <div><span>Sinyal</span><strong>{signals.length} / {readySignals.length} ready</strong></div>
           <div><span>Geçmiş</span><strong>{inactiveSignals.length}</strong></div>
         </div>
+        <p className="muted-note data-source-note">{SCAN_SOURCE_NOTE}</p>
         {dataErrors.length > 0 && (
           <div className={`provider-warning ${dataSource}`}>
             <strong>Veri uyarısı</strong>

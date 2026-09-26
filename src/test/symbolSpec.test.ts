@@ -30,3 +30,12 @@ describe("symbol spec (tek tablo)", () => {
     expect(btc.approximate).toBe(false);
   });
 });
+
+describe("data source note", () => {
+  it("names the feed honestly per symbol", async () => {
+    const { dataSourceNote } = await import("../lib/ict/symbolSpec");
+    expect(dataSourceNote("XAUUSD")).toContain("GC=F futures proxy");
+    expect(dataSourceNote("EURUSD")).toContain("gösterge mid");
+    expect(dataSourceNote("BTCUSD")).toContain("spot");
+  });
+});

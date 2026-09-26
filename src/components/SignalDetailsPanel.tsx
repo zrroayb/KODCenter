@@ -4,6 +4,7 @@ import { signalAnchorTime } from "../lib/charts/selectedSignal";
 import { fetchGeminiTradeCommentary, type GeminiTradeCommentaryResponse } from "../lib/gemini/tradeCommentary";
 import { fetchCrtAnalysis, type CrtAnalysisResponse } from "../lib/gemini/crtInterpretation";
 import { formatPrice, formatR } from "../lib/ict/format";
+import { dataSourceNote } from "../lib/ict/symbolSpec";
 import type { DecisionChecklistItem, SignalEvidenceItem, TradingSignal } from "../lib/ict/types";
 import type { JournalEntry, TradeAction } from "../lib/journal/types";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
@@ -201,6 +202,7 @@ export function SignalDetailsPanel({
           {signal.crtAnchor && (
             <p className="muted-note">{signal.crtAnchor.originLabel ?? `CRT mumu: ${signal.crtAnchor.rangeTf.toUpperCase()}`} · Onay: {signal.crtAnchor.confirmTf.toUpperCase()}{signal.crtAnchor.raidClosed ? " · raid kapalı" : signal.crtAnchor.raidActive ? " · raid canlı" : ""}</p>
           )}
+          <p className="muted-note data-source-note">{signal.context.dataFeed.source === "demo" ? "Veri kaynağı: demo/fixture; gerçek fiyat değil." : dataSourceNote(signal.symbol)}</p>
         </div>
         <button className="icon-btn" onClick={onClear} type="button" aria-label="Seçili sinyali temizle"><X size={16} /></button>
       </header>
