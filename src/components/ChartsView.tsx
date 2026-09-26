@@ -245,6 +245,7 @@ export function ChartsView({
             candles={candlesForTab(market, activeTab)}
             range={chartRangeFor(activeSelectedSignal, context)}
             title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
+            bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
           />
         ) : (
           <CandleChart
