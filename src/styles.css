@@ -726,6 +726,23 @@ textarea:hover {
   align-items: start;
 }
 
+.settings-note {
+  color: #97a3bd;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 10px;
+}
+
+.telegram-test-result {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.telegram-test-result.ok { color: #089981; }
+.telegram-test-result.warn { color: #f2a33c; }
+.telegram-test-result.err { color: #f23645; }
+
 .risk-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
