@@ -21,7 +21,12 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 - İkonlar: `lucide-react`. Ekstra ağır bağımlılık yok — sade tut.
 - `vite preview` hem SPA'yı **hem de** `/api/gemini/*` ve Telegram endpoint'lerini
   serve eder (middleware `vite.config.ts` içindeki `configurePreviewServer`/
-  `configureServer`). **Ayrı bir Node server dosyası yoktur.**
+  `configureServer`). **Ayrı bir Node server süreci yoktur**; `server/alertGate.ts` yalnızca
+  vite.config'in kullandığı yardımcı modüldür (alert auth + sunucu tarafı dedupe).
+- **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
+  motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
+  Dedupe sunucuda (`.data/alert-log.json`), geçmiş `/api/live-alerts`. Tarayıcı alert
+  GÖNDERMEZ, yalnızca geçmişi gösterir. Worker alert'i yalnız `WORKER_ALERTS=on` ise atar.
 - İkincil hedef: Cloudflare Worker (`worker/index.ts`, `wrangler.jsonc`, D1
   `tradebot-state`). Canlı site DEĞİL — aşağıya bak.
 
@@ -103,9 +108,9 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Çıktı dili: TÜRKÇE.** Sistem talimatlarında kural var: serbest-metin alanları
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
-  Yeni prompt eklersen aynı kuralı ekle. Bu talimatlar 3 yerde tekrarlanır:
-  `vite.config.ts` (canlı), `worker/index.ts`, `src/lib/gemini/crtInterpretation.ts`
-  — birini değiştirirsen diğerlerini de senkron tut.
+  Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
+  `src/lib/gemini/systemInstructions.ts`; `vite.config.ts`, `worker/index.ts` ve
+  `crtInterpretation.ts` oradan import eder.
 
 ## 8. UI konvansiyonları
 
@@ -130,3 +135,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 1: CRT skor/grade ayrıştırıldı. Çekirdek (manipulation + ChoCH + DOL RR + EQ RR) taban 12 ile 70'e (B) çıkar; kalite kalemleri (HTF uyumu, SMT, killzone raid, session, location tier, reference candle, displacement, shift FVG/retest, range respect, key open) 38 puana yayıldı. Artık her READY A+ değil; grade'e göre boyut tekrar çalışıyor. `scoreCrtSetup` export edildi, `crtScoring.test.ts` eklendi. PR #23 (branch `claude/kodcenter-trade-logic-fixes-dpg821`).
 - 2026-09-26 — Madde 2-3: manipulation tanımı sıkılaştırıldı. Range dışında kapanıp geri alınmayan raid mumu artık acceptance (raid değil); HTF raid için `reclaimed` confirm-TF kapanışından ölçülüyor, reclaim yoksa blocker. İç confirm-TF swing sweep'i (`swingSweep`) manipulation sayılmıyor; yönü yalnızca bias'tan gelen setup READY olamaz (context/WATCH). PR #23.
 - 2026-09-26 — Madde 4: çıkış modeli tek: tam-EQ (eq-full). CRT `plan.rr` artık EQ net RR; READY kapısı `crtExitMinimumRR` (varsayılan 1.0, Ayarlar'da). DOL RR ≥ 1.5 kapısı kaldırıldı, DOL `extensionRR` olarak yalnız bilgi. Telegram başlığı/checklist/UI EQ RR gösteriyor; boyutlandırma EQ'ya göre. Replay R'ı artık execution cost dahil net; `performanceFromSignals` TP1'e MFE yazmıyor. PR #23.
+- 2026-09-26 — Madde 12: tek alert motoru. Tarayıcı artık Telegram'a alert göndermiyor; GitHub Actions taraması (güncel motor) Render `/api/telegram/ready-alert`'e `SCAN_TOKEN` Bearer ile POST ediyor, endpoint token yoksa kapalı. Sunucu tarafı dedupe + `/api/live-alerts` geçmişi (`server/alertGate.ts`). Worker alert'i `WORKER_ALERTS=on` olmadıkça kapalı. Gemini sistem talimatları tek dosyada (`src/lib/gemini/systemInstructions.ts`). Kullanılmayan `readyAlert.ts`/`chartSnapshot.ts` silindi. PR #23.

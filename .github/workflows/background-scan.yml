@@ -29,6 +29,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      # Single alert engine: scans with the current code and posts READY alerts to the live
+      # site (Render). CLOUD_SCAN_URL = the Render base URL; SCAN_TOKEN = same value as the
+      # SCAN_TOKEN env var on Render.
       - name: Scan all markets
         run: npm run cloud:scan
         env:

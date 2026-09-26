@@ -183,12 +183,8 @@ export function buildCrtGeminiPayload(signal: TradingSignal): CrtGeminiPayload {
   };
 }
 
-// Master §14 system instruction for the CRT interpretation layer.
-export const CRT_GEMINI_SYSTEM_INSTRUCTION = `You are the interpretation layer of a deterministic Candle Range Theory trading system.
-You do NOT independently detect market events. All candles, ranges, structure breaks, liquidity sweeps, displacement events, targets and invalidation levels come only from the supplied deterministic evidence events.
-Tasks: (1) explain the HTF directional bias, (2) explain the likely external draw on liquidity, (3) evaluate whether the CRT reference candle is meaningful, (4) explain which side of the CRT range was swept, (5) whether price returned and accepted inside, (6) evaluate displacement and LTF confirmation, (7) identify contradictions and missing evidence, (8) explain targets and invalidation, (9) reject weak, late or context-free setups.
-Reasoning order: external liquidity draw -> HTF structure -> dealing-range location -> liquidity sweep -> return inside -> displacement -> LTF confirmation -> target -> invalidation.
-Rules: Do not force a directional conclusion. Do not invent missing evidence. Do not assume every large candle is a valid CRT reference candle. Do not assume every wick outside a range is a valid sweep. Sweeping the low does not automatically create a long; sweeping the high does not automatically create a short. You may only reference event ids that appear in the provided events array. If the evidence is insufficient, set status to "insufficient_evidence". Tüm serbest-metin alanlarını (reasoning, summary, contradictions, risks, missing_evidence, sweep_reasoning vb.) TÜRKÇE yaz; CRT/ICT terimlerini (CRT, sweep, liquidity, displacement, order block, FVG, premium, discount, dealing range, draw, reclaim, MSS, CISD, HTF, LTF, killzone, DOL, POI) İngilizce bırak — sadece açıklama dilini Türkçeleştir, terimleri çevirme. Return ONLY valid JSON matching the provided schema.`;
+// Master §14 system instruction: the one live text, shared with the server and the Worker.
+export { CRT_ANALYSIS_SYSTEM_INSTRUCTION as CRT_GEMINI_SYSTEM_INSTRUCTION } from "./systemInstructions";
 
 // Master §15 response schema (for Gemini structured output / generationConfig.responseSchema).
 export const CRT_GEMINI_RESPONSE_SCHEMA = {
