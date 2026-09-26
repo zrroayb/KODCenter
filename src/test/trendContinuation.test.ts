@@ -103,6 +103,19 @@ describe("Trend Continuation playbook", () => {
     expect(signal.decisionSummary.checklist.map((item) => item.label)).toContain("Kabullü Breakout (BOS)");
   });
 
+  it("a retest from many candles ago no longer confirms the entry (stale retest)", () => {
+    const fresh = trendContinuationStrategy.scan({ context: contextWith(uptrendBreakoutRetest()), settings: trendContinuationStrategy.defaultSettings }).signals[0];
+    expect(fresh.plan.entryStatus).toBe("confirmed");
+    const base = uptrendBreakoutRetest();
+    // Price drifts above the POI for 14 more hours without touching it again.
+    const drift = Array.from({ length: 14 }, () => c(104.3, 104.7, 104.25, 104.4));
+    const stale = trendContinuationStrategy.scan({ context: contextWith([...base, ...drift]), settings: trendContinuationStrategy.defaultSettings }).signals[0];
+    expect(stale).toBeDefined();
+    expect(stale.plan.entryStatus).not.toBe("confirmed");
+    expect(stale.stage).not.toBe("ready");
+    expect(stale.governance.blockers.join(" ")).toMatch(/Retest bayat|1\.5R/);
+  });
+
   it("stays silent when structure is flat (no trend = no continuation)", () => {
     const context = contextWith(flat());
     const result = trendContinuationStrategy.scan({ context, settings: trendContinuationStrategy.defaultSettings });

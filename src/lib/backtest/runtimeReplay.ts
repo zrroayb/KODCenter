@@ -741,6 +741,17 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
   // to the level, and a fill hours later belongs to a different market — the order expires.
   const isRetestEntry = signal.strategyId === "crt";
   const immediateEntry = !isRetestEntry && signal.plan.entryStatus === "confirmed";
+  if (immediateEntry) {
+    // A "confirmed now" entry fills at the NEXT candle's open, not at the plan level (a POI edge
+    // price may be far away): R is measured from the price actually traded (2026-09-26).
+    const fill = futureCandles[0].open;
+    const risk = Math.abs(fill - signal.plan.stopLoss);
+    const stopValid = signal.direction === "short" ? signal.plan.stopLoss > fill : signal.plan.stopLoss < fill;
+    if (!stopValid || risk <= 0) {
+      return { status: "not-triggered", rMultiple: 0, maxFavorableR: 0, maxAdverseR: 0, candlesHeld: 0, outcomeReason: "entry-not-filled", tags, note: "Açılış fiyatı stop'un ötesinde; işlem açılamazdı." };
+    }
+    signal = { ...signal, plan: { ...signal.plan, entry: fill, riskDistance: risk } };
+  }
   const entryIndex = immediateEntry ? 0 : futureCandles.findIndex((candle) => priceTouched(candle, signal.plan.entry));
   if (entryIndex < 0) {
     return {
