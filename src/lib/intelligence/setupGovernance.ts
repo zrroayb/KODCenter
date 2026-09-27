@@ -56,8 +56,8 @@ export function buildSetupGovernance(input: {
     blockers.push("Replay sonucu stop/invalidation görmüş; yeni setup bekle.");
     scoreImpact -= 30;
   }
-  if (input.outcome.status === "tp1" || input.outcome.status === "tp2") {
-    blockers.push("Replay sonucu hedef görülmüş; geç entry kovalanmaz.");
+  if (input.outcome.status === "tp1" || input.outcome.status === "tp2" || input.outcome.status === "breakeven") {
+    blockers.push("Replay sonucu setup çözülmüş (hedef/BE); geç entry kovalanmaz.");
     scoreImpact -= 25;
   }
   if (input.sequenceStatus === "invalid") {
@@ -73,7 +73,7 @@ export function buildSetupGovernance(input: {
     item("Market regime", input.context.regime.tradeability === "blocked" ? "fail" : input.context.regime.tradeability === "caution" ? "neutral" : "pass", input.context.regime.summary),
     item("Data confidence", input.context.dataConfidence.score < 35 ? "fail" : input.context.dataConfidence.score < 68 ? "neutral" : "pass", input.context.dataConfidence.summary),
     item("Retracement", input.context.retracement.currentPct > 88 ? "neutral" : "pass", input.context.retracement.summary),
-    item("Outcome replay", input.outcome.status === "stopped" || input.outcome.status === "tp1" || input.outcome.status === "tp2" ? "fail" : input.outcome.status === "open" ? "pass" : "neutral", input.outcome.summary)
+    item("Outcome replay", input.outcome.status === "stopped" || input.outcome.status === "tp1" || input.outcome.status === "tp2" || input.outcome.status === "breakeven" ? "fail" : input.outcome.status === "open" ? "pass" : "neutral", input.outcome.summary)
   ];
 
   const status: SignalGovernance["status"] = blockers.length ? "block" : warnings.length ? "caution" : "allow";

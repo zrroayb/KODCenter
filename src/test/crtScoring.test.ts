@@ -59,8 +59,8 @@ describe("CRT score / grade split", () => {
   });
 });
 
-describe("CRT exit model (eq-full) speaks one RR everywhere", () => {
-  it("plan.rr is the EQ exit net RR; DOL is extension info; READY gates on the exit RR", async () => {
+describe("CRT exit model (DOL target + BE at EQ) speaks one RR everywhere", () => {
+  it("plan.rr is the DOL exit net RR; EQ is the BE milestone; READY gates on the DOL RR", async () => {
     const { createDemoMarkets } = await import("../data/demoData");
     const { buildMarketContext } = await import("../lib/intelligence/marketContext");
     const { crtStrategy } = await import("../lib/strategies/crt/crt.strategy");
@@ -71,11 +71,13 @@ describe("CRT exit model (eq-full) speaks one RR everywhere", () => {
     }).signals);
     expect(signals.length).toBeGreaterThan(0);
     for (const signal of signals) {
-      expect(signal.plan.rr).toBe(signal.plan.managementRR);
+      // Exit = DOL, so the headline rr is the DOL net RR — at least the EQ (BE milestone) RR.
+      expect(signal.plan.rr).toBeGreaterThanOrEqual((signal.plan.managementRR ?? 0) - 1e-9);
       expect(signal.plan.minimumRR).toBe(1);
-      expect(signal.plan.extensionRR ?? 0).toBeGreaterThanOrEqual(signal.plan.rr - 1e-9);
+      // extensionRR now carries the EQ (BE) net RR reference.
+      expect(signal.plan.extensionRR ?? 0).toBe(signal.plan.managementRR ?? 0);
+      // READY gates on the DOL exit RR.
       if (signal.stage === "ready") expect(signal.plan.rr).toBeGreaterThanOrEqual(1);
-      expect(signal.governance.blockers.join(" ")).not.toContain("TP2/DOL RR");
     }
   });
 });

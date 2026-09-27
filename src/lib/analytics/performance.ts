@@ -18,7 +18,7 @@ export type BacktestResult = {
   replay?: RuntimeReplaySummary;
 };
 
-export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "stopped" | "not-triggered" | "open";
+export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "breakeven" | "stopped" | "not-triggered" | "open";
 export type RuntimeReplayTradeOrigin = "live-ready" | "watch-promoted";
 export type RuntimeReplayOutcomeReason =
   | "clean-model"
@@ -283,9 +283,11 @@ export type RuntimeReplaySummary = {
 // RR (CRT: full close at EQ), managementRR the first-target exit. It used to credit TP1 with
 // the whole MFE, i.e. a second, optimistic backtest contradicting the replay.
 export function performanceFromSignals(signals: TradingSignal[]): BacktestResult {
-  const measuredSignals = signals.filter((signal) => signal.outcome.status === "stopped" || signal.outcome.status === "tp1" || signal.outcome.status === "tp2");
+  const measuredSignals = signals.filter((signal) => signal.outcome.status === "stopped" || signal.outcome.status === "breakeven" || signal.outcome.status === "tp1" || signal.outcome.status === "tp2");
   const returns = measuredSignals.map((signal) => {
     if (signal.outcome.status === "stopped") return -1;
+    // BE at EQ then scratched before DOL: a flat trade (~0R), neither win nor loss.
+    if (signal.outcome.status === "breakeven") return 0;
     if (signal.outcome.status === "tp2") return signal.plan.rr;
     return signal.plan.managementRR ?? Math.min(signal.plan.rr, Math.max(0, signal.outcome.maxFavorableR));
   });
