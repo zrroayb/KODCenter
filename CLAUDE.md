@@ -87,11 +87,16 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Quality (warnings + score)** = yumuşak; skoru ve grade'i etkiler ama tek başına
   veto etmez. Skor yalnızca **grade** belirler; `readyEligible`'da skor eşiği YOKTUR.
 - **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=exitMinimumRR` (CRT'de
-  `plan.rr` = tam-EQ çıkışın net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
+  `plan.rr` = DOL çıkışının net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
   `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) +
   gerçek hedef + geçerli stop + model hazır + `dataConfidence>=35`.
-- **Çıkış modeli = eq-full**: pozisyonun tamamı EQ'da kapanır. DOL (`plan.extensionRR`) yalnız
-  uzatma bilgisidir, kapı değildir. UI/Telegram/replay hepsi `plan.rr`'ı (EQ net) konuşur.
+- **Çıkış modeli = DOL hedef + EQ'da BE**: pozisyonun tamamı DOL'a (karşı likidite, `targets[1]`)
+  koşar; fiyat EQ'ya (`targets[0]`) gelince stop break-even'a çekilir. EQ'ya gelip entry'ye
+  dönerse scratch (`outcome.status === "breakeven"`, ~0R), EQ öncesi stop = `stopped` (−1R),
+  DOL = `tp2` (tam DOL RR). `plan.rr` = DOL net RR (headline + READY gate); EQ ara adımı
+  `managementRR`/`extensionRR`'da. Canlı outcome = `outcomeEngine.ts`. **NOT: backtest görünümü
+  `runtimeReplay.ts` hâlâ kendi eq-full simülasyonunu ölçüyor — canlı modelle hizalanması gereken
+  açık bir follow-up.**
 - **Anchor aileleri**: gerçek ANCHORS (1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
   (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
@@ -147,4 +152,5 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 13: trade yorumu kontratı (`src/lib/gemini/commentaryGuard.ts`): stage=ready ise Karar "Plan hazır", watch ise "Bekle" ile başlamalı; "kısmi al / kalanı DOL'a" dili reddedilir (çıkış tam EQ). Kontrata uymayan Gemini metni sunucuda ve istemcide lokal fallback'e düşer. Fallback yönetim cümlesi artık "pozisyonun tamamı EQ'da kapanır". PR #23.
 - 2026-09-26 — Madde 14: neutral CRT bias artık sessizce long sayılıp OTE POI üretmiyor (`crtEngine.ts`). Deneysel aileler (FVG-origin, Active CRT) canlı listeden çıktı, `experimentalAnchors: true` ile açılır. 1H anchor yorumu gerçek değerle (tracking) uyumlu. readyHold ile tutulan READY'ler tarama ve detay panelinde sarı "kilitli" rozetiyle görünüyor. `kod.strategy.ts` test fikstürü olarak işaretlendi; `crt.strategy.ts` bölünmesi davranış riski yüzünden bu PR'da yapılmadı. PR #23.
 - 2026-09-26 — Madde 15: "veri kaynağı" satırı: sinyal detayında sembole göre (FX = Yahoo gösterge mid, altın/NAS = GC=F/NQ=F futures proxy, kripto spot; bid/ask sentetik sabit spread), tarama ekranında genel not + cron'un 10-20 dk gecikebileceği. PR #23.
+- 2026-09-27 — CRT çıkış modeli değişti: **eq-full → DOL hedef + EQ'da BE**. "EQ'da tam TP saçma; asıl draw karşı likidite (DOL)" itirazı üzerine. `plan.rr` artık DOL net RR (headline + READY gate); EQ ara adım (`managementRR`/`extensionRR`). `outcomeEngine.ts`: fiyat EQ'ya gelince stop BE'ye, DOL öncesi dönüş = yeni `"breakeven"` status (~0R, ne kâr ne zarar), DOL = tp2 (tam DOL RR). `breakeven` status'u tipe (`types.ts`) + tüketicilere (performance, setupGovernance, setupSimilarity, crt lifecycle/deriveCrtState) eklendi. Checklist/evidence/Telegram/planWarnings etiketleri EQ→BE, DOL=hedef. `crtScoring`/`telegramAlert`/`crtDealingPd` testleri yeni modele göre güncellendi (272 test yeşil). **Açık follow-up:** `runtimeReplay.ts` backtest simülasyonu hâlâ eq-full — canlı modele hizalanacak.
 - 2026-09-26 — Gold & dark fintech reskin: tüm tema tek token katmanından değişti (`src/styles.css`). Yüzeyler sıcak near-black (#0c0b09 / #1a1a1a / #333), hairline'lar soft-gold, accent gold (#FFD700). İki `:root` katmanındaki `--blue*` accent'i gold'a (`var(--gold)`) çevrildi; dağınık mor (`rgba(124,140,255)`) ve mavi (`rgba(57,135,229)`) glow/gradient'ler gold'a toplu değiştirildi; `html` gradient gold; `primary-btn` gold dolgu + koyu yazı + gold lift shadow. **Trading semantiği korundu:** bull/bear mum renkleri (`--green` #089981 / `--red` #f23645) ve chart-surface #0f131c değişmedi (dataviz kuralı). Yeni token'lar: `--gold`, `--gold-ink`, `--gold-soft`, `--soft-gold`, `--glow-gold`. Salt CSS; typecheck + 272 test + build yeşil.

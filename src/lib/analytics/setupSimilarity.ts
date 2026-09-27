@@ -179,7 +179,7 @@ export type SimilarOutcome = {
   summary: string;
 };
 
-export const RESOLVED_STATUSES = new Set(["tp1", "tp2", "stopped"]);
+export const RESOLVED_STATUSES = new Set(["tp1", "tp2", "breakeven", "stopped"]);
 
 function median(values: number[]): number {
   if (!values.length) return 0;

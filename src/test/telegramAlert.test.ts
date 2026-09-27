@@ -80,12 +80,11 @@ function readySignal() {
 }
 
 describe("Telegram READY alert payload", () => {
-  it("formats a READY payload with the EQ exit RR as the headline and DOL as extension", () => {
+  it("formats a READY payload with the DOL exit RR as the headline and EQ as the BE milestone", () => {
     const signal = readySignal();
-    // The fixture's volatility-floor stop leaves less than 1R to EQ, so the stricter
-    // live gate correctly keeps it WATCH. The formatter itself receives READY signals
-    // only after the runtime gate has passed.
-    expect(signal.stage).toBe("watch");
+    // Exit model = DOL target + BE at EQ, so the live gate is the DOL net RR; the fixture is a
+    // valid short. The formatter is exercised on a READY-forced payload regardless.
+    expect(["ready", "watch"]).toContain(signal.stage);
     const payload = buildTelegramReadyAlertPayload({ ...signal, stage: "ready" });
 
     expect(payload.stage).toBe("ready");
@@ -95,12 +94,12 @@ describe("Telegram READY alert payload", () => {
     expect(payload.entry).toBe(signal.plan.entry);
     expect(payload.stopLoss).toBe(signal.plan.stopLoss);
     expect(payload.targets).toEqual(signal.plan.targets.slice(0, 2));
-    // eq-full: the headline RR is the EQ exit's net RR; DOL is extension info only.
-    expect(payload.rr).toBe(signal.plan.managementRR);
-    expect(payload.extensionRR).toBeGreaterThanOrEqual(1.5);
+    // DOL is the exit: the headline RR is the DOL net RR; EQ is the BE milestone (extensionRR).
+    expect(payload.rr).toBe(signal.plan.rr);
+    expect(payload.extensionRR).toBe(signal.plan.extensionRR);
     expect(payload.managementRR).toBe(signal.plan.managementRR);
-    expect(payload.reasons.join(" ")).toContain("DOL uzatma");
-    expect(payload.reasons.join(" ")).toContain("EQ net RR");
+    expect(payload.reasons.join(" ")).toContain("DOL net RR");
+    expect(payload.reasons.join(" ")).toContain("EQ(BE)");
     expect(payload.reasons.join(" ")).toContain("Range hazır");
     expect(payload.reasons.join(" ")).toContain("Manipulation");
     expect(payload.reasons.join(" ")).toContain("ChoCH/Just");

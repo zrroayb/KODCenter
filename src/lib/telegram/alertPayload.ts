@@ -128,8 +128,8 @@ function crtReadyReasons(signal: TradingSignal): string[] {
     passed.has("Manipulation") ? "Manipulation: CRT high/low alındı" : null,
     passed.has("ChoCH / Just") ? "ChoCH/Just mum kapanışı var" : null,
     passed.has("Entry") ? "Giriş aktif" : null,
-    passed.has("EQ RR (çıkış)") ? "Tam çıkış EQ'da" : null,
-    `EQ net RR ${formatR(signal.plan.rr)} · DOL uzatma ${formatR(signal.plan.extensionRR ?? 0)} (bilgi)`
+    passed.has("DOL RR (çıkış)") ? "Tam çıkış DOL'da" : null,
+    `DOL net RR ${formatR(signal.plan.rr)} · EQ(BE) ${formatR(signal.plan.extensionRR ?? 0)}`
   ].filter((item): item is string => Boolean(item));
   return Array.from(new Set(reasons)).slice(0, 6);
 }

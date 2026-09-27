@@ -40,6 +40,10 @@ export function evaluateSignalOutcome(context: MarketContext, direction: TradeDi
   let exitCandleIndex: number | undefined;
   const afterEntry = tracked.slice(entryIndex);
 
+  // CRT exit model: the full position closes at DOL (targets[1]); EQ (targets[0]) only ARMS
+  // break-even (stop -> entry). EQ is a milestone, not an exit — after it the stop is BE, so a
+  // return to entry is a scratch ("breakeven", ~0R), never the original -1R stop.
+  let beArmed = false;
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
     const highR = rAtPrice(direction, plan.entry, risk, executableHigh(candle, direction === "short" ? "buy" : "sell"));
@@ -47,18 +51,19 @@ export function evaluateSignalOutcome(context: MarketContext, direction: TradeDi
     maxFavorableR = Math.max(maxFavorableR, highR, lowR);
     maxAdverseR = Math.min(maxAdverseR, highR, lowR);
 
+    const effectiveStop = beArmed ? plan.entry : plan.stopLoss;
     const stopHit = direction === "short"
-      ? executableHigh(candle, "buy") >= plan.stopLoss
-      : executableLow(candle, "sell") <= plan.stopLoss;
+      ? executableHigh(candle, "buy") >= effectiveStop
+      : executableLow(candle, "sell") <= effectiveStop;
     const tp2Hit = typeof plan.targets[1] === "number" && (direction === "short"
       ? executableLow(candle, "buy") <= plan.targets[1]
       : executableHigh(candle, "sell") >= plan.targets[1]);
-    const tp1Hit = typeof plan.targets[0] === "number" && (direction === "short"
+    const eqTouched = typeof plan.targets[0] === "number" && (direction === "short"
       ? executableLow(candle, "buy") <= plan.targets[0]
       : executableHigh(candle, "sell") >= plan.targets[0]);
 
     if (stopHit) {
-      status = "stopped";
+      status = beArmed ? "breakeven" : "stopped";
       exitCandleIndex = setupStartIndex + entryIndex + index;
       break;
     }
@@ -67,11 +72,8 @@ export function evaluateSignalOutcome(context: MarketContext, direction: TradeDi
       exitCandleIndex = setupStartIndex + entryIndex + index;
       break;
     }
-    if (tp1Hit) {
-      status = "tp1";
-      exitCandleIndex = setupStartIndex + entryIndex + index;
-      break;
-    }
+    // EQ reached: move stop to break-even and keep running toward DOL (no exit here).
+    if (eqTouched) beArmed = true;
   }
 
   const entryCandleIndex = setupStartIndex + entryIndex;
@@ -89,14 +91,16 @@ export function evaluateSignalOutcome(context: MarketContext, direction: TradeDi
       ? `Entry tetiklendi; max ${Math.max(0, safeMaxFavorable).toFixed(2)}R, adverse ${Math.min(0, safeMaxAdverse).toFixed(2)}R.`
       : status === "stopped"
         ? "Entry sonrası stop/invalidation görüldü."
-        : status === "tp2"
-          ? "Entry sonrası TP2 görüldü."
-          : "Entry sonrası TP1 görüldü."
+        : status === "breakeven"
+          ? "EQ'da stop BE'ye çekildi; DOL öncesi entry'ye dönüş — scratch (~0R)."
+          : status === "tp2"
+            ? "Entry sonrası DOL/TP hedefi görüldü."
+            : "Entry sonrası EQ (BE) görüldü."
   };
 }
 
 export function buildActionWindow(context: MarketContext, plan: TradePlan, outcome: SignalOutcome, stage: string, windowCandles = 3): SignalActionWindow {
-  if (stage === "invalidated" || stage === "missed" || outcome.status === "stopped" || outcome.status === "tp1" || outcome.status === "tp2") {
+  if (stage === "invalidated" || stage === "missed" || outcome.status === "stopped" || outcome.status === "breakeven" || outcome.status === "tp1" || outcome.status === "tp2") {
     return { status: "inactive", candlesRemaining: 0, summary: "Setup artık aktif action window içinde değil." };
   }
   if (!outcome.entryTouched || plan.entryStatus !== "confirmed") {

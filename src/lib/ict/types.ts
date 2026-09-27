@@ -380,7 +380,9 @@ export type SignalEvidenceItem = {
   metadata?: Record<string, string | number | boolean | undefined>;
 };
 
-export type SignalOutcomeStatus = "not-triggered" | "open" | "tp1" | "tp2" | "stopped" | "missed";
+// "breakeven": price reached EQ (stop moved to break-even) but returned to entry before DOL —
+// a scratch (~0R), not a loss. CRT exit model = full close at DOL, break-even armed at EQ.
+export type SignalOutcomeStatus = "not-triggered" | "open" | "tp1" | "tp2" | "stopped" | "breakeven" | "missed";
 
 export type SignalOutcome = {
   status: SignalOutcomeStatus;
