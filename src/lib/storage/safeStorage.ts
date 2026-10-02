@@ -47,3 +47,24 @@ export function safeSetJson(key: string, value: unknown, options: { preserve?: b
   }
   return false;
 }
+
+// Histories of removed features (Session setups, Silver Bullet — 2026-10-02). Nothing reads them
+// any more, but they still sit in the user's quota (they were what filled it), so drop them once.
+const LEGACY_KEYS = [
+  "tradebot.crtSessionSetups.v1",
+  "tradebot.crtSessionSetupLogs.v1",
+  "tradebot.silverBulletSetups.v1",
+  "tradebot.silverBulletLogs.v1"
+];
+
+export function purgeLegacyStorage(): void {
+  const store = storage();
+  if (!store) return;
+  for (const key of LEGACY_KEYS) {
+    try {
+      store.removeItem(key);
+    } catch {
+      // Blocked storage: nothing to free.
+    }
+  }
+}

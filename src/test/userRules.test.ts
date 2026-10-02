@@ -76,18 +76,35 @@ describe("user rule visibility policy", () => {
 });
 
 describe("stored rule resolution (site + cloud bot parity)", () => {
-  it("merges partial payloads over defaults, filters whitelists and applies the score floor", () => {
+  it("reads only the four user-editable fields; everything else stays at the defaults", () => {
     const resolved = resolveStoredRules({
+      accountSize: 50_000,
+      riskPerTradePct: 0.5,
+      maxDailyRiskPct: 4,
+      allowedSymbols: ["XAUUSD", "FAKEUSD"],
+      // Old hidden settings must not keep acting after the UI dropped them.
       minimumRR: 2,
       minimumScore: 30,
-      allowedSymbols: ["XAUUSD", "FAKEUSD"],
-      allowedKillzones: ["nonsense"]
+      useHtfAlignmentFilter: false,
+      allowedKillzones: ["London"]
     });
-    expect(resolved.minimumRR).toBe(2);
-    expect(resolved.minimumScore).toBe(50);
+    expect(resolved.accountSize).toBe(50_000);
+    expect(resolved.riskPerTradePct).toBe(0.5);
+    expect(resolved.maxDailyRiskPct).toBe(4);
     expect(resolved.allowedSymbols).toEqual(["XAUUSD"]);
+    expect(resolved.minimumRR).toBe(defaultRules.minimumRR);
+    expect(resolved.minimumScore).toBe(50);
+    expect(resolved.useHtfAlignmentFilter).toBe(defaultRules.useHtfAlignmentFilter);
     expect(resolved.allowedKillzones).toEqual(defaultRules.allowedKillzones);
     expect(resolved.maxSignalsPerScan).toBe(defaultRules.maxSignalsPerScan);
+  });
+
+  it("rejects non-positive or absurd risk numbers", () => {
+    const resolved = resolveStoredRules({ accountSize: -5, riskPerTradePct: 0, maxDailyRiskPct: "x" });
+    expect(resolved.accountSize).toBe(defaultRules.accountSize);
+    expect(resolved.riskPerTradePct).toBe(defaultRules.riskPerTradePct);
+    expect(resolved.maxDailyRiskPct).toBe(defaultRules.maxDailyRiskPct);
+    expect(resolveStoredRules({ riskPerTradePct: 80 }).riskPerTradePct).toBe(10);
   });
 
   it("falls back to defaults for garbage payloads", () => {

@@ -193,18 +193,48 @@ export type RuntimeReplayManagementVariants = {
   noBe: number;
   fullDol: number;
   eqPartialBe: number;
+  // Same walk through the replay's own exit engine (evaluateCrtForwardOutcomeCore), so these
+  // two can never drift from the live model's rules.
+  dolBe: number;
+  eqFull: number;
 };
 
+// One exit rule applied to the SAME entered trades. Besides expectancy, it carries what a funded
+// (consistency-payout) trader decides on: how often it wins/scratches/loses, drawdown, and how
+// concentrated the profit is in a single day.
 export type RuntimeReplayManagementScenario = {
-  id: "model" | "no-be" | "full-dol" | "eq-partial-be";
+  id: "dol-be" | "eq-full" | "eq-partial-be" | "no-be";
   label: string;
   description: string;
+  // The exit model the live engine is currently running.
+  live: boolean;
   trades: number;
   totalR: number;
   expectancyR: number;
   profitFactor: number;
+  // Expectancy difference vs the live model.
   deltaR: number;
+  winRate: number;
+  scratchRate: number;
+  lossRate: number;
+  maxDrawdown: number;
+  tradingDays: number;
+  // Standard deviation of daily R — lower = steadier days.
+  dailyStdR: number;
+  // Best day's R / total R (prop "consistency" share). Undefined when total R <= 0.
+  bestDayShare?: number;
   verdict: "better" | "similar" | "worse" | "needs-data";
+};
+
+// Exit-model decision gate: no recommendation until the sample is big enough.
+export type RuntimeReplayManagementDecision = {
+  sample: number;
+  required: number;
+  ready: boolean;
+  liveId: RuntimeReplayManagementScenario["id"];
+  bestExpectancyId?: RuntimeReplayManagementScenario["id"];
+  mostConsistentId?: RuntimeReplayManagementScenario["id"];
+  summary: string;
 };
 
 export type RuntimeReplayFilterScenario = {
@@ -263,6 +293,7 @@ export type RuntimeReplaySummary = {
   calibration: RuntimeReplayCalibration[];
   filterScenarios: RuntimeReplayFilterScenario[];
   managementScenarios: RuntimeReplayManagementScenario[];
+  managementDecision?: RuntimeReplayManagementDecision;
   setupBreakdowns: RuntimeReplaySetupBreakdown[];
   failureCases: RuntimeReplayFailureCase[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;

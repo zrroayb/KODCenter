@@ -35,8 +35,8 @@ function verdictText(verdict: string) {
   return "İncele";
 }
 
-function managementVerdictText(item: { id: string; verdict: string; deltaR: number }) {
-  if (item.id === "model") return "Referans";
+function managementVerdictText(item: { live: boolean; verdict: string; deltaR: number }) {
+  if (item.live) return "Canlı model";
   if (item.verdict === "needs-data") return "Az veri";
   if (item.verdict === "better") return `Daha iyi (+${item.deltaR.toFixed(2)}R)`;
   if (item.verdict === "worse") return `Daha kötü (${item.deltaR.toFixed(2)}R)`;
@@ -127,6 +127,58 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
               ? <p>{plainAiCommentary(aiReview.commentary)}</p>
               : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
           </div>
+          <div className="exit-compare">
+            <strong>Çıkış modeli karşılaştırması</strong>
+            <small className="exit-compare__lead">Aynı girişler, aynı mumlar — sadece çıkış kuralı farklı.</small>
+            {replay.managementDecision && (
+              <div className={`exit-compare__decision ${replay.managementDecision.ready ? "ready" : "building"}`}>
+                <div className="exit-compare__progress" aria-label="Karar için örnek">
+                  <span style={{ width: `${Math.min(100, (replay.managementDecision.sample / replay.managementDecision.required) * 100)}%` }} />
+                </div>
+                <b>{replay.managementDecision.sample}/{replay.managementDecision.required} işlem</b>
+                <p>{replay.managementDecision.summary}</p>
+              </div>
+            )}
+            {(replay.managementScenarios ?? []).length > 0 ? (
+              <div className="exit-compare__table" role="table">
+                <div className="exit-compare__row head" role="row">
+                  <span role="columnheader">Model</span>
+                  <span role="columnheader">Beklenti</span>
+                  <span role="columnheader">Toplam</span>
+                  <span role="columnheader">Kazanç / BE / Kayıp</span>
+                  <span role="columnheader">Max DD</span>
+                  <span role="columnheader">En iyi gün payı</span>
+                  <span role="columnheader">Günlük σ</span>
+                </div>
+                {(replay.managementScenarios ?? []).map((item) => {
+                  const decision = replay.managementDecision;
+                  return (
+                    <div key={item.id} className={`exit-compare__row${item.live ? " live" : ""}`} role="row">
+                      <span role="cell" className="exit-compare__name">
+                        <b>{item.label}</b>
+                        <small>{item.description}</small>
+                        <span className="exit-compare__tags">
+                          {item.live && <em className="tag live">canlı</em>}
+                          {decision?.bestExpectancyId === item.id && <em className="tag best">en yüksek beklenti</em>}
+                          {decision?.mostConsistentId === item.id && <em className="tag steady">en tutarlı</em>}
+                          {!item.live && item.verdict !== "needs-data" && <em className={`tag ${item.verdict}`}>{managementVerdictText(item)}</em>}
+                        </span>
+                      </span>
+                      <span role="cell" data-label="Beklenti">{item.expectancyR.toFixed(2)}R</span>
+                      <span role="cell" data-label="Toplam">{item.totalR.toFixed(2)}R</span>
+                      <span role="cell" data-label="Kazanç / BE / Kayıp">%{item.winRate.toFixed(0)} / %{item.scratchRate.toFixed(0)} / %{item.lossRate.toFixed(0)}</span>
+                      <span role="cell" data-label="Max DD">{item.maxDrawdown.toFixed(2)}R</span>
+                      <span role="cell" data-label="En iyi gün payı">{typeof item.bestDayShare === "number" ? `%${Math.round(item.bestDayShare * 100)}` : "—"}</span>
+                      <span role="cell" data-label="Günlük σ">{item.dailyStdR.toFixed(2)}R</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted-note">Karşılaştırma için tetiklenen CRT işlemi yok.</p>
+            )}
+            <small className="exit-compare__note">En iyi gün payı = en iyi günün R'ı / toplam R. Funded consistency kuralında düşük olan iyidir. Günlük σ düşükse günler daha dengelidir.</small>
+          </div>
           <details className="replay-deep-dive">
             <summary>Detaylı replay analizi</summary>
             <div className="replay-deep-dive-body">
@@ -147,17 +199,6 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
                 <small>{item.triggered}/{item.sample} tetik · WR {item.winRate.toFixed(1)}% · DD {item.maxDrawdown.toFixed(2)}R · {item.description}</small>
               </div>
             ))}
-          </div>
-          <div className="strategy-learning-list replay-management-list">
-            <strong>Yönetim ölçümü (aynı girişler, farklı çıkış kuralı)</strong>
-            {(replay.managementScenarios ?? []).map((item) => (
-              <div key={item.id}>
-                <span>{item.label}</span>
-                <b>{managementVerdictText(item)} · {item.expectancyR.toFixed(2)}R · PF {item.profitFactor.toFixed(2)}</b>
-                <small>{item.trades} trade · toplam {item.totalR.toFixed(2)}R · {item.description}</small>
-              </div>
-            ))}
-            {!(replay.managementScenarios ?? []).length && <p className="muted-note">Yönetim karşılaştırması için tetiklenen CRT trade'i yok.</p>}
           </div>
           <div className="strategy-learning-list replay-review-measurements">
             <strong>30+ işlem incelemesi ölçümleri</strong>

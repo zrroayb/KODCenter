@@ -7,6 +7,7 @@ import {
   type RuntimeReplayCandidate,
   type RuntimeReplayFailureCase,
   type RuntimeReplayFilterScenario,
+  type RuntimeReplayManagementDecision,
   type RuntimeReplayManagementScenario,
   type RuntimeReplayOutcomeReason,
   type RuntimeReplayReviewMeasurements,
@@ -571,13 +572,20 @@ function crtManagementVariants(signal: TradingSignal, afterEntry: Candle[]): Run
           : Number((0.5 * eqR).toFixed(2))
         : expiredR;
 
-  return { noBe, fullDol, eqPartialBe };
+  return { noBe, fullDol, eqPartialBe, dolBe: 0, eqFull: 0 };
 }
 
 function evaluateCrtForwardOutcome(signal: TradingSignal, afterEntry: Candle[], tags: string[], settings: StrategySettings = {}): ReplayOutcome {
+  const base = crtManagementVariants(signal, afterEntry);
   return {
     ...evaluateCrtForwardOutcomeCore(signal, afterEntry, tags, settings),
-    managementVariants: crtManagementVariants(signal, afterEntry)
+    managementVariants: base && {
+      ...base,
+      // Run the replay's own exit engine with each model forced, so the comparison uses exactly
+      // the live rules (same-candle conventions, expiry handling, break-even arming).
+      dolBe: evaluateCrtForwardOutcomeCore(signal, afterEntry, [], { ...settings, exitModel: "dol-be" }).rMultiple,
+      eqFull: evaluateCrtForwardOutcomeCore(signal, afterEntry, [], { ...settings, exitModel: "eq-full" }).rMultiple
+    }
   };
 }
 
@@ -1102,36 +1110,108 @@ function scenarioStats(
   };
 }
 
-// Compare the live management model against its counterfactuals over the SAME entered
-// trades: same entries, same candles, only the exit rule differs. This is what the AI
-// replay review reads instead of recommending "measure BE/partial" as a to-do.
-function managementScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayManagementScenario[] {
-  const sample = trades.filter((trade) => trade.status !== "not-triggered" && trade.managementVariants);
-  const stats = (id: RuntimeReplayManagementScenario["id"], label: string, description: string, rOf: (trade: RuntimeReplayTrade) => number, modelExpectancy: number): RuntimeReplayManagementScenario => {
-    const returns = sample.map(rOf);
-    const totalR = Number(returns.reduce((sum, value) => sum + value, 0).toFixed(2));
-    const expectancyR = sample.length ? Number((totalR / sample.length).toFixed(2)) : 0;
+// Exit-model decision needs a real sample: below this the comparison is shown but no model is
+// recommended (12 trades once "proved" eq-full; it was noise either way).
+const EXIT_DECISION_MIN_TRADES = 30;
+
+type ScenarioId = RuntimeReplayManagementScenario["id"];
+
+function liveExitModelId(settings: StrategySettings): ScenarioId {
+  if (settings.exitModel === "eq-full") return "eq-full";
+  if (settings.exitModel === "eq-partial-be") return "eq-partial-be";
+  return "dol-be";
+}
+
+// Compare exit rules over the SAME entered trades: same entries, same candles, only the exit
+// differs. Every row is a variant (no "rMultiple" shortcut), so the live row is labelled by the
+// configured exit model, not assumed.
+function managementScenarios(trades: RuntimeReplayTrade[], settings: StrategySettings): RuntimeReplayManagementScenario[] {
+  const sample = trades
+    .filter((trade) => trade.status !== "not-triggered" && trade.managementVariants)
+    .sort((a, b) => a.signalTime - b.signalTime);
+  const liveId = liveExitModelId(settings);
+  const rows: Array<{ id: ScenarioId; label: string; description: string; rOf: (trade: RuntimeReplayTrade) => number }> = [
+    { id: "dol-be", label: "DOL hedef + EQ'da BE", description: "Tamamı DOL'da kapanır; EQ görülünce stop BE'ye.", rOf: (trade) => trade.managementVariants?.dolBe ?? trade.rMultiple },
+    { id: "eq-full", label: "EQ'da tam çıkış", description: "Tamamı ilk hedefte (EQ) kapanır; DOL beklenmez.", rOf: (trade) => trade.managementVariants?.eqFull ?? trade.rMultiple },
+    { id: "eq-partial-be", label: "EQ %50 + BE", description: "EQ'da yarısı alınır, kalan DOL'a; +1R sonrası stop BE.", rOf: (trade) => trade.managementVariants?.eqPartialBe ?? trade.rMultiple },
+    { id: "no-be", label: "EQ %50, BE yok", description: "EQ'da yarısı alınır, kalan yarım orijinal stopla DOL'u bekler.", rOf: (trade) => trade.managementVariants?.noBe ?? trade.rMultiple }
+  ];
+  const stats = (row: (typeof rows)[number]) => {
+    const returns = sample.map(row.rOf);
+    const totalR = returns.reduce((sum, value) => sum + value, 0);
+    const n = returns.length;
     const grossWin = returns.filter((value) => value > 0).reduce((sum, value) => sum + value, 0);
     const grossLoss = Math.abs(returns.filter((value) => value < 0).reduce((sum, value) => sum + value, 0));
-    const profitFactor = Number((grossLoss ? grossWin / grossLoss : grossWin).toFixed(2));
-    const deltaR = Number((expectancyR - modelExpectancy).toFixed(2));
-    const verdict: RuntimeReplayManagementScenario["verdict"] = sample.length < MIN_REPLAY_SCENARIO_TRADES
-      ? "needs-data"
-      : id === "model" || Math.abs(deltaR) < 0.05
-        ? "similar"
-        : deltaR > 0
-          ? "better"
-          : "worse";
-    return { id, label, description, trades: sample.length, totalR, expectancyR, profitFactor, deltaR, verdict };
+    const byDay = new Map<string, number>();
+    sample.forEach((trade, index) => {
+      const key = dayKey(trade.signalTime);
+      byDay.set(key, (byDay.get(key) ?? 0) + returns[index]);
+    });
+    const days = [...byDay.values()];
+    const dayMean = days.length ? days.reduce((sum, value) => sum + value, 0) / days.length : 0;
+    const dailyStdR = days.length ? Math.sqrt(days.reduce((sum, value) => sum + (value - dayMean) ** 2, 0) / days.length) : 0;
+    const bestDay = days.length ? Math.max(...days) : 0;
+    const pct = (count: number) => (n ? Number(((count / n) * 100).toFixed(1)) : 0);
+    return {
+      id: row.id,
+      label: row.label,
+      description: row.description,
+      live: row.id === liveId,
+      trades: n,
+      totalR: Number(totalR.toFixed(2)),
+      expectancyR: n ? Number((totalR / n).toFixed(2)) : 0,
+      profitFactor: Number((grossLoss ? grossWin / grossLoss : grossWin).toFixed(2)),
+      deltaR: 0,
+      winRate: pct(returns.filter((value) => value > 0).length),
+      scratchRate: pct(returns.filter((value) => value === 0).length),
+      lossRate: pct(returns.filter((value) => value < 0).length),
+      maxDrawdown: Number(maxDrawdown(equityCurveFromReturns(returns)).toFixed(2)),
+      tradingDays: days.length,
+      dailyStdR: Number(dailyStdR.toFixed(2)),
+      bestDayShare: totalR > 0 ? Number((Math.max(0, bestDay) / totalR).toFixed(2)) : undefined,
+      verdict: "similar" as RuntimeReplayManagementScenario["verdict"]
+    };
   };
-  const modelTotal = sample.reduce((sum, trade) => sum + trade.rMultiple, 0);
-  const modelExpectancy = sample.length ? Number((modelTotal / sample.length).toFixed(2)) : 0;
-  return [
-    stats("model", "Mevcut model (Hepsi EQ'da)", "Tam pozisyon ilk hedefte (EQ) kapanır, DOL beklenmez.", (trade) => trade.rMultiple, modelExpectancy),
-    stats("eq-partial-be", "EQ %50 + BE (eski model)", "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.", (trade) => trade.managementVariants?.eqPartialBe ?? trade.rMultiple, modelExpectancy),
-    stats("no-be", "BE yok", "EQ'da %50 partial, stop asla taşınmaz; kalan yarım DOL veya stop.", (trade) => trade.managementVariants?.noBe ?? trade.rMultiple, modelExpectancy),
-    stats("full-dol", "Partial yok", "Tam pozisyon DOL hedefli, +1R sonrası stop BE.", (trade) => trade.managementVariants?.fullDol ?? trade.rMultiple, modelExpectancy)
-  ];
+  const results = rows.map(stats);
+  const live = results.find((item) => item.live) ?? results[0];
+  return results.map((item) => {
+    const deltaR = Number((item.expectancyR - live.expectancyR).toFixed(2));
+    const verdict: RuntimeReplayManagementScenario["verdict"] = item.trades < EXIT_DECISION_MIN_TRADES
+      ? "needs-data"
+      : item.live || Math.abs(deltaR) < 0.05
+        ? "similar"
+        : deltaR > 0 ? "better" : "worse";
+    return { ...item, deltaR, verdict };
+  });
+}
+
+// The decision itself: highest expectancy, and the steadiest (lowest best-day share among the
+// profitable ones) — a consistency-payout trader weighs both. No pick below the sample gate.
+function managementDecision(scenarios: RuntimeReplayManagementScenario[]): RuntimeReplayManagementDecision | undefined {
+  if (!scenarios.length) return undefined;
+  const live = scenarios.find((item) => item.live) ?? scenarios[0];
+  const sample = live.trades;
+  const ready = sample >= EXIT_DECISION_MIN_TRADES;
+  const bestExpectancy = [...scenarios].sort((a, b) => b.expectancyR - a.expectancyR)[0];
+  const profitable = scenarios.filter((item) => typeof item.bestDayShare === "number");
+  const mostConsistent = profitable.sort((a, b) => (a.bestDayShare ?? 1) - (b.bestDayShare ?? 1) || a.dailyStdR - b.dailyStdR)[0];
+  const summary = !ready
+    ? `Karar için örnek yetersiz: ${sample}/${EXIT_DECISION_MIN_TRADES} işlem. Modeli değiştirme; aynı kurallarla veri biriktir.`
+    : bestExpectancy.id === live.id
+      ? `Canlı model ("${live.label}") en yüksek beklentide (${live.expectancyR.toFixed(2)}R, ${sample} işlem). Değişiklik gerekmiyor.`
+      : `"${bestExpectancy.label}" canlı modeli geçiyor: ${bestExpectancy.expectancyR.toFixed(2)}R vs ${live.expectancyR.toFixed(2)}R (${sample} işlem).`
+        + (mostConsistent && mostConsistent.id !== bestExpectancy.id
+          ? ` En tutarlısı ise "${mostConsistent.label}" (en iyi gün payı %${Math.round((mostConsistent.bestDayShare ?? 0) * 100)}).`
+          : "");
+  return {
+    sample,
+    required: EXIT_DECISION_MIN_TRADES,
+    ready,
+    liveId: live.id,
+    bestExpectancyId: ready ? bestExpectancy.id : undefined,
+    mostConsistentId: ready ? mostConsistent?.id : undefined,
+    summary
+  };
 }
 
 function filterScenarios(trades: RuntimeReplayTrade[]): RuntimeReplayFilterScenario[] {
@@ -1662,6 +1742,7 @@ export function runMonthlyRuntimeReplay({
   const bySymbol = symbolSummaries(trades, candidates);
   const breakdowns = setupBreakdowns(trades);
   const failures = failureCases(trades);
+  const scenarios = managementScenarios(trades, settings);
   const tp1Trades = trades.filter((trade) => trade.status === "tp1").length;
   const tp2Trades = trades.filter((trade) => trade.status === "tp2").length;
   const stoppedTrades = trades.filter((trade) => trade.status === "stopped").length;
@@ -1713,7 +1794,8 @@ export function runMonthlyRuntimeReplay({
       bySymbol,
       calibration: calibrationFromTrades(trades, watchAlerts),
       filterScenarios: filterScenarios(trades),
-      managementScenarios: managementScenarios(trades),
+      managementScenarios: scenarios,
+      managementDecision: managementDecision(scenarios),
       setupBreakdowns: breakdowns,
       failureCases: failures,
       failureReasons: failureReasonSummary(trades),

@@ -2,8 +2,6 @@ import {
   CRT_GEMINI_RESPONSE_SCHEMA,
   CRT_GEMINI_SYSTEM_INSTRUCTION
 } from "../src/lib/gemini/crtInterpretation";
-import { SESSION_GEMINI_RESPONSE_SCHEMA } from "../src/lib/session/sessionAnalysis";
-import { SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "../src/lib/gemini/systemInstructions";
 import type { MarketSymbol, TradingSignal } from "../src/lib/ict/types";
 import { YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { type CompactSignal } from "../src/lib/runtime/cloudSnapshot";
@@ -47,50 +45,6 @@ type StoredAlertRow = {
   payload: string | null;
 };
 
-const SILVER_BULLET_RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    strategy_analysis: {
-      type: "object",
-      properties: {
-        status: { type: "string", enum: ["candidate", "developing", "confirmed", "active", "late", "invalid", "no_trade", "insufficient_evidence"] },
-        direction: { type: "string", enum: ["bullish", "bearish", "none"] },
-        trigger_type: { type: "string" },
-        score: { type: "number" },
-        grade: { type: "string" }
-      },
-      required: ["status", "direction"]
-    },
-    sweep_analysis: {
-      type: "object",
-      properties: {
-        swept_side: { type: "string", enum: ["HIGH", "LOW", "NONE"] },
-        quality: { type: "string", enum: ["strong", "moderate", "weak", "invalid"] },
-        acceptance_state: { type: "string", enum: ["reclaimed", "accepted_outside", "unresolved"] },
-        reasoning: { type: "string" }
-      },
-      required: ["swept_side", "acceptance_state"]
-    },
-    timing_analysis: {
-      type: "object",
-      properties: {
-        timing_quality: { type: "string", enum: ["early", "optimal", "late", "invalid"] },
-        reasoning: { type: "string" }
-      },
-      required: ["timing_quality"]
-    },
-    confirmation_reasoning: { type: "string" },
-    trade_plan_reasoning: { type: "string" },
-    supporting_event_ids: { type: "array", items: { type: "string" } },
-    contradicting_event_ids: { type: "array", items: { type: "string" } },
-    contradictions: { type: "array", items: { type: "string" } },
-    missing_evidence: { type: "array", items: { type: "string" } },
-    no_trade_reasons: { type: "array", items: { type: "string" } },
-    risks: { type: "array", items: { type: "string" } },
-    plain_language_summary: { type: "string" }
-  },
-  required: ["strategy_analysis", "sweep_analysis", "timing_analysis", "plain_language_summary"]
-};
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -525,47 +479,6 @@ async function handleGeminiEndpoint(request: Request, env: CloudflareEnv, pathna
       return jsonResponse({ status: "ready", analysis: JSON.parse(result.text), model: result.model });
     } catch {
       return jsonResponse({ status: "error", error: "Gemini geçerli CRT JSON döndürmedi." }, 502);
-    }
-  }
-
-  if (pathname === "/api/gemini/session-analysis") {
-    const result = await callGemini(env, {
-      prompt: `Explain this deterministic CRT session setup.\n${JSON.stringify(payload).slice(0, 16_000)}`,
-      systemInstruction: SESSION_ANALYSIS_SYSTEM_INSTRUCTION,
-      responseSchema: SESSION_GEMINI_RESPONSE_SCHEMA,
-      maxOutputTokens: 2_000,
-      temperature: 0.2
-    });
-    if (result.status !== "ready") return jsonResponse(result, result.status === "error" ? 502 : 200);
-    try {
-      return jsonResponse({ status: "ready", analysis: JSON.parse(result.text), model: result.model });
-    } catch {
-      return jsonResponse({ status: "error", error: "Gemini geçerli session JSON döndürmedi." }, 502);
-    }
-  }
-
-  if (pathname === "/api/gemini/silver-bullet-analysis") {
-    const result = await callGemini(env, {
-      prompt: `Interpret this deterministic Silver Bullet evidence.\n${JSON.stringify(payload).slice(0, 16_000)}`,
-      systemInstruction: SILVER_BULLET_SYSTEM_INSTRUCTION,
-      responseSchema: SILVER_BULLET_RESPONSE_SCHEMA,
-      maxOutputTokens: 2_000,
-      temperature: 0.2
-    });
-    if (result.status !== "ready") return jsonResponse(result, result.status === "error" ? 502 : 200);
-    try {
-      const parsed = JSON.parse(result.text) as { strategy_analysis?: { status?: string } };
-      // Deadline guard mirrors the vite handler: approving without a pre-11:00 fill is rejected.
-      const plan = (payload as { trade_plan?: { entryFilledUtc?: number } }).trade_plan;
-      const windowEnd = Date.parse(String((payload as { time_context?: { window_end_utc?: string } }).time_context?.window_end_utc ?? ""));
-      const approving = ["confirmed", "active"].includes(String(parsed.strategy_analysis?.status));
-      const filledInWindow = typeof plan?.entryFilledUtc === "number" && Number.isFinite(windowEnd) && plan.entryFilledUtc < windowEnd;
-      if (approving && !filledInWindow) {
-        return jsonResponse({ status: "error", error: "Gemini 11:00 NY deadline'ı geçmiş bir entry'yi onayladı — reddedildi." }, 502);
-      }
-      return jsonResponse({ status: "ready", analysis: parsed, model: result.model });
-    } catch {
-      return jsonResponse({ status: "error", error: "Gemini geçerli SB JSON döndürmedi." }, 502);
     }
   }
 

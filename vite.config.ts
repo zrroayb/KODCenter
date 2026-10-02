@@ -5,7 +5,7 @@ import process from "node:process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createAlertStore, isAuthorizedScan, type AlertStore } from "./server/alertGate";
 import { dolBeManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
-import { CRT_ANALYSIS_SYSTEM_INSTRUCTION, SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
+import { CRT_ANALYSIS_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
 
 const yahooUserAgent = "Mozilla/5.0";
 
@@ -855,195 +855,6 @@ async function handleGeminiCrtAnalysis(request: JsonRequest, response: YahooProx
 }
 
 
-const SESSION_ANALYSIS_RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    verdict: { type: "string", enum: ["confirmed", "developing", "weak", "invalid", "insufficient_evidence"] },
-    session_alignment: { type: "string", enum: ["strong", "moderate", "weak", "conflicting"] },
-    summary: { type: "string" },
-    sequence: { type: "array", items: { type: "string" } },
-    missing_evidence: { type: "array", items: { type: "string" } },
-    risks: { type: "array", items: { type: "string" } },
-    supporting_event_ids: { type: "array", items: { type: "string" } }
-  },
-  required: ["verdict", "session_alignment", "summary", "sequence", "missing_evidence", "risks", "supporting_event_ids"]
-};
-
-async function generateGeminiSessionAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
-  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
-  if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
-  const events = Array.isArray(payload.deterministic_events)
-    ? payload.deterministic_events as Array<{ id?: unknown }>
-    : [];
-  const knownIds = new Set(events.map((event) => event.id).filter((id): id is string => typeof id === "string"));
-  const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);
-  try {
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SESSION_ANALYSIS_SYSTEM_INSTRUCTION }] },
-        contents: [{ parts: [{ text: `Explain this deterministic CRT_SESSION setup.\n${JSON.stringify(payload).slice(0, 16_000)}` }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2_048,
-          responseMimeType: "application/json",
-          responseSchema: SESSION_ANALYSIS_RESPONSE_SCHEMA
-        }
-      }),
-      signal: controller.signal
-    });
-    const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
-    if (!upstream.ok) return { status: "error" as const, error: JSON.stringify(body).slice(0, 600) };
-    const text = extractGeminiText(body)?.trim();
-    if (!text) return { status: "error" as const, error: "Gemini boş session analizi döndürdü." };
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    const referenced = Array.isArray(parsed.supporting_event_ids)
-      ? parsed.supporting_event_ids.filter((id): id is string => typeof id === "string")
-      : [];
-    const unknown = referenced.find((id) => !knownIds.has(id));
-    if (unknown) return { status: "error" as const, error: `Gemini bilinmeyen session event id kullandı: ${unknown}` };
-    if (typeof parsed.summary !== "string" || typeof parsed.verdict !== "string" || typeof parsed.session_alignment !== "string") {
-      return { status: "error" as const, error: "Session analizinin zorunlu alanları eksik." };
-    }
-    return { status: "ready" as const, model, analysis: parsed };
-  } catch (error) {
-    return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    globalThis.clearTimeout(timeoutId);
-  }
-}
-
-async function handleGeminiSessionAnalysis(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
-  if (request.method !== "POST") {
-    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
-    return;
-  }
-  try {
-    const payload = await readJsonBody(request) as Record<string, unknown>;
-    const result = await generateGeminiSessionAnalysis(payload, env);
-    jsonResponse(response, result.status === "error" ? 502 : 200, result);
-  } catch (error) {
-    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
-// Master §33-§34: Silver Bullet interpretation layer — deterministic facts in, validated JSON
-// out; a post-11:00 entry can never be approved.
-
-const SILVER_BULLET_RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    strategy_analysis: {
-      type: "object",
-      properties: {
-        strategy_profile: { type: "string" },
-        status: { type: "string", enum: ["candidate", "developing", "confirmed", "active", "late", "invalid", "no_trade", "insufficient_evidence"] },
-        direction: { type: "string", enum: ["bullish", "bearish", "none"] },
-        trigger_type: { type: "string" },
-        score: { type: "number" },
-        grade: { type: "string" }
-      },
-      required: ["status", "direction"]
-    },
-    sweep_analysis: {
-      type: "object",
-      properties: {
-        swept_side: { type: "string", enum: ["HIGH", "LOW", "NONE"] },
-        quality: { type: "string", enum: ["strong", "moderate", "weak", "invalid"] },
-        acceptance_state: { type: "string", enum: ["reclaimed", "accepted_outside", "unresolved"] },
-        reasoning: { type: "string" }
-      },
-      required: ["swept_side", "acceptance_state"]
-    },
-    timing_analysis: {
-      type: "object",
-      properties: {
-        timing_quality: { type: "string", enum: ["early", "optimal", "late", "invalid"] },
-        reasoning: { type: "string" }
-      },
-      required: ["timing_quality"]
-    },
-    confirmation_reasoning: { type: "string" },
-    trade_plan_reasoning: { type: "string" },
-    supporting_event_ids: { type: "array", items: { type: "string" } },
-    contradicting_event_ids: { type: "array", items: { type: "string" } },
-    contradictions: { type: "array", items: { type: "string" } },
-    missing_evidence: { type: "array", items: { type: "string" } },
-    no_trade_reasons: { type: "array", items: { type: "string" } },
-    risks: { type: "array", items: { type: "string" } },
-    plain_language_summary: { type: "string" }
-  },
-  required: ["strategy_analysis", "sweep_analysis", "timing_analysis", "plain_language_summary"]
-};
-
-async function generateGeminiSilverBulletAnalysis(payload: Record<string, unknown>, env: TelegramEnv) {
-  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
-  const model = env.GEMINI_MODEL || "gemini-3.8-flash";
-  if (!apiKey) return { status: "disabled" as const, reason: "GEMINI_API_KEY missing" };
-  const knownIds = new Set((Array.isArray(payload.allowed_event_ids) ? payload.allowed_event_ids : []).filter((id): id is string => typeof id === "string"));
-  const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Gemini upstream timeout")), 30_000);
-  try {
-    const upstream = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SILVER_BULLET_SYSTEM_INSTRUCTION }] },
-        contents: [{ parts: [{ text: `Interpret this deterministic Silver Bullet evidence.\n${JSON.stringify(payload).slice(0, 16_000)}` }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2_048, responseMimeType: "application/json", responseSchema: SILVER_BULLET_RESPONSE_SCHEMA }
-      }),
-      signal: controller.signal
-    });
-    const body = await upstream.json().catch(async () => ({ error: await upstream.text().catch(() => "") }));
-    if (!upstream.ok) return { status: "error" as const, error: JSON.stringify(body).slice(0, 600) };
-    const text = extractGeminiText(body)?.trim();
-    if (!text) return { status: "error" as const, error: "Gemini boş SB analizi döndürdü." };
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    const analysis = parsed.strategy_analysis as Record<string, unknown> | undefined;
-    if (!analysis || typeof analysis.status !== "string" || typeof parsed.plain_language_summary !== "string") {
-      return { status: "error" as const, error: "SB analizinin zorunlu alanları eksik." };
-    }
-    // Server-side deadline guard: an approving status without a pre-11:00 fill is rejected.
-    const plan = payload.trade_plan as { entryFilledUtc?: number } | undefined;
-    const windowEnd = Date.parse(String((payload.time_context as Record<string, unknown> | undefined)?.window_end_utc ?? ""));
-    const approving = ["confirmed", "active"].includes(String(analysis.status));
-    const filledInWindow = typeof plan?.entryFilledUtc === "number" && Number.isFinite(windowEnd) && plan.entryFilledUtc < windowEnd;
-    if (approving && !filledInWindow) {
-      return { status: "error" as const, error: "Gemini 11:00 NY deadline'ı geçmiş bir entry'yi onayladı — reddedildi." };
-    }
-    const referenced = [
-      ...(Array.isArray(parsed.supporting_event_ids) ? parsed.supporting_event_ids : []),
-      ...(Array.isArray(parsed.contradicting_event_ids) ? parsed.contradicting_event_ids : [])
-    ].filter((id): id is string => typeof id === "string");
-    const unknown = referenced.find((id) => !knownIds.has(id));
-    if (unknown) return { status: "error" as const, error: `Gemini bilinmeyen SB event id kullandı: ${unknown}` };
-    return { status: "ready" as const, model, analysis: parsed };
-  } catch (error) {
-    return { status: "error" as const, error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    globalThis.clearTimeout(timeoutId);
-  }
-}
-
-async function handleGeminiSilverBulletAnalysis(request: JsonRequest, response: YahooProxyResponse, env: TelegramEnv) {
-  if (request.method !== "POST") {
-    jsonResponse(response, 405, { status: "error", error: "Method not allowed" });
-    return;
-  }
-  try {
-    const payload = await readJsonBody(request) as Record<string, unknown>;
-    const result = await generateGeminiSilverBulletAnalysis(payload, env);
-    jsonResponse(response, result.status === "error" ? 502 : 200, result);
-  } catch (error) {
-    jsonResponse(response, 400, { status: "error", error: error instanceof Error ? error.message : String(error) });
-  }
-}
-
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
   "dol-be": "DOL tam çıkış (EQ'da BE)",
@@ -1380,12 +1191,6 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiCrtAnalysis(request, response, env);
       });
-      server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiSessionAnalysis(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/silver-bullet-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiSilverBulletAnalysis(request, response, env);
-      });
     },
     configurePreviewServer(server) {
       server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
@@ -1408,12 +1213,6 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleGeminiCrtAnalysis(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/session-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiSessionAnalysis(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/silver-bullet-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiSilverBulletAnalysis(request, response, env);
       });
     }
   };

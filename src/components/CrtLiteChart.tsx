@@ -22,6 +22,8 @@ type CrtLiteChartProps = {
   // Motorun (selectedBias / secili sinyal) otoriter yonu. Chart'taki geometrik etiketler
   // buna TABI olur: asla motorun tersine "LONG/SHORT" bagirmaz. undefined -> yon iddiasi etmez.
   bias?: "long" | "short" | "neutral";
+  // Selected signal's plan: entry / stop / EQ (break-even) / DOL exit lines.
+  plan?: { entry: number; stopLoss: number; targets: number[] };
 };
 
 type Bias = "long" | "short" | "neutral" | undefined;
@@ -141,7 +143,7 @@ function proximityAlert(range: DealingRange | undefined, lastClose: number | und
   return null;
 }
 
-export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460, bias }: CrtLiteChartProps) {
+export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460, bias, plan }: CrtLiteChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -256,6 +258,30 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
       for (const l of lines) if (l) series.removePriceLine(l);
     };
   }, [range?.high, range?.low, range?.midpoint]);
+
+  // Seçili sinyalin planı: Giriş / Stop / EQ (stop → BE) / Çıkış (DOL). Tek hedefli planda
+  // (continuation) yalnız "Çıkış" çizilir.
+  const planEntry = plan?.entry;
+  const planStop = plan?.stopLoss;
+  const planEq = plan && plan.targets.length > 1 ? plan.targets[0] : undefined;
+  const planExit = plan ? plan.targets[1] ?? plan.targets[0] : undefined;
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) return;
+    const line = (price: number | undefined, color: string, title: string, style: LineStyle) =>
+      typeof price === "number" && Number.isFinite(price)
+        ? series.createPriceLine({ price, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title })
+        : null;
+    const lines = [
+      line(planEntry, "#ffd700", "GİRİŞ", LineStyle.Solid),
+      line(planStop, "#f23645", "STOP", LineStyle.Solid),
+      line(planEq, "#a9a49a", "EQ → BE", LineStyle.Dotted),
+      line(planExit, "#089981", "ÇIKIŞ", LineStyle.Solid)
+    ];
+    return () => {
+      for (const l of lines) if (l) series.removePriceLine(l);
+    };
+  }, [planEntry, planStop, planEq, planExit]);
 
   // SIRADAKI kirilacak seviye — swing noktasindan SAGA cizgi (boydan boya DEGIL).
   useEffect(() => {

@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
-import { signalConfirmTimeframe, type FocusedTimeRange } from "../lib/charts/selectedSignal";
-import type { Candle, DealingRange, MarketContext, Timeframe, TradingSignal } from "../lib/ict/types";
+import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
+import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
-import { CandleChart } from "./CandleChart";
 import { CrtLiteChart } from "./CrtLiteChart";
 import { SignalDetailsPanel } from "./SignalDetailsPanel";
 
@@ -27,7 +26,6 @@ function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
   return market.timeframes.daily;
 }
 
-const TAB_TIMEFRAME: Record<ChartTab, Timeframe> = { m15: "15m", h1: "1h", h4: "4h", daily: "1d", weekly: "1w" };
 
 // The tab a signal's setup structure belongs on: its confirmation timeframe (4H anchor ->
 // 15m, 1D -> 1H, 1W -> 4H). ChoCH/POI/manipulation indices only make sense there.
@@ -40,13 +38,6 @@ const ANCHOR_TAB: Record<string, ChartTab> = { "4h": "h4", "1d": "daily", "1w": 
 
 const STAGE_RANK: Record<string, number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
 const STAGE_LABEL: Record<string, string> = { ready: "ALINABİLİR", watch: "İZLE", missed: "GEÇMİŞ", invalidated: "STOP" };
-
-// The most tradeable signal for a symbol: a live READY beats a watch, higher score breaks ties.
-function bestSignalForSymbol(signals: TradingSignal[], symbol: string): TradingSignal | undefined {
-  return signals
-    .filter((signal) => signal.symbol === symbol)
-    .sort((a, b) => (STAGE_RANK[b.stage] ?? 0) - (STAGE_RANK[a.stage] ?? 0) || b.score - a.score)[0];
-}
 
 // CRT lives on 4h/1d/1w depending on the setup. When a signal is selected, label the tab that
 // actually holds ITS range candle as "CRT Range" and its confirmation tab as "Confirmation",
@@ -129,13 +120,10 @@ export function ChartsView({
   signals,
   selectedSignal,
   journalEntry,
-  focusedTimeRange,
-  showSignalMarkers,
   onSelectSignal,
   onClearSelection,
   onNextSignal,
   onPreviousSignal,
-  onToggleSignalMarkers,
   onSaveJournal,
   symbols,
   activeSymbol,
@@ -146,20 +134,16 @@ export function ChartsView({
   signals: TradingSignal[];
   selectedSignal?: TradingSignal | null;
   journalEntry?: JournalEntry;
-  focusedTimeRange?: FocusedTimeRange;
-  showSignalMarkers: boolean;
   onSelectSignal: (signal: TradingSignal) => void;
   onClearSelection: () => void;
   onNextSignal: () => void;
   onPreviousSignal: () => void;
-  onToggleSignalMarkers: (show: boolean) => void;
   onSaveJournal: (signal: TradingSignal, patch: Partial<JournalEntry>) => void;
   symbols: string[];
   activeSymbol: string;
   onSelectSymbol: (symbol: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<ChartTab>("m15");
-  const [chartEngine, setChartEngine] = useState<"svg" | "lite">("lite");
   const symbolSignals = useMemo(() => signals.filter((signal) => signal.symbol === market.symbol), [market.symbol, signals]);
   const activeSelectedSignal = selectedSignal?.symbol === market.symbol ? selectedSignal : null;
   const selectedConfirmTab = activeSelectedSignal ? confirmTabFor(activeSelectedSignal) : null;
@@ -169,10 +153,6 @@ export function ChartsView({
     if (selectedConfirmTab) setActiveTab(selectedConfirmTab);
   }, [activeSelectedSignal?.id, selectedConfirmTab]);
   const tab = CHART_TABS.find((item) => item.id === activeTab) ?? CHART_TABS[0];
-  const activeFocus = activeSelectedSignal && activeTab === selectedConfirmTab ? focusedTimeRange : undefined;
-  // Each signal's chip belongs on its own confirmation tab; a 1D anchor's marker on the m15
-  // chart would sit on an unrelated candle.
-  const markerSignals = useMemo(() => symbolSignals.filter((signal) => confirmTabFor(signal) === activeTab), [symbolSignals, activeTab]);
 
   const pairRail = symbols.map((symbol) => {
     const anchors = signals
@@ -223,10 +203,6 @@ export function ChartsView({
             {(market.symbol === "XAUUSD" || market.symbol === "NAS100") && <small className="instrument-note">{market.name} · spot/CFD fiyatı değildir</small>}
           </div>
           <div className="chart-actions">
-            <label className="marker-toggle"><input type="checkbox" checked={showSignalMarkers} onChange={(event) => onToggleSignalMarkers(event.target.checked)} /> Marker</label>
-            <button className="ghost-btn" type="button" onClick={() => setChartEngine((e) => (e === "svg" ? "lite" : "svg"))} title="Chart motoru">
-              {chartEngine === "svg" ? "Lite (TV)" : "Klasik"}
-            </button>
             <button className="ghost-btn icon-action" onClick={onPreviousSignal} type="button" disabled={!signals.length} aria-label="Önceki sinyal" title="Önceki"><ChevronLeft size={16} /></button>
             <button className="ghost-btn icon-action" onClick={onNextSignal} type="button" disabled={!signals.length} aria-label="Sonraki sinyal" title="Sonraki"><ChevronRight size={16} /></button>
             <button className="ghost-btn icon-action" onClick={onClearSelection} type="button" disabled={!activeSelectedSignal} aria-label="Seçimi temizle" title="Temizle"><X size={16} /></button>
@@ -240,28 +216,13 @@ export function ChartsView({
             </button>
           ))}
         </div>
-        {chartEngine === "lite" ? (
-          <CrtLiteChart
-            candles={candlesForTab(market, activeTab)}
-            range={chartRangeFor(activeSelectedSignal, context)}
-            title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
-            bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
-          />
-        ) : (
-          <CandleChart
-            candles={candlesForTab(market, activeTab)}
-            title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
-            mode={tab.mode}
-            range={chartRangeFor(activeSelectedSignal, context)}
-            context={context}
-            signals={markerSignals}
-            selectedSignal={activeSelectedSignal}
-            focusedTimeRange={activeFocus}
-            showSignalMarkers={showSignalMarkers}
-            chartTimeframe={TAB_TIMEFRAME[activeTab]}
-            onSelectSignal={onSelectSignal}
-          />
-        )}
+        <CrtLiteChart
+          candles={candlesForTab(market, activeTab)}
+          range={chartRangeFor(activeSelectedSignal, context)}
+          title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
+          bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
+          plan={activeSelectedSignal?.plan}
+        />
       </div>
       <div className={activeSelectedSignal ? "selection-dock" : "selection-dock context-strip"}>
         {activeSelectedSignal ? (
