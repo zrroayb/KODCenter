@@ -42,8 +42,8 @@ function simpleDirectionText(signal: TradingSignal) {
 function simpleSweepText(signal: TradingSignal) {
   const rangeTf = (signal.crtAnchor?.rangeTf ?? "4h").toUpperCase();
   return signal.direction === "long"
-    ? `${rangeTf} CRT low alınsın. Mum kapanışı beklenmez.`
-    : `${rangeTf} CRT high alınsın. Mum kapanışı beklenmez.`;
+    ? `${rangeTf} CRT low fitille alınsın, C2 mumu range içinde kapansın (sadece Candle 3 işlenir).`
+    : `${rangeTf} CRT high fitille alınsın, C2 mumu range içinde kapansın (sadece Candle 3 işlenir).`;
 }
 
 function stopSourceText(signal: TradingSignal) {

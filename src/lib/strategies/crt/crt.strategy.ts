@@ -44,17 +44,20 @@ const RAID_PERSISTENCE_LOOKBACK = 6;
 const FVG_ORIGIN_MAX_AGE_CANDLES = 10;
 
 // CRT anchor/confirmation canon: each anchor timeframe confirms on its own lower timeframe.
+//   1M range -> 1D confirmation (CRT Secrets pairing)
 //   1W range -> 4H confirmation
 //   1D range -> 1H confirmation
 //   4H range -> 15m confirmation (5m acceptable when 15m is unavailable)
-// The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY); the
-// 01:00 / 05:00 / 09:00 NY opens are the doctrine's key candles — London raids Asia's
+// The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY). No candle hour
+// is privileged: the CRT source rejects mechanical 1/5/9 timing (2026-10-02). London raids Asia's
 // candle, New York raids London's.
-type AnchorSpec = { rangeTf: Extract<Timeframe, "1h" | "4h" | "1d" | "1w">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h"> };
+type AnchorSpec = { rangeTf: Extract<Timeframe, "1h" | "4h" | "1d" | "1w" | "1M">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
   { rangeTf: "1d", confirmTf: "1h" },
   { rangeTf: "1w", confirmTf: "4h" },
+  // CRT Secrets pairing: 1M range -> 1D model.
+  { rangeTf: "1M", confirmTf: "1d" },
   // Master §8'in beşinci eşlemesi (1H→5M). Yeni aile: intradayAnchorMode "tracking"
   // (varsayılan) READY üretmez — canlıda watch olarak izlenir, replay kanıt biriktirir.
   { rangeTf: "1h", confirmTf: "5m" }
@@ -148,7 +151,9 @@ const HTF_ALIGNMENT_CHAIN: Record<AnchorSpec["rangeTf"], CrtHtfAlignmentTimefram
   "1h": ["4h", "1d"],
   "4h": ["1d", "1w"],
   "1d": ["1w"],
-  "1w": ["1M"]
+  "1w": ["1M"],
+  // Nothing above monthly: the monthly trend itself must agree.
+  "1M": ["1M"]
 };
 
 function contextBiasForTimeframe(context: MarketContext, timeframe: CrtHtfAlignmentTimeframe) {
@@ -192,12 +197,6 @@ export function evaluateCrtHtfAlignment(
   };
 }
 
-const NY_HOUR_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false });
-
-function nyHour(time: number): number {
-  return Number(NY_HOUR_FORMAT.format(time)) % 24;
-}
-
 function expectedPd(direction: TradeDirection) {
   return direction === "short" ? "premium" : "discount";
 }
@@ -210,6 +209,7 @@ function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
   if (spec.rangeTf === "1h") return context.timeframes.h1;
   if (spec.rangeTf === "4h") return context.timeframes.h4;
   if (spec.rangeTf === "1d") return context.timeframes.daily;
+  if (spec.rangeTf === "1M") return context.timeframes.monthly;
   return context.timeframes.weekly;
 }
 
@@ -220,7 +220,9 @@ function confirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
       ? (context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5)
       : spec.confirmTf === "1h"
         ? context.timeframes.h1
-        : context.timeframes.h4;
+        : spec.confirmTf === "1d"
+          ? context.timeframes.daily
+          : context.timeframes.h4;
   return completedCandles(candles);
 }
 
@@ -228,6 +230,7 @@ function liveConfirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle
   if (spec.confirmTf === "5m") return context.timeframes.m5.length ? context.timeframes.m5 : context.timeframes.m15;
   if (spec.confirmTf === "15m") return context.timeframes.m15.length ? context.timeframes.m15 : context.timeframes.m5;
   if (spec.confirmTf === "1h") return context.timeframes.h1;
+  if (spec.confirmTf === "1d") return context.timeframes.daily;
   return context.timeframes.h4;
 }
 
@@ -255,7 +258,7 @@ function rangeFromActiveCrt(candle: Candle, spec: AnchorSpec, label: string): De
 
 function crtBiasAtIndex(candles: Candle[], index: number, spec: AnchorSpec): CrtBiasContext | undefined {
   if (index < 1 || index >= candles.length) return undefined;
-  const timeframe = spec.rangeTf === "1h" ? "1h" : spec.rangeTf === "4h" ? "4h" : spec.rangeTf === "1d" ? "1d" : "1w";
+  const timeframe = spec.rangeTf === "1h" ? "1h" : spec.rangeTf === "4h" ? "4h" : spec.rangeTf === "1d" ? "1d" : spec.rangeTf === "1M" ? "1M" : "1w";
   return buildCrtBias([candles[index - 1], candles[index]], timeframe);
 }
 
@@ -264,9 +267,9 @@ function raidFromPair(range: DealingRange, raidCandle: Candle, closed: boolean):
   const longSwept = raidCandle.low < range.low;
   const shortCloseBack = closed && raidCandle.close < range.high;
   const longCloseBack = closed && raidCandle.close > range.low;
-  // The second HTF candle only has to take the closed reference candle's high or low.
-  // It may still be forming: its close and an additional HTF reclaim are not entry gates.
-  // Directional confirmation belongs exclusively to the lower confirmation timeframe.
+  // The second HTF candle (C2) takes the reference candle's high or low; it may still be forming,
+  // so the raid is detected early (WATCH). READY additionally needs C2 to have CLOSED back
+  // inside (`closed`) — CRT Secrets: only Candle 3 is traded (gate in buildAnchorSetup).
   const shortRaid = shortSwept;
   const longRaid = longSwept;
   if (shortRaid && longRaid) {
@@ -442,7 +445,8 @@ const ACTIVE_CRT_LOOKBACK: Record<AnchorSpec["rangeTf"], number> = {
   "1h": 12,
   "4h": 8,
   "1d": 6,
-  "1w": 3
+  "1w": 3,
+  "1M": 2
 };
 
 function activeCrtStillValid(rangeCandles: Candle[], originIndex: number, direction: TradeDirection, range: DealingRange): boolean {
@@ -552,7 +556,7 @@ function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number
 
 function anchorBias(anchor: AnchorCtx) {
   if (anchor.origin?.kind === "active-crt") return anchor.origin.bias;
-  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : "1w");
+  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
 }
 
 // Direction comes ONLY from the pair's own structure: its anchor-candle bias or raid.
@@ -1099,7 +1103,6 @@ export function scoreCrtSetup(input: {
   displacementStrength: CrtSetup["displacementStrength"];
   shiftFvgOrRetest: boolean;
   rangeRespect: boolean;
-  keyOpenRaid: boolean;
   pdAligned: boolean;
 }): number {
   const core = 12
@@ -1116,8 +1119,7 @@ export function scoreCrtSetup(input: {
     + Math.round(((input.referenceCandleScore ?? 0) / 100) * 6)
     + (input.displacementStrength === "strong" ? 4 : input.displacementStrength === "medium" ? 2 : 0)
     + (input.shiftFvgOrRetest ? 3 : 0)
-    + (input.rangeRespect ? 2 : 0)
-    + (input.keyOpenRaid ? 1 : 0);
+    + (input.rangeRespect ? 2 : 0);
   // Wrong-half entry costs score (not a second veto — pdAligned already gates READY).
   return Math.max(0, Math.min(100, core + quality - (input.pdAligned ? 0 : 8)));
 }
@@ -1223,8 +1225,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // narrative (Asia raided by London, London raided by NY) — applied to every anchor.
   const raidKillzone = anchor.raid ? buildKillzoneContext(anchor.raid.time).find((zone) => zone.active && zone.name !== "Outside")?.name : undefined;
   const sessionTimedRaid = Boolean(raidKillzone);
-  // The 01/05/09 NY opens remain the 4H doctrine's key candles (extra weight on top).
-  const keyOpenRaid = anchor.spec.rangeTf === "4h" && Boolean(anchor.raid) && [1, 5, 9].includes(nyHour(anchor.raid?.time ?? 0));
   // Master §5: grade the CRT reference candle so an arbitrary doji cannot pose as a real range.
   // Hybrid, not a hard filter: every closed candle is a candidate, but a weak candle scores low.
   let referenceIndex = -1;
@@ -1239,7 +1239,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
         candle: anchor.rangeCandles[referenceIndex],
         recentCandles: anchor.rangeCandles.slice(0, referenceIndex),
         atMeaningfulLocation: anchorAtKeyLevel || fvgConfluence,
-        keyTime: keyOpenRaid || buildKillzoneContext(anchor.rangeCandles[referenceIndex].time).some((zone) => zone.active && zone.name !== "Outside")
+        keyTime: buildKillzoneContext(anchor.rangeCandles[referenceIndex].time).some((zone) => zone.active && zone.name !== "Outside")
       })
     : undefined;
 
@@ -1252,6 +1252,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     // Direction guessed from the anchor candle's bias (no HTF raid) is context, not a trade:
     // the setup stays WATCH until the anchor range extreme is actually raided.
     directionSource === "bias" ? `${anchor.spec.rangeTf.toUpperCase()} raid yok; yön yalnızca CRT bias'tan — context/WATCH, READY olamaz.` : undefined,
+    // CRT Secrets: only Candle 3 is traded. Until the raid candle (C2) itself has closed back
+    // inside the range, the setup is WATCH even if the lower timeframe already confirmed.
+    manipulation && !raidClosed ? `Candle 2 (${anchor.spec.rangeTf.toUpperCase()} raid mumu) henüz range içinde kapanmadı — sadece Candle 3 işlenir; C2 içeride kapanınca READY.` : undefined,
     // "ChoCH yok" yanıltıcıydı: LTF'de bir ChoCH OLABİLİR ama bu HTF setup'ın onayı, sweep'ten
     // ÖNCEki korunan swing'in kırılmasıdır. Mesaj artık o SEVİYEYİ söyler, böylece "ama grafikte
     // ChoCH var" karışıklığı biter — o küçük LTF kırılımı bu anchor'ı onaylamaz (2026-07-28).
@@ -1315,7 +1318,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     displacementStrength,
     shiftFvgOrRetest: linkedShiftFvg || typeof retestIndex === "number",
     rangeRespect,
-    keyOpenRaid,
     pdAligned
   });
   if (referenceCandle && (referenceCandle.grade === "D" || referenceCandle.grade === "C")) {
@@ -1424,7 +1426,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
   const bias = anchorBias(anchor);
   return [
     checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, anchor.origin?.kind === "active-crt" && !anchor.origin.closed ? "neutral" : "pass", anchor.range.source),
-    checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alındı: ${formatPrice(setup.manipulation.level)}. HTF kapanışı beklenmez.` : `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alınması bekleniyor.`),
+    checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alındı: ${formatPrice(setup.manipulation.level)}. ${setup.raidClosed ? "C2 range içinde kapandı → Candle 3." : "C2 henüz kapanmadı (sadece Candle 3 işlenir)."}` : `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alınması bekleniyor.`),
     checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
     checklistItem("Entry", setup.plan.entryStatus === "confirmed" ? "pass" : "neutral", setup.plan.entryStatus === "confirmed" ? `${formatPrice(setup.plan.entry)} ${setup.plan.entrySource} entry aktif.` : "ChoCH kapanışı gelmeden entry yok."),
     checklistItem("DOL RR (çıkış)", setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "fail", `Tam çıkış DOL ${formatPrice(setup.plan.targets[1])}; net RR ${formatR(setup.plan.rr)}. EQ ${formatPrice(setup.plan.targets[0])} BE ara adımı (EQ RR ${formatR(setup.plan.extensionRR ?? 0)}).`),
@@ -1487,7 +1489,7 @@ export function findCrtTrackingStartIndex(input: {
   manipulationIndex?: number;
 }): number {
   const { executionCandles, confirmCandles, liveConfirmCandles, confirmTf, entrySource, chochIndex, retestIndex, manipulationIndex } = input;
-  const confirmDuration = confirmTf === "4h" ? 4 * 60 * 60 * 1000 : confirmTf === "1h" ? 60 * 60 * 1000 : 15 * 60 * 1000;
+  const confirmDuration = confirmTf === "1d" ? 24 * 60 * 60 * 1000 : confirmTf === "4h" ? 4 * 60 * 60 * 1000 : confirmTf === "1h" ? 60 * 60 * 1000 : 15 * 60 * 1000;
   const startTime = typeof retestIndex === "number"
     ? liveConfirmCandles[retestIndex]?.time
     : entrySource === "choch-close" && typeof chochIndex === "number"
@@ -1560,7 +1562,7 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
   // Fresh-entry window scales with the confirmation timeframe (m15 base of 16 bars, like the
   // fill timeout). A READY signal whose window has expired is not READY — it is missed;
   // "Plan hazır" and "süresi doldu" must never appear together.
-  const windowCandles = 16 * (anchor.spec.confirmTf === "4h" ? 16 : anchor.spec.confirmTf === "1h" ? 4 : 1);
+  const windowCandles = 16 * (anchor.spec.confirmTf === "1d" ? 96 : anchor.spec.confirmTf === "4h" ? 16 : anchor.spec.confirmTf === "1h" ? 4 : 1);
   const stage = readyCandidate ? "ready" : "watch";
   const actionWindow = buildActionWindow(context, setup.plan, safeOutcome, stage, windowCandles);
   if (stage === "ready" && actionWindow.status === "expired") {
@@ -1580,7 +1582,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
     { id: "reference-candle", label: "Reference Candle", status: !setup.referenceCandle ? "neutral" : setup.referenceCandle.grade === "A" || setup.referenceCandle.grade === "B" ? "pass" : "warning", detail: setup.referenceCandle ? `reference_candle_score ${setup.referenceCandle.score}/100 (${setup.referenceCandle.grade}). ${setup.referenceCandle.reasons[0]}` : "Range mumu skorlanamadı.", timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
     { id: "poi", label: "POI", status: setup.poi ? "pass" : "neutral", detail: setup.poi ? `${setup.poi.label} kalite bonusu olarak map edildi.` : "FVG/OB yok; ChoCH kapanışı varsa CRT yine geçerlidir.", timeframe: anchor.spec.confirmTf, candleIndex: setup.poi?.candleIndex, price: setup.poi?.midpoint },
-    { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} wick ile alındı; HTF kapanışı şart değil.` : `${anchor.spec.rangeTf.toUpperCase()} CRT high/low raid yok.`, timeframe: anchor.spec.rangeTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
+    { id: "manipulation", label: "Manipulation", status: setup.manipulation ? "pass" : "fail", detail: setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} wick ile alındı; ${setup.raidClosed ? "C2 içeride kapandı → Candle 3." : "C2 kapanışı bekleniyor (sadece Candle 3 işlenir)."}` : `${anchor.spec.rangeTf.toUpperCase()} CRT high/low raid yok.`, timeframe: anchor.spec.rangeTf, candleIndex: setup.manipulation?.candleIndex, price: setup.manipulation?.level },
     {
       id: "choch",
       label: "ChoCH / Just",
@@ -1617,7 +1619,7 @@ function continuationAcceptanceSuppresses(context: MarketContext, anchor: Anchor
   // Yalnız HTF anchor'lara uygula (1d/1w = trendi tanımlayan büyük range'ler). 4h/1h taktik
   // raid'ler HTF trende karşı küçük düzeltmelerdir; onları CRT meşru fade eder, continuation
   // playbook'u HTF trendi taşır. Owner örneği (USDCHF) 1W range idi.
-  if (anchor.spec.rangeTf !== "1d" && anchor.spec.rangeTf !== "1w") return false;
+  if (anchor.spec.rangeTf !== "1d" && anchor.spec.rangeTf !== "1w" && anchor.spec.rangeTf !== "1M") return false;
   const daily = context.biasDetail?.daily;
   // Strong VEYA moderate directional daily yeterli (2026-07-27 genişletme: BTC gibi moderate uptrend'de
   // de accepted counter-trend fade bastırılsın). Yalnız weak/neutral bastırmaz.
@@ -1732,7 +1734,7 @@ function signalPriority(signal: TradingSignal): number {
   return 1;
 }
 
-const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1h": 3 };
+const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3, "1h": 4 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
   // Deneysel aileler (FVG-origin, Active CRT) daima blocker'lı WATCH üretir ve replay'de ayrı
@@ -1757,7 +1759,7 @@ function signalsFromContext(context: MarketContext, settings: StrategyInput["set
   const htfRaidDirections = new Set(
     signals
       .filter((signal) => signal.crtAnchor?.raidActive
-        && (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w")
+        && (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w" || signal.crtAnchor?.rangeTf === "1M")
         && signal.stage !== "missed" && signal.stage !== "invalidated")
       .map((signal) => signal.direction)
   );

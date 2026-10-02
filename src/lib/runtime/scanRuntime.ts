@@ -103,7 +103,7 @@ export function scanContexts(
   // BTC 1d long C/58, LTF watch'ların altında cap dışı kalıp kayboluyordu). Cap'i doldururuz, sonra
   // cap dışı kalan HTF setup'ları geri ekleriz — chop/counter-trend olmayanlar.
   const isHtfContext = (signal: TradingSignal) =>
-    (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w")
+    (signal.crtAnchor?.rangeTf === "1d" || signal.crtAnchor?.rangeTf === "1w" || signal.crtAnchor?.rangeTf === "1M")
     && (signal.stage === "ready" || signal.stage === "watch")
     && !signal.chopConflict;
   const cappedVisible = visibleCandidates.slice(0, rules.maxSignalsPerScan);

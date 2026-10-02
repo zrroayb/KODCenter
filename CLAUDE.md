@@ -41,7 +41,7 @@ npm run typecheck # tip kontrolü: app + node + worker (kök `npx tsc --noEmit` 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 249 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 253 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -88,7 +88,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   veto etmez. Skor yalnızca **grade** belirler; `readyEligible`'da skor eşiği YOKTUR.
 - **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=exitMinimumRR` (CRT'de
   `plan.rr` = DOL çıkışının net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
-  `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) +
+  `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) + **C2 (HTF raid mumu)
+  range içinde kapanmış — sadece Candle 3 işlenir** + key level + HTF yönü +
   gerçek hedef + geçerli stop + model hazır + `dataConfidence>=35`.
 - **Çıkış modeli = DOL hedef + EQ'da BE**: pozisyonun tamamı DOL'a (karşı likidite, `targets[1]`)
   koşar; fiyat EQ'ya (`targets[0]`) gelince stop break-even'a çekilir. EQ'ya gelip entry'ye
@@ -101,7 +102,7 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
-- **Anchor aileleri**: gerçek ANCHORS (1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
+- **Anchor aileleri**: gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
   (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
 - **Tek yön kaynağı = motor** (`context.crt.selectedBias.direction` veya seçili
@@ -161,6 +162,7 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 13: trade yorumu kontratı (`src/lib/gemini/commentaryGuard.ts`): stage=ready ise Karar "Plan hazır", watch ise "Bekle" ile başlamalı; "kısmi al / kalanı DOL'a" dili reddedilir (çıkış tam EQ). Kontrata uymayan Gemini metni sunucuda ve istemcide lokal fallback'e düşer. Fallback yönetim cümlesi artık "pozisyonun tamamı EQ'da kapanır". PR #23.
 - 2026-09-26 — Madde 14: neutral CRT bias artık sessizce long sayılıp OTE POI üretmiyor (`crtEngine.ts`). Deneysel aileler (FVG-origin, Active CRT) canlı listeden çıktı, `experimentalAnchors: true` ile açılır. 1H anchor yorumu gerçek değerle (tracking) uyumlu. readyHold ile tutulan READY'ler tarama ve detay panelinde sarı "kilitli" rozetiyle görünüyor. `kod.strategy.ts` test fikstürü olarak işaretlendi; `crt.strategy.ts` bölünmesi davranış riski yüzünden bu PR'da yapılmadı. PR #23.
 - 2026-09-26 — Madde 15: "veri kaynağı" satırı: sinyal detayında sembole göre (FX = Yahoo gösterge mid, altın/NAS = GC=F/NQ=F futures proxy, kripto spot; bid/ask sentetik sabit spread), tarama ekranında genel not + cron'un 10-20 dk gecikebileceği. PR #23.
+- 2026-10-02 — CRT kaynağının kalan kuralları: **sadece Candle 3** — HTF raid mumu (C2) range içinde kapanmadan READY yok (blocker; C2 açıkken WATCH, test: C2 forming → blocker). **1/5/9 NY açılış bonusu** skordan ve referans mum kalitesinden çıkarıldı (kaynak mekanik saati reddediyor). **1M → 1D anchor** eklendi (motor, HTF zinciri 1M→1M, replay faktörü, grafik sekmesi/pair rail); demo veride trend devamı olduğu için 1M sinyali çıkmıyor (continuation acceptance doğru eliyor), raid tespiti testle doğrulandı. Model #1 doğrudan giriş bilinçli olarak eklenmedi (motor kaynağın Giriş B'sini kullanıyor). Gemini'ye giden eski "HTF kapanışı beklenmez" metinleri (trade yorumu fallback'i, yapı denetimi, tarama ekranı) yeni kurala çevrildi; bilgi tabanı zaten C3/1M/1-5-9 kurallarını içeriyor. 253 test yeşil.
 - 2026-10-02 — CRT kaynağına ("CRT Secrets") göre motor + AI: key level ve HTF trend yönü artık zorunlu blocker (READY olamaz); eski karşı-HTF "haftalık external likidite" istisnası (`reversalAtExternalHtf`) kaldırıldı, HTF kapısı ayara bağlı değil. Gemini'ye öğretildi: `crtKnowledge.ts`'e 7 kaynak kaydı (3 mum döngüsü, key level zorunlu, HTF zorunlu, onay/giriş/stop, hedefler, TF eşleşmesi, haftalık zamanlama) — ilk 5'i her CRT analizinde gidiyor; CRT sistem talimatına ve trade mentoru prompt'una aynı kurallar; mentor'daki killzone cümlesi kaynaktaki haftalık döngüyle değişti. Kaynak notları: `knowledge/strategies/crt_secrets_rules.md` (uygulama durumu tablosuyla). Testler: HTF her zaman blocker, key level'sız READY yok, Gemini'ye çekirdek kurallar her zaman gidiyor; 249 test yeşil.
 - 2026-10-02 — Grafik range çizimi CRT kaynağına göre ("CRT Secrets" playlist, NotebookLM özeti): her sekme tek bir CRT range'i çizer — aktif **Candle 1**'in High / EQ / Low'u (wick), C1'den sağa doğru. `src/lib/charts/crtRange.ts` `activeCrtRange`: son kapanmış mum bir öncekinin TEK tarafını fitille süpürüp içeride kapandıysa aktif range o önceki mum (C1) ve şu an **C3** (işlem mumu); değilse son kapanmış mum C1 ve **C2** oluşuyor. Dışarıda kapanış (acceptance) ve outside bar CRT sayılmaz. 4H/1D/1W/1M sekmeleri kendi range'i (1M sekmesi eklendi); 15m/1h sekmeleri 1D range'ini gösterir (kaynak: 1D range → 1H/15m model, HTF seviyeleri LTF'ye aynen taşınır). Grafik başlığında faz yazısı. Kaldırılanlar: sinyale göre değişen tek range, "KIRILACAK" çizgisi/oku, durum etiketi, yakınlık uyarısı + tarayıcı bildirimi. Seçili sinyalin Giriş/Stop/EQ→BE/Çıkış çizgileri duruyor.
 - 2026-10-02 — Sadeleştirme ("çok fazla yer var, basit olmalı"): menü 7 → 6 (AI ekranı kaldırıldı; AI her sinyalin CRT Analiz kartında). Ayarlar 19 kontrol → 4 alan (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %, semboller); diğer tüm kurallar sabit varsayılan ve `resolveStoredRules` artık sadece bu 4 alanı kayıttan okur (eski gizli ayarlar görünmez şekilde etkili kalmaz). Chart'ta tek motor: 1143 satırlık "Klasik" `CandleChart` + Marker/motor düğmeleri silindi; Lite grafiğe seçili sinyalin Giriş/Stop/EQ→BE/Çıkış çizgileri eklendi (özellik kaybı yok). Setups'tan Session ve Silver Bullet sekmeleri + motorları + localStorage geçmişleri + Gemini uç noktaları (vite + worker) + sistem talimatları kaldırıldı; seans saati/killzone çekirdeği (`sessionClock`, `sessionRangeEngine`, `profiles`, `timezone`) korundu. Ölü kod: `lib/ai`, `lib/repositories`, `lib/memory`, `kod.backtest.ts`, App'teki yazılıp hiç okunmayan `memory` state'i, statik "Mod: Basit" notu. Çıkış karşılaştırma tablosu kapalı "Detaylı replay analizi"nden çıkarılıp Replay'in üstüne alındı. Silinen özelliklere ait 33 test gitti. Silinen özelliklerin tarayıcıda kalan eski geçmişleri (kotayı dolduran şey) açılışta bir kez temizleniyor (`purgeLegacyStorage`, journal korunur). 243 test yeşil.

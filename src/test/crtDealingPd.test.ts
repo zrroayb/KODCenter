@@ -11,7 +11,8 @@ function shortSignal(
   biasOverrides: Partial<MarketContext["bias"]> = {},
   extraObjectives: MarketContext["liquidityObjectives"] = [],
   useHtfAlignmentFilter = false,
-  withKeyLevels = true
+  withKeyLevels = true,
+  candle2StillForming = false
 ) {
   const base = createStructureContext();
   const h4 = base.timeframes.h4.map((candle, index) =>
@@ -22,7 +23,7 @@ function shortSignal(
         : index === 23
           ? { ...candle, open: 96.2, high: 96.5, low: 95.5, close: 95.9 }
           : candle
-  );
+  ).slice(0, candle2StillForming ? 23 : undefined); // cut at C2 => C2 is the live (forming) candle
   const mappedM15 = base.timeframes.m15.map((candle, index) =>
     index === 18
       ? { ...candle, low: 99.4 }
@@ -161,5 +162,13 @@ describe("dealing-range PD is a note, not a second veto", () => {
     const opposed4h = evaluateCrtHtfAlignment(opposingAbove, "4h", "long");
     expect(opposed4h.aligned).toBe(false);
     expect(opposed4h.opposing.length).toBeGreaterThan(0);
+  });
+
+  it("only Candle 3 is traded: while the raid candle (C2) is still forming the setup stays WATCH", () => {
+    const formingC2 = shortSignal("premium", {}, [], false, true, true);
+    expect(formingC2.stage).not.toBe("ready");
+    expect(formingC2.governance.blockers.join(" ")).toContain("Candle 2");
+    const closedC2 = shortSignal("premium");
+    expect(closedC2.governance.blockers.join(" ")).not.toContain("Candle 2");
   });
 });

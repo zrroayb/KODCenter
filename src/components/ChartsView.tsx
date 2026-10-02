@@ -46,10 +46,10 @@ function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
 // 15m, 1D -> 1H, 1W -> 4H). ChoCH/POI/manipulation indices only make sense there.
 function confirmTabFor(signal: TradingSignal): ChartTab {
   const tf = signalConfirmTimeframe(signal);
-  return tf === "4h" ? "h4" : tf === "1h" ? "h1" : "m15";
+  return tf === "1d" ? "daily" : tf === "4h" ? "h4" : tf === "1h" ? "h1" : "m15";
 }
 
-const ANCHOR_TAB: Record<string, ChartTab> = { "4h": "h4", "1d": "daily", "1w": "weekly" };
+const ANCHOR_TAB: Record<string, ChartTab> = { "4h": "h4", "1d": "daily", "1w": "weekly", "1M": "monthly" };
 
 const STAGE_RANK: Record<string, number> = { ready: 4, watch: 3, missed: 2, invalidated: 1 };
 const STAGE_LABEL: Record<string, string> = { ready: "ALINABİLİR", watch: "İZLE", missed: "GEÇMİŞ", invalidated: "STOP" };
@@ -179,7 +179,7 @@ export function ChartsView({
             )}
             {anchors.length > 0 && (
               <span className="pair-anchors">
-                {(["4h", "1d", "1w"] as const).map((tf) => {
+                {(["4h", "1d", "1w", "1M"] as const).map((tf) => {
                   const a = anchors.find((signal) => signal.crtAnchor?.rangeTf === tf);
                   return (
                     <span key={tf} className={`pair-anchor ${a ? a.stage : "none"}`} title={a ? `${tf.toUpperCase()} ${a.direction} ${STAGE_LABEL[a.stage] ?? a.stage}` : `${tf.toUpperCase()} setup yok`}>

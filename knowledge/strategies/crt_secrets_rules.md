@@ -52,8 +52,9 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | Grafikte Candle 1 H/EQ/L, 3 mum fazı, HTF→LTF taşıma | ✅ `src/lib/charts/crtRange.ts` |
 | Key level zorunlu | ✅ blocker (2026-10-02) |
 | HTF trend zorunlu, istisnasız | ✅ blocker (2026-10-02) |
-| Sadece Candle 3 (C2 HTF kapanışını bekle) | ❌ motor C2 açıkken LTF kapanışıyla READY olabiliyor — sahibi şimdilik seçmedi |
-| 1/5/9 bonusu kaldır, 1M→1D anchor | ❌ sahibi şimdilik seçmedi |
+| Sadece Candle 3 (C2 HTF kapanışını bekle) | ✅ C2 range içinde kapanmadan READY yok (blocker, 2026-10-02) |
+| 1/5/9 bonusu kaldır | ✅ skor ve referans mum kalitesinden çıkarıldı |
+| 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
-| Model #1 doğrudan giriş | ❌ motor yalnız retest girişi kullanıyor |
+| Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
 | Gemini bilgi tabanı + talimatlar | ✅ `src/lib/gemini/crtKnowledge.ts`, `systemInstructions.ts`, trade mentoru prompt'u |
