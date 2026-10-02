@@ -366,3 +366,15 @@ describe("CRT manipulation must be an anchor-range raid", () => {
     expect(h4Standard?.stage).not.toBe("ready");
   });
 });
+
+describe("EQ consumed only counts BEFORE the entry fill", () => {
+  it("EQ reached after the retest entry is the open trade arming BE, not a consumed setup", async () => {
+    const { isCrtEqConsumed } = await import("../lib/strategies/crt/crt.strategy");
+    const bar = (high: number, low: number) => ({ time: 0, open: low, high, low, close: high, volume: 1, closed: true });
+    // Long, EQ 100: raid at 0, entry (retest) at 2, EQ touched at 3.
+    const candles = [bar(95, 90), bar(97, 93), bar(96, 94), bar(101, 95)];
+    expect(isCrtEqConsumed(candles, "long", 100, 0, 2)).toBe(false);
+    // Without an entry yet, the same EQ touch consumes the setup.
+    expect(isCrtEqConsumed(candles, "long", 100, 0)).toBe(true);
+  });
+});

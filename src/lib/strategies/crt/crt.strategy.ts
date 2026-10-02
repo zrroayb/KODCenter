@@ -394,10 +394,13 @@ export function isCrtEqConsumed(
   candles: Candle[],
   direction: TradeDirection,
   midpoint: number,
-  manipulationIndex: number | undefined
+  manipulationIndex: number | undefined,
+  // Entry (retest) candle index: EQ traded AFTER the fill is the open trade reaching its
+  // break-even milestone, not a consumed setup.
+  entryIndex?: number
 ): boolean {
   if (typeof manipulationIndex !== "number") return false;
-  return candles.slice(Math.max(0, manipulationIndex)).some((candle) => direction === "short"
+  return candles.slice(Math.max(0, manipulationIndex), typeof entryIndex === "number" ? entryIndex : undefined).some((candle) => direction === "short"
     ? candle.low <= midpoint
     : candle.high >= midpoint);
 }
@@ -923,7 +926,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // Live == replay (2026-09-26): every STATE change (sweep, retest, EQ consumed) is read from
   // CLOSED confirm candles. The forming candle only tells where price is now; it used to let
   // live READY appear mid-candle, which replay (closed candles only) could never reproduce.
-  const eqConsumed = isCrtEqConsumed(anchor.confirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex);
   const chochRead = chochForAnchor(anchor, direction, manipulation, buffer);
   const structuralShift = chochRead.structuralBreak ?? chochRead.confirmation;
   const poi = poiForAnchor(anchor, direction, manipulation, structuralShift);
@@ -942,6 +944,8 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
       )
     : undefined;
   const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, retestIndex, minimumRR, buffer, executionCostStress(settings));
+  // EQ before the entry fill = consumed setup; EQ after the fill = the open trade arming BE.
+  const eqConsumed = isCrtEqConsumed(anchor.confirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex, retestIndex);
   const bias = anchorBias(anchor);
   const biasConflict = directionSource === "raid" && bias.direction !== "neutral" && bias.direction !== direction;
   const continuationAgainst = (bias.kind === "bullish-continuation" && direction === "short")

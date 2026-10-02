@@ -40,7 +40,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 245 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 246 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -177,3 +177,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Motor tutarlılığı: `eqConsumed` (raid sonrası EQ görülmüş = setup tüketildi) READY'yi gizlice engelleyip ekranda "uyarı" görünüyordu → artık görünür blocker. CRT range PD hem blocker hem "hard gate değil" uyarısı + checklist'te "kalite notu" diyordu → çelişen uyarı silindi, checklist "fail / hard gate". Gemini'ye öğretildi: `crtKnowledge` discount-long/premium-short kayıtları artık CRT'nin kendi range'inde PD zorunlu (geniş dealing range PD yalnız not) diyor; crt-targets'a "EQ entry'den önce görüldüyse setup tüketildi". 247 test.
 - 2026-10-02 — Killzone/session saati kalite puanından çıktı (kaynak mekanik saat kuralı reddediyor; 1/5/9 ile aynı gerekçe): CRT skorundan `sessionTimedRaid` (+4) ve `inSession` (+2), referans mum skorundan killzone bileşeni (+10, skor 90→100'e yeniden ölçeklendi) ve iki killzone uyarısı silindi; "trend rejiminde counter-bias" uyarısı `biasConflict` uyarısını tekrar ettiği için silindi. Killzone saati hâlâ ekranda bilgi olarak görünüyor, kararı etkilemiyor. Gemini: reference-candle-quality kaydı "session/killzone kalite faktörü değil" diyor. 247 test.
 - 2026-10-02 — Deneysel anchor aileleri (FVG-origin, Active CRT) motordan silindi (~320 satır): canlıda kapalıydı (`experimentalAnchors`), hep blocker'lı WATCH üretiyordu ve kaynakta karşılığı yok. `AnchorOrigin` tipi, iki builder, manipulation/direction dalları, `originLabel`/`originClosed` alanları ve UI'daki "range mumu kapansın" dalı gitti; iki deneysel test silindi. Gemini metinlerinde bu ailelerden söz yoktu. 245 test.
+- 2026-10-02 — Hata: `eqConsumed` EQ dokunuşunu raid'den sonraki TÜM confirm mumlarında arıyordu; işleme girildikten sonra fiyat EQ'ya gelince (stop BE'ye, hedef DOL) canlı sinyal "missed / setup tüketildi" oluyor ve açık pozisyon ekrandan düşüyordu. Artık yalnız girişten (retest mumu) ÖNCEKİ mumlar sayılıyor (`isCrtEqConsumed(..., entryIndex)`). Gemini bilgi tabanı zaten "entry'den önce" diyordu. Test eklendi; 246 test.
