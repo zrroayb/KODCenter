@@ -46,16 +46,27 @@ function bucketStart(time: number, targetTimeframe: Timeframe, options: Aggregat
   // Weekly and monthly candles must align to the calendar: epoch-based 7d buckets start on
   // Thursdays and fixed 30d "months" drift across real month boundaries, which corrupts any
   // HTF bias read from those candles.
+  // Calendar buckets read the candle's TRADE DATE: a New York-session daily opens the evening
+  // before (Monday's session opens Sunday 17:00 NY = Sunday 21:00 UTC), so +12h lands it on its
+  // trade day. A midnight-dated daily bar stays on its own date (+12h never crosses midnight).
   if (targetTimeframe === "1w") {
-    const date = new Date(time);
+    const date = new Date(time + 12 * HOUR_MS);
     const day = date.getUTCDay();
     // Buckets stay labeled by their Monday date; a Sunday bar moves to the following Monday.
     const daysFromMonday = options.sundayOpensWeek && day === 0 ? -1 : (day + 6) % 7;
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysFromMonday);
   }
   if (targetTimeframe === "1M") {
-    const date = new Date(time);
+    const date = new Date(time + 12 * HOUR_MS);
     return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  }
+  if (targetTimeframe === "1d") {
+    // FX / futures daily = New York-close day (TradingView's FX daily): 17:00 NY -> 17:00 NY.
+    // DST only flips on a Sunday 02:00 NY, while the market is shut, so per-candle offset is safe.
+    const offset = tzOffsetHours("America/New_York", time);
+    const anchorShift = ((((17 - offset) % 24) + 24) % 24) * HOUR_MS;
+    const bucketSize = timeframeToMs("1d");
+    return Math.floor((time - anchorShift) / bucketSize) * bucketSize + anchorShift;
   }
   if (targetTimeframe === "4h") {
     // CRT reads 4H candles off New York-close charts: the daily opens at 17:00 New York, so

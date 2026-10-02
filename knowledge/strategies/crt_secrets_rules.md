@@ -50,6 +50,7 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | Kural | Durum |
 |---|---|
 | Grafikte Candle 1 H/EQ/L, 3 mum fazı, HTF→LTF taşıma | ✅ `src/lib/charts/crtRange.ts` |
+| Günlük/4H mum NY 17:00 kapanışına hizalı (FX/altın/NAS) | ✅ `candleAggregation.ts`, `nyCloseDaily` (2026-10-02) |
 | Key level zorunlu | ✅ blocker (2026-10-02) |
 | HTF trend zorunlu, istisnasız | ✅ blocker (2026-10-02) |
 | Sadece Candle 3 (C2 HTF kapanışını bekle) | ✅ C2 range içinde kapanmadan READY yok (blocker, 2026-10-02) |

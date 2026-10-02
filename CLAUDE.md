@@ -40,7 +40,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 244 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 247 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -173,3 +173,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Sadeleştirme 2/5: Trend Continuation playbook'u kaldırıldı (CRT değildi ama canlı taramada CRT'nin yanında koşuyordu). Strateji + testi, Setups'taki ayrı Continuation paneli, Replay'deki playbook seçici, detay/plan ekranlarındaki continuation dalları, `validate-continuation`/`measure-continuation`/`diagnose-symbol` scriptleri ve CSS'i silindi. CRT'nin "continuation acceptance" bastırması (kabul görmüş karşı-trend fade'i göstermeme) DURUYOR — o CRT kuralı. Registry artık yalnız CRT. 244 test.
 - 2026-10-02 — Sadeleştirme 3/5: eski KOD stratejisi (`kod.strategy.ts` + entryModel/rules/scoring) ve yalnız onun kullandığı `src/lib/rules/` üretim kodundan `src/test/fixtures/kod/`'a taşındı. Silinmedi: 12 genel pipeline testi (lifecycle, journal, replay, readyHold, Gemini yorumu) `createStructureContext` üzerinde sinyal istiyor ve CRT orada sinyal üretmiyor; testleri CRT'ye taşımak fikstürleri baştan yazmak demek. Canlı kod artık ona hiç dokunmuyor. 244 test.
 - 2026-10-02 — Sadeleştirme 5/5: işi biten `measure-1h-anchor` scripti ve silinen Session / Silver Bullet özelliklerinin 8 dokümanı (`docs/CRT_SESSION_*`, `docs/SILVER_BULLET_*`) kaldırıldı. Kalan scriptler: `cloud-scan` (alarm motoru), `robustness-report`, `measure-candle-boundaries` (NY 17:00 günlük kova ölçümü hâlâ açık). Madde 4 (4'lü çıkış karşılaştırması) bilinçli olarak duruyor: 30 işlem kapısı dolunca kazanan kalır, diğerleri silinir.
+- 2026-10-02 — Günlük mum NY 17:00'ye hizalandı (4H ile aynı çapa, TradingView FX günlüğü). Önce: günlük = Yahoo 1d barı (Londra/UTC günü) → 1D CRT'nin Candle 1 high/low'u, PDH/PDL ve ondan türeyen haftalık/aylık, kullanıcının grafiğindekinden farklı mumdu. Şimdi FX/altın/NAS'ta 1h'nin kapsadığı ~60 gün NY 17:00→17:00 seansından kuruluyor (`aggregateCandles(h1, "1d")`, ilk yarım seans atılır); daha eski günler (yalnız haftalık/aylık derinliği) Yahoo'dan (`nyCloseDaily`, `yahooProvider.ts`). Haftalık/aylık kovalar mumun işlem gününe göre (+12h): Pazartesi seansı Pazar 21:00 UTC açılır ama Pazartesi haftasına, 1 Ekim seansı 30 Eylül akşamı açılır ama Ekim'e sayılır. Kripto değişmedi (UTC günü). Ölçüm artık gerekmediği için `measure-candle-boundaries` silindi. 247 test.
