@@ -22,6 +22,8 @@ type CrtLiteChartProps = {
   // about ranges — no other timeframe's lines, no break/status overlays.
   crtRange?: ChartCrtRange;
   rangeLabel?: string;
+  // "C2 oluşuyor…" / "C3 · … işlem mumu" — where we are in the 3-candle cycle.
+  phaseText?: string;
   // Selected signal's plan: entry / stop / EQ (break-even) / DOL exit.
   plan?: { entry: number; stopLoss: number; targets: number[] };
 };
@@ -55,7 +57,7 @@ const BIAS_META: Record<"long" | "short" | "neutral", { text: string; color: str
 
 const RANGE_COLOR = "#ffd700";
 
-export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, rangeLabel, plan }: CrtLiteChartProps) {
+export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, rangeLabel, phaseText, plan }: CrtLiteChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -129,7 +131,9 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
       lowSeries.setData([]);
       return;
     }
-    const start = toSeconds(crtRange.time);
+    const refTime = toSeconds(crtRange.time);
+    const firstBar = padded.find((bar) => bar.time >= refTime) ?? padded[0];
+    const start = firstBar.time;
     const tag = rangeLabel ?? "CRT";
     const segment = (value: number) => (end > start ? [{ time: start, value }, { time: end, value }] : [{ time: start, value }]);
     highSeries.applyOptions({ title: `${tag} H` });
@@ -172,7 +176,7 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
         <span className="crt-lite-chart__title">{title ?? "CRT"}</span>
         {crtRange ? (
           <span className="crt-lite-chart__range">
-            {rangeLabel ?? "CRT"} range · H {formatPrice(crtRange.high)} · EQ {formatPrice(crtRange.eq)} · L {formatPrice(crtRange.low)}
+            {rangeLabel ?? "CRT"} Candle 1 · H {formatPrice(crtRange.high)} · EQ {formatPrice(crtRange.eq)} · L {formatPrice(crtRange.low)}
           </span>
         ) : null}
         {biasMeta ? (
@@ -181,6 +185,7 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
           </span>
         ) : null}
       </div>
+      {phaseText ? <div className={`crt-lite-chart__phase ${crtRange?.phase ?? ""}`}>{phaseText}</div> : null}
       <div ref={containerRef} style={{ width: "100%", height }} />
     </div>
   );

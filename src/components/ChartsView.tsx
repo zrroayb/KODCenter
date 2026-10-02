@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
-import { previousClosedRange } from "../lib/charts/crtRange";
+import { activeCrtRange, crtPhaseText } from "../lib/charts/crtRange";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
 import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
@@ -11,13 +11,21 @@ import { SignalDetailsPanel } from "./SignalDetailsPanel";
 
 type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly" | "monthly";
 
-// Range tabs draw ONLY their own CRT range (previous closed candle of that timeframe). 15m / 1h
-// are execution tabs: no range, just candles + the selected signal's plan.
-const RANGE_TABS: Partial<Record<ChartTab, string>> = { h4: "4H", daily: "1D", weekly: "1W", monthly: "1M" };
+// One CRT range per tab, nothing else. 4H / 1D / 1W / 1M draw their own active Candle 1; the
+// 15m / 1h execution tabs show the 1D range carried down (CRT Secrets: 1D range -> 1H/15m model,
+// HTF levels are transferred unchanged to the LTF chart).
+const RANGE_SOURCE: Record<ChartTab, { tab: ChartTab; label: string }> = {
+  m15: { tab: "daily", label: "1D" },
+  h1: { tab: "daily", label: "1D" },
+  h4: { tab: "h4", label: "4H" },
+  daily: { tab: "daily", label: "1D" },
+  weekly: { tab: "weekly", label: "1W" },
+  monthly: { tab: "monthly", label: "1M" }
+};
 
 const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string }> = [
-  { id: "m15", label: "15m", caption: "giriş" },
-  { id: "h1", label: "1h", caption: "onay" },
+  { id: "m15", label: "15m", caption: "giriş · 1D range" },
+  { id: "h1", label: "1h", caption: "onay · 1D range" },
   { id: "h4", label: "4H", caption: "CRT range" },
   { id: "daily", label: "1D", caption: "CRT range" },
   { id: "weekly", label: "1W", caption: "CRT range" },
@@ -137,6 +145,10 @@ export function ChartsView({
     if (selectedConfirmTab) setActiveTab(selectedConfirmTab);
   }, [activeSelectedSignal?.id, selectedConfirmTab]);
   const tab = CHART_TABS.find((item) => item.id === activeTab) ?? CHART_TABS[0];
+  const activeRange = useMemo(
+    () => activeCrtRange(candlesForTab(market, RANGE_SOURCE[activeTab].tab)),
+    [market, activeTab]
+  );
 
   const pairRail = symbols.map((symbol) => {
     const anchors = signals
@@ -202,8 +214,9 @@ export function ChartsView({
         </div>
         <CrtLiteChart
           candles={candlesForTab(market, activeTab)}
-          crtRange={RANGE_TABS[activeTab] ? previousClosedRange(candlesForTab(market, activeTab)) : undefined}
-          rangeLabel={RANGE_TABS[activeTab]}
+          crtRange={activeRange}
+          rangeLabel={RANGE_SOURCE[activeTab].label}
+          phaseText={activeRange ? crtPhaseText(activeRange, RANGE_SOURCE[activeTab].label) : undefined}
           title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
           plan={activeSelectedSignal?.plan}
