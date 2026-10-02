@@ -41,7 +41,7 @@ npm run typecheck # tip kontrolü: app + node + worker (kök `npx tsc --noEmit` 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 248 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 249 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -98,6 +98,9 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   (`exitModel: "dol-be"` varsayılan, aynı kural → canlı == replay). Eski modeller (`eq-full`,
   `eq-partial-be`) yalnız `settings.exitModel` ile opt-in ve karşı-olgu varyantı olarak ölçülür.
   Boyutlandırma (sizing) DOL'a göre.
+- **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
+  (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
+  Kaynakla çelişen eski kural varsa kaynak kazanır.
 - **Anchor aileleri**: gerçek ANCHORS (1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
   (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
@@ -111,6 +114,10 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - Sunucu (vite.config.ts) deterministik kanıtı yorumlatır; **Gemini olay/mum/seviye
   UYDURAMAZ**, yalnızca verilen `event id`'leri referans alır (`validate*` ile denetlenir).
 - Anahtar yoksa lokal fallback döner ("Gemini kapalı — ... lokal analiz").
+- **KALICI KURAL — AI'a öğret:** CRT kuralı, çıkış modeli, kapı (gate) veya terminoloji her
+  değiştiğinde, AYNI commit'te Gemini de güncellenir: `src/lib/gemini/crtKnowledge.ts` (bilgi
+  tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `vite.config.ts`
+  trade mentoru prompt'u ve `commentaryGuard.ts`. Sahibi bunu her seferinde söylememeli.
 - **Çıktı dili: TÜRKÇE.** Sistem talimatlarında kural var: serbest-metin alanları
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
@@ -154,6 +161,7 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Madde 13: trade yorumu kontratı (`src/lib/gemini/commentaryGuard.ts`): stage=ready ise Karar "Plan hazır", watch ise "Bekle" ile başlamalı; "kısmi al / kalanı DOL'a" dili reddedilir (çıkış tam EQ). Kontrata uymayan Gemini metni sunucuda ve istemcide lokal fallback'e düşer. Fallback yönetim cümlesi artık "pozisyonun tamamı EQ'da kapanır". PR #23.
 - 2026-09-26 — Madde 14: neutral CRT bias artık sessizce long sayılıp OTE POI üretmiyor (`crtEngine.ts`). Deneysel aileler (FVG-origin, Active CRT) canlı listeden çıktı, `experimentalAnchors: true` ile açılır. 1H anchor yorumu gerçek değerle (tracking) uyumlu. readyHold ile tutulan READY'ler tarama ve detay panelinde sarı "kilitli" rozetiyle görünüyor. `kod.strategy.ts` test fikstürü olarak işaretlendi; `crt.strategy.ts` bölünmesi davranış riski yüzünden bu PR'da yapılmadı. PR #23.
 - 2026-09-26 — Madde 15: "veri kaynağı" satırı: sinyal detayında sembole göre (FX = Yahoo gösterge mid, altın/NAS = GC=F/NQ=F futures proxy, kripto spot; bid/ask sentetik sabit spread), tarama ekranında genel not + cron'un 10-20 dk gecikebileceği. PR #23.
+- 2026-10-02 — CRT kaynağına ("CRT Secrets") göre motor + AI: key level ve HTF trend yönü artık zorunlu blocker (READY olamaz); eski karşı-HTF "haftalık external likidite" istisnası (`reversalAtExternalHtf`) kaldırıldı, HTF kapısı ayara bağlı değil. Gemini'ye öğretildi: `crtKnowledge.ts`'e 7 kaynak kaydı (3 mum döngüsü, key level zorunlu, HTF zorunlu, onay/giriş/stop, hedefler, TF eşleşmesi, haftalık zamanlama) — ilk 5'i her CRT analizinde gidiyor; CRT sistem talimatına ve trade mentoru prompt'una aynı kurallar; mentor'daki killzone cümlesi kaynaktaki haftalık döngüyle değişti. Kaynak notları: `knowledge/strategies/crt_secrets_rules.md` (uygulama durumu tablosuyla). Testler: HTF her zaman blocker, key level'sız READY yok, Gemini'ye çekirdek kurallar her zaman gidiyor; 249 test yeşil.
 - 2026-10-02 — Grafik range çizimi CRT kaynağına göre ("CRT Secrets" playlist, NotebookLM özeti): her sekme tek bir CRT range'i çizer — aktif **Candle 1**'in High / EQ / Low'u (wick), C1'den sağa doğru. `src/lib/charts/crtRange.ts` `activeCrtRange`: son kapanmış mum bir öncekinin TEK tarafını fitille süpürüp içeride kapandıysa aktif range o önceki mum (C1) ve şu an **C3** (işlem mumu); değilse son kapanmış mum C1 ve **C2** oluşuyor. Dışarıda kapanış (acceptance) ve outside bar CRT sayılmaz. 4H/1D/1W/1M sekmeleri kendi range'i (1M sekmesi eklendi); 15m/1h sekmeleri 1D range'ini gösterir (kaynak: 1D range → 1H/15m model, HTF seviyeleri LTF'ye aynen taşınır). Grafik başlığında faz yazısı. Kaldırılanlar: sinyale göre değişen tek range, "KIRILACAK" çizgisi/oku, durum etiketi, yakınlık uyarısı + tarayıcı bildirimi. Seçili sinyalin Giriş/Stop/EQ→BE/Çıkış çizgileri duruyor.
 - 2026-10-02 — Sadeleştirme ("çok fazla yer var, basit olmalı"): menü 7 → 6 (AI ekranı kaldırıldı; AI her sinyalin CRT Analiz kartında). Ayarlar 19 kontrol → 4 alan (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %, semboller); diğer tüm kurallar sabit varsayılan ve `resolveStoredRules` artık sadece bu 4 alanı kayıttan okur (eski gizli ayarlar görünmez şekilde etkili kalmaz). Chart'ta tek motor: 1143 satırlık "Klasik" `CandleChart` + Marker/motor düğmeleri silindi; Lite grafiğe seçili sinyalin Giriş/Stop/EQ→BE/Çıkış çizgileri eklendi (özellik kaybı yok). Setups'tan Session ve Silver Bullet sekmeleri + motorları + localStorage geçmişleri + Gemini uç noktaları (vite + worker) + sistem talimatları kaldırıldı; seans saati/killzone çekirdeği (`sessionClock`, `sessionRangeEngine`, `profiles`, `timezone`) korundu. Ölü kod: `lib/ai`, `lib/repositories`, `lib/memory`, `kod.backtest.ts`, App'teki yazılıp hiç okunmayan `memory` state'i, statik "Mod: Basit" notu. Çıkış karşılaştırma tablosu kapalı "Detaylı replay analizi"nden çıkarılıp Replay'in üstüne alındı. Silinen özelliklere ait 33 test gitti. Silinen özelliklerin tarayıcıda kalan eski geçmişleri (kotayı dolduran şey) açılışta bir kez temizleniyor (`purgeLegacyStorage`, journal korunur). 243 test yeşil.
 - 2026-10-02 — Çıkış modeli karşılaştırması: replay her CRT işlemi için 4 çıkışı aynı girişlerle ölçüyor — DOL+EQ'da BE, EQ'da tam çıkış, EQ %50+BE, EQ %50 BE'siz. DOL+BE ve EQ-full varyantları replay'in kendi çıkış motoruyla (`evaluateCrtForwardOutcomeCore`, model zorlanarak) hesaplanıyor; test değişmezi: canlı varyant = gerçek `rMultiple`. Her model için beklenti, toplam R, PF, kazanç/BE/kayıp %, max DD, işlem günü, günlük σ ve en iyi gün payı (consistency). `managementDecision`: 30 işlemden önce öneri yok ("örnek yetersiz"), sonra en yüksek beklenti + en tutarlı model. Backtest ekranında tablo + ilerleme şeridi; AI replay yorumu canlı satırı (`live`) referans alıyor.
