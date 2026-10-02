@@ -15,7 +15,7 @@ import { formatPrice, formatR } from "../lib/ict/format";
 import { SCAN_SOURCE_NOTE } from "../lib/ict/symbolSpec";
 import type { MarketDataSource } from "../lib/data/yahooProvider";
 import type { DataHealthReport } from "../lib/data/dataHealth";
-import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason } from "../lib/signals/signalClassification";
+import { signalDecisionLabel, signalDecisionReason, signalHardInvalidReason, signalIsOpenTrade } from "../lib/signals/signalClassification";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
 import { closeConfirmationRequirement, entryRetestRequirement } from "../lib/signals/waitingGuidance";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
@@ -451,13 +451,14 @@ export function ScannerView({
         <summary>Geçmiş, veri ve erken adaylar</summary>
         <div className="scanner-more-body">
       <article className="panel">
-        <header className="panel-head"><h2>Geçmiş / bozulmuş setup</h2><span className="badge">{inactiveSignals.length}</span></header>
+        <header className="panel-head"><h2>Açık işlem / geçmiş setup</h2><span className="badge">{inactiveSignals.length}</span></header>
         <div className="scan-signal-list">
-          {inactiveSignals.slice(0, 8).map((signal) => (
+          {/* Open trades (entry window closed, position still running) first. */}
+          {[...inactiveSignals].sort((a, b) => Number(signalIsOpenTrade(b)) - Number(signalIsOpenTrade(a))).slice(0, 8).map((signal) => (
             <button className="scan-signal-card inactive" key={signal.id} onClick={() => onSelectSignal(signal)} type="button">
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
-              <b>{signal.stage.toUpperCase()}</b>
+              <strong>{signal.symbol} {signal.direction.toUpperCase()}{signal.crtAnchor?.exitWarning && <span className="stale-tag" title={signal.crtAnchor.exitWarning}>⚠ hedef iptal riski</span>}</strong>
+              <b>{signalIsOpenTrade(signal) ? "AÇIK İŞLEM" : signal.stage.toUpperCase()}</b>
               <small>{signalDecisionReason(signal)}</small>
                 <em>Entry {formatPrice(signal.plan.entry)} · SL {formatPrice(signal.plan.stopLoss)} · {`EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}`}</em>
             </button>

@@ -55,3 +55,30 @@ describe("CRT target invalidation (CRT Secrets §4: opposing SMT + MSS cancels t
     expect(buildTelegramExitAlertPayload({ ...open, outcome: { ...open.outcome, status: "tp2" } })).toBeUndefined();
   });
 });
+
+describe("an open trade past its entry window is labelled AÇIK İŞLEM, not GEÇMİŞ", () => {
+  it("labels by outcome, keeping the engine's missed stage (no new entries)", async () => {
+    const { signalDecisionLabel, signalDecisionReason, signalIsOpenTrade } = await import("../lib/signals/signalClassification");
+    const { createDemoMarkets } = await import("../data/demoData");
+    const { buildMarketContext } = await import("../lib/intelligence/marketContext");
+    const { crtStrategy } = await import("../lib/strategies/crt/crt.strategy");
+    const signal = createDemoMarkets().flatMap((market) => crtStrategy.scan({ context: buildMarketContext(market.symbol, market.timeframes), settings: crtStrategy.defaultSettings }).signals)[0];
+    const open = { ...signal, stage: "missed" as const, outcome: { ...signal.outcome, status: "open" as const } };
+    expect(signalIsOpenTrade(open)).toBe(true);
+    expect(signalDecisionLabel(open)).toBe("AÇIK İŞLEM");
+    expect(signalDecisionReason(open)).toContain("yeni giriş yok");
+    const done = { ...open, outcome: { ...open.outcome, status: "tp2" as const } };
+    expect(signalIsOpenTrade(done)).toBe(false);
+    expect(signalDecisionLabel(done)).not.toBe("AÇIK İŞLEM");
+  });
+});
+
+describe("commentary contract for an open trade", () => {
+  it("open-trade stage requires 'İşlem açık' and rejects 'kaçtı' framing", async () => {
+    const { commentaryStage, tradeCommentaryViolation } = await import("../lib/gemini/commentaryGuard");
+    expect(commentaryStage("missed", "open")).toBe("open-trade");
+    expect(commentaryStage("missed", "tp2")).toBe("missed");
+    expect(tradeCommentaryViolation("Karar: İşlem açık; pozisyonu yönet.", "open-trade")).toBeUndefined();
+    expect(tradeCommentaryViolation("Karar: Kovalama yok; trade kaçtı.", "open-trade")).toContain("İşlem açık");
+  });
+});

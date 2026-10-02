@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 257 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -126,7 +126,7 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   `src/lib/gemini/systemInstructions.ts`; `vite.config.ts` ve
   `crtInterpretation.ts` oradan import eder.
 - Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
-  watch → "Bekle…", kısmi TP dili yok (tek çıkış: tamamı DOL'da, EQ'da stop BE). Uymayan Gemini
+  watch → "Bekle…", open-trade (missed + outcome open) → "İşlem açık…", kısmi TP dili yok (tek çıkış: tamamı DOL'da, EQ'da stop BE). Uymayan Gemini
   metni lokal fallback'e düşer.
 
 ## 8. UI konvansiyonları
@@ -185,3 +185,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Hedef iptali / çıkış uyarısı (CRT Secrets §4): açık işlemde (outcome `open`) girişten sonra ters SMT + onay TF'sinde son ters swing'in gövde kapanışıyla kırılması (ters MSS) birlikte gelirse `crtAnchor.exitWarning` (`src/lib/strategies/crt/targetInvalidation.ts`). Yalnız UYARI — sistem işlem kapatmaz. Telegram: `cloud-scan` açık işlemleri (görünür + gizli + inactive listeler) tarar, `buildTelegramExitAlertPayload` ile setup başına bir "ÇIKIŞ UYARISI" (`alertKind: "exit"`, dedupe `exit|…`, AI yorumu yok); sunucu exit'i kabul eder. Site: detayda kırmızı not, tarama kartında "hedef iptal riski" etiketi. Gemini: uyarı yorum payload'unun başında; crt-targets kaydı ve mentor SOP'u "açık işlemde hedef iptal → çıkış/stop sıkılaştırmayı öner, sistem kapattı deme". 250 test. **Bilinen açık:** açık işlemin entry penceresi (16 onay mumu) dolunca stage `missed`'e düşüyor — işlem hâlâ açıkken ekranda "GEÇMİŞ" görünür.
 - 2026-10-02 — Çift alarm düzeltmesi: Render free plan kalıcı disk vermiyor ve 15 dk trafik yoksa uyuyor; seyrek GitHub cron'u arasında sunucu uyuyunca `.data/alert-log.json` siliniyor, hâlâ READY olan setup tekrar Telegram'a gidiyordu. Tarama artık gönderdiği dedupe anahtarlarını kendisi tutuyor: `.alert-state/sent.json` (`ALERT_STATE_PATH`), `background-scan.yml` her koşuda `actions/cache/restore` + `save` ile taşıyor, 7 gün saklama; sunucu "sent"/"duplicate" dediği anahtar kaydedilir, kayıtlı anahtar tekrar POST edilmez. Sunucu dedupe'u ikinci savunma olarak duruyor. `sentAlertState.test.ts`; 252 test. Not: `/api/live-alerts` geçmişi de aynı sebeple Render uyuyunca/deploy olunca sıfırlanır.
 - 2026-10-02 — Replay arşivi: Yahoo 15m'i 60 gün veriyor, her replay yalnız son 1-2 ayı görüyordu; 30 işlem kapısı tek piyasa rejimine bakıyordu. Artık her replay'in KAPANMIŞ işlemleri tarayıcıda birikiyor (`replayArchive.ts`, localStorage `tradebot.replayArchive.v1`, hafif kayıt, en fazla 1500, aynı plan = aynı işlem). Worker arşivi alıp birleştiriyor; çıkış karşılaştırması + karar, arşiv tek replay'den büyükse arşivden hesaplanıyor (ekranda "bu tarayıcıda biriken N işlem"). Motor kuralı değişince `REPLAY_ARCHIVE_VERSION` artırılır → eski işlemler karışmaz (kalıcı kurala eklendi). Sınır: arşiv tarayıcıya özel. 254 test.
+- 2026-10-02 — Açık işlem artık "GEÇMİŞ" görünmüyor: entry dolmuş ve işlem sürerken giriş penceresi (16 onay mumu) kapanınca motor stage'i `missed` kalıyor (yeni giriş yok, `ready`'ye bakan 30+ yer "şimdi gir" demesin diye) ama etiket/açıklama `signalIsOpenTrade` ile "AÇIK İŞLEM — yeni giriş yok, stop/BE/DOL yönet"; tarama ekranında açık işlemler listenin başında, hedef iptal etiketiyle. Gemini: yoruma `commentaryStage` → "open-trade" gidiyor, kontrat Karar "İşlem açık" istiyor ("kaçtı" reddedilir), lokal fallback aynı. 257 test.

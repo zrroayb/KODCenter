@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
 import { activeCrtRange, breakLevelText, chartBreakLevel, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
+import { signalIsOpenTrade } from "../lib/signals/signalClassification";
 import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
@@ -183,7 +184,7 @@ export function ChartsView({
             <span className="pair-name">{symbol}</span>
             {best ? (
               <span className={`pair-signal ${best.stage}`}>
-                <span className="pair-stage">{STAGE_LABEL[best.stage] ?? best.stage.toUpperCase()}</span>
+                <span className="pair-stage">{signalIsOpenTrade(best) ? "AÇIK İŞLEM" : STAGE_LABEL[best.stage] ?? best.stage.toUpperCase()}</span>
                 <span className="pair-meta">{best.direction === "long" ? "LONG" : "SHORT"} · {best.grade}</span>
               </span>
             ) : (

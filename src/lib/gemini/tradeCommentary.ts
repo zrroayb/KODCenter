@@ -3,7 +3,7 @@ import { formatPrice, formatR } from "../ict/format";
 import { selectedSignalAnnotations } from "../charts/selectedSignal";
 import { buildStructureAudit } from "../signals/structureAudit";
 import { closeConfirmationRequirement } from "../signals/waitingGuidance";
-import { dolBeManagementLine, tradeCommentaryViolation } from "./commentaryGuard";
+import { commentaryStage, dolBeManagementLine, tradeCommentaryViolation } from "./commentaryGuard";
 
 export type GeminiTradeCommentaryPayload = {
   id: string;
@@ -149,6 +149,13 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
     karar = "Karar: Setup geçersiz; stop görüldü.";
     neden = `Neden: ${formatPrice(plan.stopLoss)} invalidation seviyesi çalıştı; manipulation senaryosu bozuldu.`;
     beklenen = "Beklenen: Bu modelden uzak dur; yeni range mumu ve yeni manipulation sweep bekle.";
+  } else if (signal.stage === "missed" && signal.outcome.status === "open") {
+    // Filled trade still running after its entry window: not missed for whoever took it.
+    karar = "Karar: İşlem açık; yeni giriş yok, mevcut pozisyonu yönet.";
+    neden = signal.crtAnchor?.exitWarning
+      ? `Neden: ${signal.crtAnchor.exitWarning}`
+      : "Neden: Entry doldu ve plan hâlâ geçerli; giriş penceresi kapandığı için yeni emir açılmaz.";
+    beklenen = dolBeManagementLine(formatPrice(plan.entry), formatPrice(plan.targets[0]), formatPrice(plan.targets[1] ?? plan.targets[0]));
   } else if (signal.stage === "missed") {
     karar = "Karar: Kovalama yok; trade kaçtı.";
     const eqConsumed = plan.planWarnings.find((warning) => warning.includes("%50/EQ"));
@@ -333,7 +340,7 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
     id: signal.id,
     symbol: signal.symbol,
     direction: signal.direction,
-    stage: signal.stage,
+    stage: commentaryStage(signal.stage, signal.outcome.status),
     grade: signal.grade,
     score: signal.score,
     entry: signal.plan.entry,
@@ -419,7 +426,7 @@ export async function fetchGeminiTradeCommentary(signal: TradingSignal): Promise
       return localTradeCommentary(signal, result.error ?? result.reason);
     }
     if (result.status === "ready") {
-      const violation = tradeCommentaryViolation(result.commentary ?? "", signal.stage);
+      const violation = tradeCommentaryViolation(result.commentary ?? "", commentaryStage(signal.stage, signal.outcome.status));
       if (violation) return localTradeCommentary(signal, violation);
       commentaryCache.set(key, result);
     }
