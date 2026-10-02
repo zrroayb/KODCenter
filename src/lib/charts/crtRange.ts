@@ -43,5 +43,34 @@ export function crtPhaseText(range: ChartCrtRange, label: string): string {
   if (range.phase === "c3") {
     return `C3 · ${label} ${range.sweptSide === "high" ? "high" : "low"} süpürüldü, içeride kapandı → işlem mumu (hedef önce EQ, sonra karşı uç)`;
   }
+  if (range.sweptSide) {
+    return `C2 oluşuyor · ${label} ${range.sweptSide} süpürüldü, C2'nin range içinde kapanması bekleniyor (sadece Candle 3 işlenir)`;
+  }
   return `C2 oluşuyor · ${label} high/low sweep + içeride kapanış bekleniyor`;
+}
+
+// A selected signal's own CRT range on its confirmation chart: the engine knows the range's
+// high/low (crtAnchor), so find that Candle 1 among the anchor timeframe's closed candles (most
+// recent match) to start the lines at the right bar. Phase comes from the engine: a raid whose C2
+// closed back inside means C3; a live raid (or none yet) means C2.
+export function signalCrtRange(
+  anchorCandles: Candle[],
+  anchor: { rangeHigh: number; rangeLow: number; raidActive: boolean; raidClosed: boolean },
+  direction: "long" | "short"
+): ChartCrtRange | undefined {
+  if (!(anchor.rangeHigh > anchor.rangeLow)) return undefined;
+  const closed = completedCandles(anchorCandles);
+  const tolerance = (anchor.rangeHigh - anchor.rangeLow) * 1e-6;
+  const reference = [...closed].reverse().find((candle) =>
+    Math.abs(candle.high - anchor.rangeHigh) <= tolerance && Math.abs(candle.low - anchor.rangeLow) <= tolerance);
+  const time = reference?.time ?? closed.at(-2)?.time ?? closed.at(-1)?.time;
+  if (typeof time !== "number") return undefined;
+  return {
+    high: anchor.rangeHigh,
+    low: anchor.rangeLow,
+    eq: (anchor.rangeHigh + anchor.rangeLow) / 2,
+    time,
+    phase: anchor.raidActive && anchor.raidClosed ? "c3" : "c2",
+    sweptSide: anchor.raidActive ? (direction === "long" ? "low" : "high") : undefined
+  };
 }
