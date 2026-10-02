@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
-import { activeCrtRange, crtPhaseText } from "../lib/charts/crtRange";
+import { activeCrtRange, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
 import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
@@ -12,10 +12,11 @@ import { SignalDetailsPanel } from "./SignalDetailsPanel";
 type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly" | "monthly";
 
 // One CRT range per tab, nothing else. 4H / 1D / 1W / 1M draw their own active Candle 1; the
-// 15m / 1h execution tabs show the 1D range carried down (CRT Secrets: 1D range -> 1H/15m model,
-// HTF levels are transferred unchanged to the LTF chart).
+// execution tabs show the HTF range they model (engine pairing 4H -> 15m, 1D -> 1H; HTF levels
+// are carried unchanged onto the LTF chart). A selected signal overrides this on its own
+// confirmation tab with ITS range (see activeRange below).
 const RANGE_SOURCE: Record<ChartTab, { tab: ChartTab; label: string }> = {
-  m15: { tab: "daily", label: "1D" },
+  m15: { tab: "h4", label: "4H" },
   h1: { tab: "daily", label: "1D" },
   h4: { tab: "h4", label: "4H" },
   daily: { tab: "daily", label: "1D" },
@@ -24,7 +25,7 @@ const RANGE_SOURCE: Record<ChartTab, { tab: ChartTab; label: string }> = {
 };
 
 const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string }> = [
-  { id: "m15", label: "15m", caption: "giriş · 1D range" },
+  { id: "m15", label: "15m", caption: "giriş · 4H range" },
   { id: "h1", label: "1h", caption: "onay · 1D range" },
   { id: "h4", label: "4H", caption: "CRT range" },
   { id: "daily", label: "1D", caption: "CRT range" },
@@ -145,10 +146,19 @@ export function ChartsView({
     if (selectedConfirmTab) setActiveTab(selectedConfirmTab);
   }, [activeSelectedSignal?.id, selectedConfirmTab]);
   const tab = CHART_TABS.find((item) => item.id === activeTab) ?? CHART_TABS[0];
-  const activeRange = useMemo(
-    () => activeCrtRange(candlesForTab(market, RANGE_SOURCE[activeTab].tab)),
-    [market, activeTab]
-  );
+  // The relevant range: a selected CRT signal shows its own range on its confirmation tab;
+  // otherwise the tab's default (own range, or the paired HTF range on 15m / 1h).
+  const signalRangeTab = activeSelectedSignal?.crtAnchor ? ANCHOR_TAB[activeSelectedSignal.crtAnchor.rangeTf] : undefined;
+  const showSignalRange = Boolean(activeSelectedSignal?.crtAnchor && signalRangeTab && activeTab === selectedConfirmTab);
+  const rangeLabel = showSignalRange && activeSelectedSignal?.crtAnchor
+    ? activeSelectedSignal.crtAnchor.rangeTf.toUpperCase()
+    : RANGE_SOURCE[activeTab].label;
+  const activeRange = useMemo(() => {
+    if (showSignalRange && activeSelectedSignal?.crtAnchor && signalRangeTab) {
+      return signalCrtRange(candlesForTab(market, signalRangeTab), activeSelectedSignal.crtAnchor, activeSelectedSignal.direction);
+    }
+    return activeCrtRange(candlesForTab(market, RANGE_SOURCE[activeTab].tab));
+  }, [market, activeTab, showSignalRange, signalRangeTab, activeSelectedSignal]);
 
   const pairRail = symbols.map((symbol) => {
     const anchors = signals
@@ -215,8 +225,8 @@ export function ChartsView({
         <CrtLiteChart
           candles={candlesForTab(market, activeTab)}
           crtRange={activeRange}
-          rangeLabel={RANGE_SOURCE[activeTab].label}
-          phaseText={activeRange ? crtPhaseText(activeRange, RANGE_SOURCE[activeTab].label) : undefined}
+          rangeLabel={rangeLabel}
+          phaseText={activeRange ? crtPhaseText(activeRange, rangeLabel) : undefined}
           title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
           plan={activeSelectedSignal?.plan}

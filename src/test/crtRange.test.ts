@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCrtRange, crtPhaseText } from "../lib/charts/crtRange";
+import { activeCrtRange, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
 
 const bar = (time: number, open: number, high: number, low: number, close: number, closed = true) =>
   ({ time, open, high, low, close, volume: 1, closed });
@@ -29,5 +29,14 @@ describe("chart CRT range follows the 3-candle cycle (C1 range, C2 sweep, C3 tra
 
   it("returns nothing for empty data", () => {
     expect(activeCrtRange([])).toBeUndefined();
+  });
+
+  it("a selected signal's own range starts at its Candle 1 and takes the engine's phase", () => {
+    const candles = [bar(1, 12, 20, 10, 18), bar(2, 18, 19, 8, 15), bar(3, 15, 16, 14, 15, false)];
+    const live = signalCrtRange(candles, { rangeHigh: 20, rangeLow: 10, raidActive: true, raidClosed: false }, "long");
+    expect(live).toMatchObject({ high: 20, low: 10, eq: 15, time: 1, phase: "c2", sweptSide: "low" });
+    expect(crtPhaseText(live!, "4H")).toContain("C2'nin range içinde kapanması bekleniyor");
+    const closed = signalCrtRange(candles, { rangeHigh: 20, rangeLow: 10, raidActive: true, raidClosed: true }, "long");
+    expect(closed?.phase).toBe("c3");
   });
 });
