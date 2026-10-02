@@ -1,4 +1,5 @@
 import type { TradingSignal } from "../ict/types";
+import { safeSetJson } from "../storage/safeStorage";
 import { journalEntryFromSignal, journalSetupKey, journalSignalSnapshot } from "./journalEntry";
 import type { JournalEntry } from "./types";
 
@@ -24,9 +25,8 @@ export function loadJournalEntries(): JournalEntry[] {
 }
 
 export function saveJournalEntries(entries: JournalEntry[]): void {
-  const store = storage();
-  if (!store) return;
-  store.setItem(JOURNAL_STORAGE_KEY, JSON.stringify(entries));
+  // User data: never trimmed or dropped; a full quota just skips this write instead of crashing.
+  safeSetJson(JOURNAL_STORAGE_KEY, entries, { preserve: true });
 }
 
 export function upsertJournalEntry(

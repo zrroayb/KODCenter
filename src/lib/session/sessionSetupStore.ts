@@ -1,9 +1,11 @@
+import { safeSetJson } from "../storage/safeStorage";
 import type { SessionSetup, SessionSetupLifecycle, SessionSetupLog } from "./types";
 
 const SETUP_STORAGE_KEY = "tradebot.crtSessionSetups.v1";
 const LOG_STORAGE_KEY = "tradebot.crtSessionSetupLogs.v1";
-const MAX_SETUP_HISTORY = 400;
-const MAX_LOG_HISTORY = 1_500;
+// Full setup objects are heavy; keep the recent history small so localStorage never fills up.
+const MAX_SETUP_HISTORY = 120;
+const MAX_LOG_HISTORY = 400;
 
 function storageAvailable(): boolean {
   return typeof window !== "undefined" && Boolean(window.localStorage);
@@ -21,7 +23,7 @@ function readArray<T>(key: string): T[] {
 
 function writeArray<T>(key: string, value: T[]) {
   if (!storageAvailable()) return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  safeSetJson(key, value);
 }
 
 export function loadSessionSetups(): SessionSetup[] {

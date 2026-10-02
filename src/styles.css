@@ -5487,3 +5487,36 @@ button {
   background: rgba(251, 191, 36, 0.14);
   border: 1px solid rgba(251, 191, 36, 0.5);
 }
+
+/* Recovery card shown by ErrorBoundary instead of a blank screen. */
+.error-boundary {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--ink);
+}
+.error-boundary__card {
+  max-width: 520px;
+  width: 100%;
+  padding: 24px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+.error-boundary__card h2 { margin: 0 0 8px; font-size: 18px; }
+.error-boundary__card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.error-boundary__card code {
+  display: block;
+  padding: 10px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--red-ink);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-boundary__actions { display: flex; gap: 10px; flex-wrap: wrap; }
