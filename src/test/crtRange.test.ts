@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCrtRange, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
+import { activeCrtRange, breakLevelText, chartBreakLevel, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
 
 const bar = (time: number, open: number, high: number, low: number, close: number, closed = true) =>
   ({ time, open, high, low, close, volume: 1, closed });
@@ -38,5 +38,33 @@ describe("chart CRT range follows the 3-candle cycle (C1 range, C2 sweep, C3 tra
     expect(crtPhaseText(live!, "4H")).toContain("C2'nin range içinde kapanması bekleniyor");
     const closed = signalCrtRange(candles, { rangeHigh: 20, rangeLow: 10, raidActive: true, raidClosed: true }, "long");
     expect(closed?.phase).toBe("c3");
+  });
+});
+
+describe("chart shows the break the setup waits for (ChoCH / True MSS close)", () => {
+  it("every CRT signal carries a break level: pending = close requirement, confirmed = done", async () => {
+    const { createDemoMarkets } = await import("../data/demoData");
+    const { buildMarketContext } = await import("../lib/intelligence/marketContext");
+    const { crtStrategy } = await import("../lib/strategies/crt/crt.strategy");
+    const { closeConfirmationRequirement } = await import("../lib/signals/waitingGuidance");
+    const signals = createDemoMarkets().flatMap((market) => crtStrategy.scan({
+      context: buildMarketContext(market.symbol, market.timeframes),
+      settings: { ...crtStrategy.defaultSettings }
+    }).signals);
+    let checked = 0;
+    for (const signal of signals) {
+      const level = chartBreakLevel(signal);
+      const pending = closeConfirmationRequirement(signal);
+      if (pending) {
+        expect(level).toMatchObject({ level: pending.level, side: pending.side, done: false });
+        expect(breakLevelText(level!, String)).toContain("KAPANMALI");
+        checked += 1;
+      } else if (level) {
+        expect(level.done).toBe(true);
+        expect(level.side).toBe(signal.direction === "long" ? "above" : "below");
+        checked += 1;
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
   });
 });

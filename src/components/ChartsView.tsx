@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
-import { activeCrtRange, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
+import { activeCrtRange, breakLevelText, chartBreakLevel, crtPhaseText, signalCrtRange } from "../lib/charts/crtRange";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
 import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
@@ -160,6 +160,12 @@ export function ChartsView({
     return activeCrtRange(candlesForTab(market, RANGE_SOURCE[activeTab].tab));
   }, [market, activeTab, showSignalRange, signalRangeTab, activeSelectedSignal]);
 
+  // The break the selected setup waits for — shown on its confirmation tab, where that close happens.
+  const breakLevel = useMemo(
+    () => (activeSelectedSignal && activeTab === selectedConfirmTab ? chartBreakLevel(activeSelectedSignal) : undefined),
+    [activeSelectedSignal, activeTab, selectedConfirmTab]
+  );
+
   const pairRail = symbols.map((symbol) => {
     const anchors = signals
       .filter((signal) => signal.symbol === symbol)
@@ -230,6 +236,8 @@ export function ChartsView({
           title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
           plan={activeSelectedSignal?.plan}
+          breakLevel={breakLevel}
+          breakText={breakLevel ? breakLevelText(breakLevel, formatPrice) : undefined}
         />
       </div>
       <div className={activeSelectedSignal ? "selection-dock" : "selection-dock context-strip"}>

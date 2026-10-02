@@ -1,5 +1,6 @@
 import { completedCandles } from "../ict/candles";
-import type { Candle } from "../ict/types";
+import type { Candle, TradingSignal } from "../ict/types";
+import { closeConfirmationRequirement } from "../signals/waitingGuidance";
 
 // CRT is a 3-candle cycle (CRT Secrets): Candle 1 = accumulation (the range, wick high/low),
 // Candle 2 = manipulation (wick sweep of a C1 extreme, closing back inside), Candle 3 =
@@ -73,4 +74,39 @@ export function signalCrtRange(
     phase: anchor.raidActive && anchor.raidClosed ? "c3" : "c2",
     sweptSide: anchor.raidActive ? (direction === "long" ? "low" : "high") : undefined
   };
+}
+
+// The break the setup waits for (True MSS / ChoCH): the internal swing on the confirmation TF that
+// a candle must CLOSE beyond. Once the engine saw that close (cisdConfirmed) the level is shown as
+// done, so the chart always answers "neyin kırılımını bekliyoruz?".
+export type ChartBreakLevel = {
+  level: number;
+  // Open time (ms) of the swing candle — the line starts here.
+  time: number;
+  side: "above" | "below";
+  timeframe: string;
+  done: boolean;
+};
+
+export function chartBreakLevel(signal: TradingSignal): ChartBreakLevel | undefined {
+  const pending = closeConfirmationRequirement(signal);
+  if (pending) {
+    return { level: pending.level, time: pending.candleTime, side: pending.side, timeframe: pending.timeframe, done: false };
+  }
+  const choch = signal.evidence.find((item) => item.id === "choch");
+  if (choch?.status !== "pass" || typeof choch.price !== "number" || typeof choch.time !== "number") return undefined;
+  return {
+    level: choch.price,
+    time: choch.time,
+    side: signal.direction === "long" ? "above" : "below",
+    timeframe: signal.crtAnchor?.confirmTf ?? choch.timeframe ?? "",
+    done: true
+  };
+}
+
+export function breakLevelText(level: ChartBreakLevel, formatPrice: (value: number) => string): string {
+  const where = level.side === "above" ? "üstünde" : "altında";
+  return level.done
+    ? `Kırılım geldi ✓ · ${level.timeframe} mum ${formatPrice(level.level)} ${where} kapandı (ChoCH / True MSS)`
+    : `Beklenen kırılım · ${level.timeframe} mum ${formatPrice(level.level)} ${where} KAPANMALI (ChoCH / True MSS) — fitil sayılmaz`;
 }
