@@ -330,7 +330,7 @@ describe("CRT raid persistence", () => {
     expect(signal.direction).toBe("short");
     expect(signal.stage).toBe("missed");
     expect(signal.outcome.summary).toContain("%50/EQ");
-    expect(signal.plan.planWarnings.join(" ")).toContain("setup tüketildi");
+    expect(signal.governance.blockers.join(" ")).toContain("setup tüketildi");
   });
 
   it("drops the mirrored LONG setup once price has already reached the CRT midpoint", () => {

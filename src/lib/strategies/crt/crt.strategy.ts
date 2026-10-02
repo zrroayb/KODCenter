@@ -1274,6 +1274,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
       ? `DOL/TP çıkış net RR yetersiz (${plan.rr.toFixed(2)} < ${minimumRR}).`
       : undefined,
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
+    // EQ already traded after the raid = setup consumed (CRT Secrets: EQ reached, no expansion).
+    // It was a hidden READY gate listed as a warning; now it is a visible blocker.
+    eqConsumed ? `CRT %50/EQ ${formatPrice(anchor.range.midpoint)} raid sonrası görüldü; setup tüketildi, yeni giriş yok.` : undefined,
     settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
   ].filter((item): item is string => Boolean(item));
@@ -1284,11 +1287,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
-    !pdAligned ? `${direction.toUpperCase()} entry CRT range ${crtZone}; ideal ${expectedPd(direction)} ama RR/geometri uygunsa hard gate değil.` : undefined,
     !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
     context.eventRisk.noTrade && settings.avoidNews !== true ? `${context.eventRisk.summary} (haber filtresi kapalı; manuel risk notu.)` : undefined,
     continuationAgainst ? "HTF continuation setup yönüne ters; hard gate değil, kalite notu." : undefined,
-    eqConsumed ? `CRT %50/EQ ${formatPrice(anchor.range.midpoint)} raid sonrası görüldü; setup tüketildi, yeni giriş yok.` : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range, false shift riski yüksek.` : undefined,
     manipulation && displacementStrength === "none" && !linkedShiftFvg ? `Raid sonrası ${anchor.spec.confirmTf} displacement zayıf.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; küçük boyut kullan.` : undefined,
@@ -1432,7 +1433,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("DOL RR (çıkış)", setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "fail", `Tam çıkış DOL ${formatPrice(setup.plan.targets[1])}; net RR ${formatR(setup.plan.rr)}. EQ ${formatPrice(setup.plan.targets[0])} BE ara adımı (EQ RR ${formatR(setup.plan.extensionRR ?? 0)}).`),
     checklistItem("POI", setup.poi ? "pass" : "neutral", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)} kalite bonusu.` : "FVG/OB yok; CRT yine ChoCH kapanışıyla geçerli olabilir."),
     checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : "neutral", bias.summary),
-    checklistItem("Premium / Discount", pdAligned ? "pass" : "neutral", `Entry ${crtZone}; ideal ${expectedPd(direction)}. Kalite notu, hard gate değil.`),
+    checklistItem("Premium / Discount", pdAligned ? "pass" : "fail", `Entry CRT range ${crtZone}; ${expectedPd(direction)} olmalı (long discount, short premium) — hard gate.`),
     checklistItem("HTF Yön Uyumu", setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", setup.htfAlignment.summary),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
