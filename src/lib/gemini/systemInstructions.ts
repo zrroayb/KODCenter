@@ -1,5 +1,5 @@
 // Single source of the Gemini system instructions (2026-09-26). The live server (vite.config.ts),
-// the Cloudflare Worker and the client modules import from here, so the Turkish-output rule and
+// and the client modules import from here, so the Turkish-output rule and
 // the "never invent events" contract cannot drift between three copies again.
 // Output rule for every prompt: free text in TURKISH, CRT/ICT terms stay in English.
 

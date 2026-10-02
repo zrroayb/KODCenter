@@ -2,7 +2,7 @@ import { defaultRules } from "./defaultRules";
 import { effectiveMinimumScore } from "./scorePolicy";
 import type { UserRules } from "./userRules";
 
-// Tek kural çözücüsü: localStorage (site) ve D1 (bulut botu) aynı ham JSON'u buradan geçirir.
+// Tek kural çözücüsü: localStorage (site) ham JSON'u buradan geçirir.
 //
 // Kullanıcı yalnız 4 şeyi ayarlar (hesap büyüklüğü, işlem başı risk %, günlük max kayıp %,
 // semboller). Geri kalan her kural sabit varsayılandır: eskiden kaydedilmiş, artık ekranda

@@ -14,24 +14,17 @@ npm run dev
 
 Open `http://127.0.0.1:8787/`.
 
-## Always-on free deployment
+## Deployment
 
-Cloudflare keeps the app available continuously. A GitHub Actions job scans all
-12 markets every five minutes while the browser is closed, then stores the
-latest candles/results in Cloudflare D1. READY alerts are deduplicated and sent
-from the Worker.
+The live site is Render (`render.yaml`, `npm start`), auto-deployed from `main`. `vite preview`
+serves both the SPA and the `/api/*` endpoints (Gemini, Telegram alert, alert history).
 
-See [Cloudflare deployment](docs/CLOUDFLARE_DEPLOY.md).
-
-```bash
-npm run cloud:migrate:local
-npm run cloud:dev
-```
-
-Run the background scanner against a deployed or local Worker:
+A GitHub Actions job (`background-scan.yml`) runs the scanner on a schedule and posts READY
+setups to the site's `/api/telegram/ready-alert` (SCAN_TOKEN bearer); the server dedupes and
+sends to Telegram. Run it by hand against a local or live site:
 
 ```bash
-CLOUD_SCAN_URL=http://127.0.0.1:8790 \
+CLOUD_SCAN_URL=http://127.0.0.1:4173 \
 SCAN_TOKEN=local-secret \
 npm run cloud:scan
 ```
@@ -55,9 +48,9 @@ Gemini is optional. When `GEMINI_API_KEY` is present, selected trades and Telegr
 ## Verify
 
 ```bash
+npm run typecheck
 npm test
 npm run build
-npx wrangler deploy --dry-run
 ```
 
 This tool is for market analysis and educational research. It does not provide financial advice and does not execute trades.

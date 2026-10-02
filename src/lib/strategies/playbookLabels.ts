@@ -1,6 +1,6 @@
 // Playbook etiketleri — tek kaynak. Hem UI kartları hem Telegram mesajı buradan okur, böylece
 // "aynı sinyali farklı isimle gösterme" kuralı korunur ve reversal/continuation ayrımı nettir.
-// Ağır bağımlılık yok; hem tarayıcı bileşenleri hem worker güvenle import edebilir.
+// Ağır bağımlılık yok; hem tarayıcı bileşenleri hem cloud-scan güvenle import edebilir.
 
 export const PLAYBOOK_LABELS: Record<string, string> = {
   crt: "CRT Reversal",

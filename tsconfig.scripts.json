@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "WebWorker"],
-    "types": ["@cloudflare/workers-types", "node"],
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["worker/**/*.ts", "scripts/cloud-scan.ts"]
+  "include": ["scripts/cloud-scan.ts"]
 }

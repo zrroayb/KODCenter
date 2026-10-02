@@ -1,7 +1,7 @@
 import type { Candle, DealingRange, TradingSignal } from "../ict/types";
 
 // React'siz, tarayici gerektirmeyen bagimsiz SVG chart — alert gorseli icin.
-// Node'da (cloud-scan) resvg ile PNG'ye rasterlenir; worker bunu Telegram'a foto atar.
+// Node'da (cloud-scan) resvg ile PNG'ye rasterlenir; sunucu Telegram'a foto olarak atar.
 // CandleChart'in SSR'da patlayan (browser-only) yollarindan kacinmak icin ayri tutuldu.
 
 const CONFIRM_KEY: Record<string, "m15" | "h1" | "h4"> = { "15m": "m15", "1h": "h1", "4h": "h4" };

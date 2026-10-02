@@ -1,12 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DemoMarket } from "../data/demoData";
-import { loadYahooMarkets, parseYahooChartResponse, YAHOO_SYMBOLS } from "../lib/data/yahooProvider";
+import { describe, expect, it } from "vitest";
+import { parseYahooChartResponse } from "../lib/data/yahooProvider";
 
 describe("Yahoo data provider", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("parses valid OHLC candles and skips incomplete Yahoo points", () => {
     const candles = parseYahooChartResponse({
       chart: {
@@ -76,74 +71,6 @@ describe("Yahoo data provider", () => {
     expect(candles[1].high).toBe(104);   // merge: max high
     expect(candles[1].close).toBe(103);  // merge: son quote'un close'u
     expect(candles[1].volume).toBe(8);   // merge: hacim toplamı
-  });
-
-  it("prefers the Cloudflare candle cache and hydrates executable bid/ask candles", async () => {
-    const candle = {
-      time: Date.now() - 60_000,
-      open: 10,
-      high: 11,
-      low: 9,
-      close: 10.5,
-      volume: 100,
-      closed: true
-    };
-    const markets: DemoMarket[] = YAHOO_SYMBOLS.map((item) => ({
-      symbol: item.symbol,
-      name: item.name,
-      timeframes: {
-        monthly: [candle],
-        weekly: [candle],
-        daily: [candle],
-        h4: [candle],
-        h1: [candle],
-        m15: [candle],
-        m5: [candle]
-      }
-    }));
-    const freshLoadedAt = Date.now() - 60_000; // taze cache (bot ~5dk'da bir günceller)
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      markets,
-      loadedAt: freshLoadedAt,
-      oldestLoadedAt: freshLoadedAt - 1_000,
-      background: true,
-      errors: []
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" }
-    }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await loadYahooMarkets();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(result.background).toBe(true);
-    expect(result.loadedAt).toBe(freshLoadedAt);
-    expect(result.markets).toHaveLength(YAHOO_SYMBOLS.length);
-    expect(result.markets[0].timeframes.m15[0].bid).toBeDefined();
-    expect(result.markets[0].timeframes.m15[0].ask).toBeDefined();
-  });
-
-  it("rejects a stale bot cache and falls through to a live fetch (self-healing when the bot stops)", async () => {
-    const staleMarkets: DemoMarket[] = YAHOO_SYMBOLS.map((item) => ({
-      symbol: item.symbol,
-      name: item.name,
-      timeframes: { monthly: [], weekly: [], daily: [], h4: [], h1: [], m15: [], m5: [] }
-    }));
-    // Cache 8 gün eski (bot durmuş): kabul edilmemeli. Fetch cache'i döner ama sonra canlı
-    // provider'a düşülür — bu ortamda ağ yok, o yüzden demo'ya düşer; kanıt: background false.
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      markets: staleMarkets,
-      loadedAt: Date.now() - 8 * 24 * 60 * 60 * 1000,
-      background: true,
-      errors: []
-    }), { status: 200, headers: { "content-type": "application/json" } }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await loadYahooMarkets();
-
-    // Bayat cache reddedildi: sonuç "yahoo-live" değil (canlı/demo yola düştü), background değil.
-    expect(result.background).not.toBe(true);
   });
 });
 

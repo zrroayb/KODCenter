@@ -26,9 +26,8 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 - **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
   motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
   Dedupe sunucuda (`.data/alert-log.json`), geçmiş `/api/live-alerts`. Tarayıcı alert
-  GÖNDERMEZ, yalnızca geçmişi gösterir. Worker alert'i yalnız `WORKER_ALERTS=on` ise atar.
-- İkincil hedef: Cloudflare Worker (`worker/index.ts`, `wrangler.jsonc`, D1
-  `tradebot-state`). Canlı site DEĞİL — aşağıya bak.
+  GÖNDERMEZ, yalnızca geçmişi gösterir.
+- Cloudflare Worker 2026-10-02'de silindi; tek sunucu Render.
 
 ## 3. Komutlar
 
@@ -37,19 +36,17 @@ npm run dev      # geliştirme (vite, 127.0.0.1)
 npm test         # vitest run — PUSH ETMEDEN ÖNCE HER ZAMAN ÇALIŞTIR
 npm run build    # tsc -b + worker typecheck + vite build
 npm start        # prod önizleme (Render bunu kullanır)
-npm run typecheck # tip kontrolü: app + node + worker (kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmez)
+npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmez)
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 252 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
 - **Canlı site = Render** (`render.yaml`, servis adı `kod-center`,
   `startCommand: npm start`, `autoDeploy: true`). Render **`main` branch'inden**
   otomatik deploy eder. Render GitHub secret'larını OKUMAZ.
-- **Cloudflare Worker ayrı ve canlı site değildir** (`.github/workflows/cloudflare-deploy.yml`).
-  Karıştırma; kullanıcı bir kez bununla vakit kaybetti.
 - **Gemini AI ortam değişkenleri (Render Dashboard → kod-center → Environment):**
   - `GEMINI_API_KEY` — `render.yaml`'da `sync: false`, yani panelden elle girilir.
     **API anahtarını ASLA repoya/koda commit etme.** Sadece platform env'inde durur.
@@ -73,7 +70,6 @@ src/
     rules/, risk/, session/, journal/ ...
   data/              demoData (fixture pariteleri).
   test/              vitest (*.test.ts).
-worker/index.ts      Cloudflare Worker + kendi Gemini/prompt kopyaları.
 vite.config.ts       CANLI sunucu mantığı: /api/gemini/* handler'ları + sistem talimatları burada.
 knowledge/           CRT kuralları, prompt referansları (insan-okunur).
 docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
@@ -123,7 +119,7 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
   Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
-  `src/lib/gemini/systemInstructions.ts`; `vite.config.ts`, `worker/index.ts` ve
+  `src/lib/gemini/systemInstructions.ts`; `vite.config.ts` ve
   `crtInterpretation.ts` oradan import eder.
 - Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
   watch → "Bekle…", kısmi TP dili yok (tek çıkış: tamamı DOL'da, EQ'da stop BE). Uymayan Gemini
@@ -173,3 +169,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-27 — CRT çıkış modeli değişti: **eq-full → DOL hedef + EQ'da BE**. "EQ'da tam TP saçma; asıl draw karşı likidite (DOL)" itirazı üzerine. `plan.rr` artık DOL net RR (headline + READY gate); EQ ara adım (`managementRR`/`extensionRR`). `outcomeEngine.ts`: fiyat EQ'ya gelince stop BE'ye, DOL öncesi dönüş = yeni `"breakeven"` status (~0R, ne kâr ne zarar), DOL = tp2 (tam DOL RR). `breakeven` status'u tipe (`types.ts`) + tüketicilere (performance, setupGovernance, setupSimilarity, crt lifecycle/deriveCrtState) eklendi. Checklist/evidence/Telegram/planWarnings etiketleri EQ→BE, DOL=hedef. `crtScoring`/`telegramAlert`/`crtDealingPd` testleri yeni modele göre güncellendi (272 test yeşil). **Açık follow-up:** `runtimeReplay.ts` backtest simülasyonu hâlâ eq-full — canlı modele hizalanacak.
 - 2026-09-26 — Gold & dark fintech reskin: tüm tema tek token katmanından değişti (`src/styles.css`). Yüzeyler sıcak near-black (#0c0b09 / #1a1a1a / #333), hairline'lar soft-gold, accent gold (#FFD700). İki `:root` katmanındaki `--blue*` accent'i gold'a (`var(--gold)`) çevrildi; dağınık mor (`rgba(124,140,255)`) ve mavi (`rgba(57,135,229)`) glow/gradient'ler gold'a toplu değiştirildi; `html` gradient gold; `primary-btn` gold dolgu + koyu yazı + gold lift shadow. **Trading semantiği korundu:** bull/bear mum renkleri (`--green` #089981 / `--red` #f23645) ve chart-surface #0f131c değişmedi (dataviz kuralı). Yeni token'lar: `--gold`, `--gold-ink`, `--gold-soft`, `--soft-gold`, `--glow-gold`. Salt CSS; typecheck + 272 test + build yeşil.
 - 2026-10-02 — Grafik: seçili sinyalin beklediği kırılım çiziliyor. Onay TF sekmesinde mavi kesikli "KIRILIM ↑/↓" çizgisi (internal swing, `closeConfirmationRequirement`) swing mumundan sağa uzanır + başlık satırı "Beklenen kırılım · 15m mum X üstünde KAPANMALI (ChoCH / True MSS)"; kırılım gelince "KIRILDI ✓" (yeşil). `chartBreakLevel`/`breakLevelText` (`src/lib/charts/crtRange.ts`). Grafik artık tüm geçmişi sığdırmıyor, son 90 mumla açılıyor. Kural değişmedi → Gemini güncellemesi gerekmedi.
+- 2026-10-02 — Sadeleştirme 1/5: Cloudflare Worker silindi (canlı site değildi, alarmı kapalıydı, main'e her push'ta ayrıca deploy ediliyordu): `worker/`, `wrangler.jsonc`, D1 `migrations/`, `cloudflare-deploy.yml`, `CLOUDFLARE_DEPLOY.md`, `check-alert-parity` + `edge-report` scriptleri, wrangler/workers-types bağımlılıkları. Sitede worker'a bağlı ölü yollar da gitti: `/api/live-markets` cache okuması (Render'da yoktu, her açılışta boşa istek) + "Canlı bot" rozeti, `/api/rules` senkronu (`cloudRulesSync.ts`). `cloud-scan.ts` tip kontrolü `tsconfig.scripts.json`'a taşındı. README Render'a göre yazıldı. Davranış değişmedi; 252 test.

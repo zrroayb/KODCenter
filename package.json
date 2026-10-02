@@ -9,20 +9,14 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && npm run worker:typecheck && vite build",
+    "build": "tsc -b && npm run scripts:typecheck && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "start": "vite preview --host 0.0.0.0 --port ${PORT:-4173}",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && npm run worker:typecheck",
-    "worker:typecheck": "tsc -p tsconfig.worker.json",
-    "cloud:dev": "npm run build && wrangler dev",
-    "cloud:deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && npm run scripts:typecheck",
+    "scripts:typecheck": "tsc -p tsconfig.scripts.json",
     "cloud:scan": "tsx scripts/cloud-scan.ts",
-    "cloud:migrate": "wrangler d1 migrations apply tradebot-state --remote",
-    "cloud:migrate:local": "wrangler d1 migrations apply tradebot-state --local",
-    "cloud:types": "wrangler types",
     "validate:continuation": "tsx scripts/validate-continuation.ts",
-    "report:edge": "tsx scripts/edge-report.ts",
     "report:robustness": "tsx scripts/robustness-report.ts"
   },
   "dependencies": {
@@ -36,12 +30,10 @@
     "vite": "^6.0.5"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260716.1",
     "@types/node": "^22.20.0",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
     "tsx": "^4.23.1",
-    "vitest": "^3.2.6",
-    "wrangler": "^4.111.0"
+    "vitest": "^3.2.6"
   }
 }

@@ -8,7 +8,7 @@ import { isBinanceSymbol, loadBinanceMarket } from "./binanceProvider";
 
 // Sembol başına doğru sağlayıcı: kripto → Binance (gerçek borsa, taze), gerisi → Yahoo.
 // Binance CORS `*` gönderir; hem tarayıcı hem node DOĞRUDAN data-api.binance.vision'a gider
-// (worker proxy'sine gerek yok — Cloudflare egress IP'si Binance'te 403'lüydü). Binance başarısız
+// (proxy gerekmez). Binance başarısız
 // olursa Yahoo'ya düşer — asla bugünkünden kötü olmaz (yalnızca bayat kalır).
 // Tek sembol yükleyici + VERİ KAYNAĞI YÖNLENDİRİCİ. Kripto (isBinanceSymbol) → Binance (canlı,
 // coğrafi engelsiz); Binance düşerse Yahoo'ya fallback. FX/metal/endeks → Yahoo. loadYahooMarketBatch
@@ -41,13 +41,7 @@ export type MarketDataLoadResult = {
   feedMode: MarketFeedMode;
   loadedAt: number;
   errors: string[];
-  background?: boolean;
-  oldestLoadedAt?: number;
 };
-
-// Bot cache'i bundan eskiyse güvenilmez (bot ~5dk'da bir günceller); 20dk birkaç kaçan taramaya
-// tolerans ama günlerce bayat cache'i reddeder → tarayıcı canlı çeker.
-const CACHE_MAX_AGE_MS = 20 * 60 * 1000;
 
 export type YahooInterval = "5m" | "15m" | "1h" | "1d";
 export type YahooRange = "5d" | "60d" | "1y" | "2y";
@@ -272,57 +266,6 @@ export async function loadYahooMarketBatch(
 }
 
 export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketDataLoadResult> {
-  try {
-    const cacheSignal = createTimeoutSignal(signal, 4_000);
-    try {
-      const response = await fetch("/api/live-markets", {
-        headers: { Accept: "application/json" },
-        signal: cacheSignal.signal
-      });
-      if (response.ok) {
-        const cached = await response.json() as {
-          markets?: DemoMarket[];
-          loadedAt?: number;
-          oldestLoadedAt?: number;
-          background?: boolean;
-          errors?: string[];
-        };
-        // Cache tazelik kapısı: bot her ~5dk günceller. loadedAt eskiyse (bot durmuşsa) cache'e
-        // GÜVENME — düş ve canlı çek (FX/metal Yahoo, kripto Binance; ikisi de taze). Bu olmadan
-        // 8 günlük bayat cache doğrudan gösteriliyordu ("Canlı bot" rozetiyle eski grafik).
-        const cacheAgeMs = typeof cached.loadedAt === "number" ? Date.now() - cached.loadedAt : Infinity;
-        const cacheFresh = cacheAgeMs <= CACHE_MAX_AGE_MS;
-        if (cacheFresh && Array.isArray(cached.markets) && cached.markets.length === YAHOO_SYMBOLS.length) {
-          const hydratedMarkets = cached.markets.map((market) => ({
-            ...market,
-            timeframes: {
-              monthly: enrichWithSyntheticBidAsk(market.timeframes.monthly, market.symbol),
-              weekly: enrichWithSyntheticBidAsk(market.timeframes.weekly, market.symbol),
-              daily: enrichWithSyntheticBidAsk(market.timeframes.daily, market.symbol),
-              h4: enrichWithSyntheticBidAsk(market.timeframes.h4, market.symbol),
-              h1: enrichWithSyntheticBidAsk(market.timeframes.h1, market.symbol),
-              m15: enrichWithSyntheticBidAsk(market.timeframes.m15, market.symbol),
-              m5: enrichWithSyntheticBidAsk(market.timeframes.m5, market.symbol)
-            }
-          }));
-          return {
-            markets: hydratedMarkets,
-            source: "yahoo-live",
-            feedMode: "synthetic-bid-ask",
-            loadedAt: typeof cached.loadedAt === "number" ? cached.loadedAt : Date.now(),
-            errors: Array.isArray(cached.errors) ? cached.errors : [],
-            background: cached.background === true,
-            oldestLoadedAt: typeof cached.oldestLoadedAt === "number" ? cached.oldestLoadedAt : undefined
-          };
-        }
-      }
-    } finally {
-      cacheSignal.cleanup();
-    }
-  } catch {
-    // Local Vite and a newly-created cloud database have no cache yet; use the direct proxy.
-  }
-
   const demoMarkets = createDemoMarkets();
   const demoBySymbol = new Map(demoMarkets.map((market) => [market.symbol, market]));
   const settled = await Promise.allSettled(YAHOO_SYMBOLS.map((item) => loadMarketFor(item, signal)));
@@ -340,7 +283,6 @@ export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketData
     source: failedCount === 0 ? "yahoo-live" : failedCount === settled.length ? "demo" : "mixed",
     feedMode: failedCount === settled.length ? "demo" : "synthetic-bid-ask",
     loadedAt: Date.now(),
-    errors,
-    background: false
+    errors
   };
 }

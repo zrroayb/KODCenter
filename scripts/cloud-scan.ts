@@ -1,7 +1,7 @@
 // Single Telegram alert engine (2026-09-26): this scanner runs the CURRENT engine in GitHub
 // Actions and posts each READY payload to the live site (Render) at
 // `${CLOUD_SCAN_URL}/api/telegram/ready-alert` with the SCAN_TOKEN bearer. The server dedupes
-// and sends; the browser never sends alerts. The Cloudflare Worker is no longer in this path.
+// and sends; the browser never sends alerts.
 import { loadYahooMarketBatch, YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { buildMarketContext } from "../src/lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../src/lib/intelligence/smtEngine";
@@ -68,8 +68,8 @@ async function run() {
   const contexts = attachSmtDivergences(
     markets.map((market) => buildMarketContext(market.symbol, market.timeframes))
   );
-  // Default rules: the live site has no server-side rules store (the old Worker D1 mirror is
-  // out of the alert path). Change defaultRules to change what the scanner alerts on.
+  // Default rules: the live site has no server-side rules store. Change defaultRules to change
+  // what the scanner alerts on.
   const result = scanContexts(contexts, "crt", defaultRules);
   const readySignals = alertableReadySignals(result);
   const alerts = [];
