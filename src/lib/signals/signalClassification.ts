@@ -40,6 +40,12 @@ export function signalHardInvalidReason(signal: TradingSignal): string | undefin
   );
 }
 
+// A filled trade still running after its entry window closed: the engine marks it "missed" (no new
+// entries), but for whoever took it the position is OPEN — label it that way, never "GEÇMİŞ".
+export function signalIsOpenTrade(signal: TradingSignal): boolean {
+  return signal.stage === "missed" && signal.outcome.status === "open";
+}
+
 export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass {
   if (signal.stage === "invalidated" || signal.stage === "missed") return "inactive";
   if (signalHardInvalidReason(signal)) return "invalid";
@@ -51,6 +57,7 @@ export function signalDecisionClass(signal: TradingSignal): SignalDecisionClass 
 
 export function signalDecisionLabel(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
+  if (signalIsOpenTrade(signal)) return "AÇIK İŞLEM";
   if (decision === "tradeable") return "ALINABİLİR";
   if (decision === "invalid") return "GEÇERSİZ";
   if (signal.crtAnchor?.setupPhase === "context") return "BAĞLAM";
@@ -64,6 +71,9 @@ export function signalDecisionLabel(signal: TradingSignal): string {
 export function signalDecisionReason(signal: TradingSignal): string {
   const decision = signalDecisionClass(signal);
   if (decision === "tradeable") return "READY: entry, stop ve TP planı aktif.";
+  if (signalIsOpenTrade(signal)) {
+    return "İşlem açık; giriş penceresi kapandı — yeni giriş yok. Stop (EQ'dan sonra BE) ve DOL çıkışını yönet.";
+  }
   if (decision === "inactive") {
     return signal.stage === "invalidated"
       ? "Stop/invalidation görülmüş. Trade kovalanmaz."

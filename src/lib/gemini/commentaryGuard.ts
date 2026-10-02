@@ -12,8 +12,15 @@ export function dolBeManagementLine(entry: string, eq: string, dol: string): str
 
 const REQUIRED_KARAR: Record<string, string> = {
   ready: "Plan hazır",
-  watch: "Bekle"
+  watch: "Bekle",
+  // Filled trade still running after its entry window (engine stage "missed", outcome "open").
+  "open-trade": "İşlem açık"
 };
+
+// The stage the commentary contract uses: an open trade is never "missed" for whoever holds it.
+export function commentaryStage(stage: string, outcomeStatus: string | undefined): string {
+  return stage === "missed" && outcomeStatus === "open" ? "open-trade" : stage;
+}
 
 // Kısmi TP / "kalanı DOL'a" dili tek-çıkış modeline ters: pozisyon EQ'da bölünmez, yalnız stop BE'ye gelir.
 const PARTIAL_EXIT_PATTERN = /kısmi\s+(al|kar|kâr|tp|çık)|kalan(ı|ını)\s+dol/i;
@@ -36,4 +43,4 @@ export function tradeCommentaryViolation(commentary: string, stage: string | und
 }
 
 export const TRADE_COMMENTARY_STAGE_RULE =
-  `Stage=ready ise Karar satırı "Plan hazır" ile başlar; Stage=watch ise "Bekle" ile başlar. ${EXIT_MODEL_RULE}`;
+  `Stage=ready ise Karar satırı "Plan hazır" ile başlar; Stage=watch ise "Bekle" ile başlar; Stage=open-trade (entry dolmuş, işlem açık, yeni giriş yok) ise "İşlem açık" ile başlar ve pozisyon yönetimini anlatır — "kaçtı/kovalama" deme. ${EXIT_MODEL_RULE}`;
