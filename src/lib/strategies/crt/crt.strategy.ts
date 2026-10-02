@@ -3,7 +3,6 @@ import { SYMBOL_SPEC } from "../../ict/symbolSpec";
 import { formatPrice, formatR } from "../../ict/format";
 import { averageTrueRange, completedCandles } from "../../ict/candles";
 import type { Candle, CrtBiasContext, CrtPoi, CrtState, DealingRange, DecisionSummary, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, OrderBlock, QualityGrade, SignalActionWindow, SignalEvidenceItem, SignalGovernance, SignalOutcome, StopSource, SwingPoint, Timeframe, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
-import { isCryptoSymbol } from "../../ict/symbols";
 import { accountFromSettings } from "../../risk/accountModel";
 import { estimateExecutionCosts } from "../../risk/executionCosts";
 import { calculatePositionSize } from "../../risk/positionSizing";
@@ -11,7 +10,6 @@ import { performanceFromSignals } from "../../analytics/performance";
 import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/outcomeEngine";
 import { buildCrtBias, validCrtPullback } from "../../intelligence/crtEngine";
 import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../../intelligence/structureEngine";
-import { buildKillzoneContext } from "../../intelligence/killzoneContextEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
@@ -1096,8 +1094,6 @@ export function scoreCrtSetup(input: {
   minimumRR: number;
   htfAlignment: Pick<CrtHtfAlignment, "aligned" | "fullyAligned">;
   smtAligned: boolean;
-  sessionTimedRaid: boolean;
-  inSession: boolean;
   locationTier: CrtSetup["locationTier"];
   referenceCandleScore?: number;
   displacementStrength: CrtSetup["displacementStrength"];
@@ -1112,8 +1108,6 @@ export function scoreCrtSetup(input: {
     + (input.rr >= input.minimumRR ? 20 : Math.max(0, Math.min(19, Math.round(input.rr * 10))));
   const quality = (input.htfAlignment.fullyAligned ? 6 : input.htfAlignment.aligned ? 3 : 0)
     + (input.smtAligned ? 5 : 0)
-    + (input.sessionTimedRaid ? 4 : 0)
-    + (input.inSession ? 2 : 0)
     + (input.locationTier === "weekly" ? 5 : input.locationTier === "daily" ? 4 : input.locationTier === "fvg" ? 2 : 0)
     // reference_candle_score: an A imbalance range candle earns ~6, a D/arbitrary candle ~1.
     + Math.round(((input.referenceCandleScore ?? 0) / 100) * 6)
@@ -1166,7 +1160,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const crtZone = plan.entry >= anchor.range.midpoint ? "premium" : "discount";
   const pdAligned = crtZone === expectedPd(direction);
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
-  const inSession = isCryptoSymbol(context.symbol) || context.killzones.some((zone) => zone.active && zone.name !== "Outside");
   const tp1Valid = direction === "short" ? plan.targets[0] < plan.entry : plan.targets[0] > plan.entry;
   const stopValid = direction === "short" ? plan.stopLoss > plan.entry : plan.stopLoss < plan.entry;
   // The retest must be plausible: an entry sitting further than 1.5R from current price is
@@ -1223,8 +1216,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const displacementStrength = manipulation ? displacementSince(anchor, direction, manipulation.candleIndex) : "none";
   // #4 Session-timed raid: manipulation landing inside a killzone carries the session-sweep
   // narrative (Asia raided by London, London raided by NY) — applied to every anchor.
-  const raidKillzone = anchor.raid ? buildKillzoneContext(anchor.raid.time).find((zone) => zone.active && zone.name !== "Outside")?.name : undefined;
-  const sessionTimedRaid = Boolean(raidKillzone);
   // Master §5: grade the CRT reference candle so an arbitrary doji cannot pose as a real range.
   // Hybrid, not a hard filter: every closed candle is a candidate, but a weak candle scores low.
   let referenceIndex = -1;
@@ -1238,8 +1229,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     ? evaluateReferenceCandle({
         candle: anchor.rangeCandles[referenceIndex],
         recentCandles: anchor.rangeCandles.slice(0, referenceIndex),
-        atMeaningfulLocation: anchorAtKeyLevel || fvgConfluence,
-        keyTime: buildKillzoneContext(anchor.rangeCandles[referenceIndex].time).some((zone) => zone.active && zone.name !== "Outside")
+        atMeaningfulLocation: anchorAtKeyLevel || fvgConfluence
       })
     : undefined;
 
@@ -1287,7 +1277,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
-    !inSession ? "Killzone dışı; hard gate değil ama killzone içi setup'ın ihtimali daha yüksek." : undefined,
     context.eventRisk.noTrade && settings.avoidNews !== true ? `${context.eventRisk.summary} (haber filtresi kapalı; manuel risk notu.)` : undefined,
     continuationAgainst ? "HTF continuation setup yönüne ters; hard gate değil, kalite notu." : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range, false shift riski yüksek.` : undefined,
@@ -1298,11 +1287,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     dealingPdConflict ? "Global dealing range PD ters (CRT range PD doğru); geniş resimde ters yarıda, boyutu küçük tut." : undefined,
     context.regime.type === "chop" ? "Chop/low-energy rejim; fake MSS ve zayıf FVG riski, boyutu küçük tut." : undefined,
     context.regime.type === "news-expansion" ? `Haber/spike expansion rejimi: ${context.regime.summary}` : undefined,
-    context.regime.type === "trend" && biasConflict ? "Trend rejiminde counter-bias CRT; kalite düşük, risk azalt." : undefined,
     eqTooClose ? `EQ/BE mesafesi ${eqDistanceR.toFixed(2)}R (0.5R altı); stop çok erken BE'ye çekilir, DOL öncesi scratch riski yüksek — boyutu küçük tut.` : undefined,
     context.regime.tradeability === "caution" ? context.regime.summary : undefined,
     !smtAligned ? "SMT (correlated pair divergence) yok; en güçlü kurumsal teyit eksik." : undefined,
-    !sessionTimedRaid && anchor.raid ? "Raid bir killzone dışında oluştu; session-sweep anlatısı zayıf." : undefined,
     ...plan.planWarnings
   ].filter((item): item is string => Boolean(item));
   const score = scoreCrtSetup({
@@ -1312,8 +1299,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     minimumRR,
     htfAlignment,
     smtAligned,
-    sessionTimedRaid,
-    inSession,
     locationTier,
     referenceCandleScore: referenceCandle?.score,
     displacementStrength,

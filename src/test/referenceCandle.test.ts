@@ -13,13 +13,12 @@ function backdrop(count = 20): Candle[] {
 
 describe("reference_candle_score", () => {
   it("grades a large-body imbalance candle at meaningful location as A", () => {
-    // body 8 of a 9-range candle (0.89), ~1.8x the 1.0 ATR backdrop, expansion, at location, key time.
+    // body 8 of a 9-range candle (0.89), ~1.8x the 1.0 ATR backdrop, expansion, at location.
     const candle = bar(100.5, 109, 100, 108.5);
     const score = evaluateReferenceCandle({
       candle,
       recentCandles: backdrop(),
-      atMeaningfulLocation: true,
-      keyTime: true
+      atMeaningfulLocation: true
     });
 
     expect(score.bodyRatio).toBeGreaterThan(0.7);
@@ -57,7 +56,7 @@ describe("reference_candle_score", () => {
   });
 
   it("explains every scored component (Master §5)", () => {
-    const score = evaluateReferenceCandle({ candle: bar(100.5, 109, 100, 108.5), recentCandles: backdrop(), atMeaningfulLocation: true, keyTime: true });
+    const score = evaluateReferenceCandle({ candle: bar(100.5, 109, 100, 108.5), recentCandles: backdrop(), atMeaningfulLocation: true });
     expect(score.reasons.length).toBeGreaterThanOrEqual(4);
   });
 });

@@ -10,8 +10,6 @@ const coreOnly = {
   managementRR: 1.2,
   htfAlignment: { aligned: false, fullyAligned: false },
   smtAligned: false,
-  sessionTimedRaid: false,
-  inSession: false,
   locationTier: "none" as const,
   referenceCandleScore: 0,
   displacementStrength: "none" as const,
@@ -34,8 +32,6 @@ describe("CRT score / grade split", () => {
       ...coreOnly,
       htfAlignment: { aligned: true, fullyAligned: true },
       smtAligned: true,
-      sessionTimedRaid: true,
-      inSession: true,
       locationTier: "weekly",
       referenceCandleScore: 90,
       displacementStrength: "strong",
@@ -46,8 +42,8 @@ describe("CRT score / grade split", () => {
   });
 
   it("partial quality lands between B and A+", () => {
-    const score = scoreCrtSetup({ ...coreOnly, htfAlignment: { aligned: true, fullyAligned: true }, inSession: true, locationTier: "daily", shiftFvgOrRetest: true });
-    expect(score).toBe(85);
+    const score = scoreCrtSetup({ ...coreOnly, htfAlignment: { aligned: true, fullyAligned: true }, locationTier: "daily", shiftFvgOrRetest: true });
+    expect(score).toBe(83);
     expect(gradeFromScore(score)).toBe("A");
   });
 
