@@ -455,6 +455,8 @@ export type CrtAnchorInfo = {
   // Master §6 tam lifecycle zinciri (10 durum); setupPhase sıralama için kalan kaba özettir.
   lifecycleState?: "CANDIDATE" | "ACTIVE_RANGE" | "SIDE_SWEPT" | "RETURNED_INSIDE" | "CONFIRMATION_PENDING" | "CONFIRMED" | "TARGETING_MIDPOINT" | "TARGETING_OPPOSITE_EXTREME" | "INVALIDATED" | "COMPLETED";
   crtState?: CrtState;
+  // Open trade: opposing SMT + opposing MSS after the fill (CRT Secrets: target cancelled). Warning only.
+  exitWarning?: string;
   referenceCandleScore?: number;
   referenceCandleGrade?: string;
   turtleSoup?: boolean;

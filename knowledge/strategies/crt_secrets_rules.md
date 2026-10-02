@@ -58,4 +58,5 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
 | Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
+| Hedefe giderken ters SMT + ters MSS → hedef iptal | ✅ uyarı (`targetInvalidation.ts`, Telegram ÇIKIŞ UYARISI; otomatik kapatma yok) |
 | Gemini bilgi tabanı + talimatlar | ✅ `src/lib/gemini/crtKnowledge.ts`, `systemInstructions.ts`, trade mentoru prompt'u |

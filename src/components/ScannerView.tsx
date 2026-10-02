@@ -426,7 +426,7 @@ export function ScannerView({
               type="button"
             >
               <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
+              <strong>{signal.symbol}{signal.chopConflict ? "" : ` ${signal.direction.toUpperCase()}`} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.chopConflict ? <span className="chop-tag">chop · dur</span> : signal.counterTrend && <span className="counter-trend-tag">trende karşı</span>}{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}{signal.crtAnchor?.exitWarning && <span className="stale-tag" title={signal.crtAnchor.exitWarning}>⚠ hedef iptal riski</span>}</strong>
               {signal.chopConflict ? (
                 <>
                   <b className="chop-note">Zıt yönlü raid</b>

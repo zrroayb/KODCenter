@@ -375,6 +375,8 @@ export function buildGeminiTradeCommentaryPayload(signal: TradingSignal): Gemini
       explanation: item.explanation
     })),
     warnings: Array.from(new Set([
+      // Open trade with a cancelled DOL (opposing SMT + MSS) leads the list so the AI addresses it.
+      ...(signal.crtAnchor?.exitWarning ? [signal.crtAnchor.exitWarning] : []),
       ...signal.decisionSummary.warnings,
       ...signal.plan.planWarnings,
       ...signal.riskWarnings

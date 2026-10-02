@@ -217,6 +217,7 @@ export function SignalDetailsPanel({
         <h3>{signal.symbol} {signal.direction.toUpperCase()} · {formatR(signal.plan.rr)}</h3>
         <p>{structureAudit.decision}</p>
       </section>
+      {signal.crtAnchor?.exitWarning && <p className="risk-brake-note">⚠ {signal.crtAnchor.exitWarning}</p>}
       {/* CRT: EQ'da stop BE, çıkış DOL. */}
       {(
         <div className="simple-plan-grid">

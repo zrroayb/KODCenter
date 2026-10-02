@@ -8,6 +8,7 @@ import { estimateExecutionCosts } from "../../risk/executionCosts";
 import { calculatePositionSize } from "../../risk/positionSizing";
 import { performanceFromSignals } from "../../analytics/performance";
 import { evaluateSignalOutcome, buildActionWindow } from "../../intelligence/outcomeEngine";
+import { crtTargetInvalidation } from "./targetInvalidation";
 import { buildCrtBias, validCrtPullback } from "../../intelligence/crtEngine";
 import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../../intelligence/structureEngine";
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
@@ -1422,6 +1423,10 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   // key level is missing." Hiding them is why valid-looking Daily CRT ideas never appeared.
   const readyCandidate = setup.readyEligible;
   const life = lifecycle(context, anchor, setup, readyCandidate);
+  // Open trade only: opposing SMT + opposing MSS after the fill cancels the DOL (warning only).
+  const targetInvalidation = life.outcome.status === "open" && typeof setup.retestIndex === "number"
+    ? crtTargetInvalidation({ candles: anchor.confirmCandles, direction: setup.direction, entryIndex: setup.retestIndex, smtDivergences: context.smtDivergences })
+    : undefined;
   const grade = gradeFromScore(setup.score);
   // Trende karşı mı: daily yapısal yön (varsa) sinyal yönüne ters (bilgi; HTF kapısı ayrı).
   const dailyBias = context.biasDetail?.daily?.bias;
@@ -1470,7 +1475,8 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       crtState: deriveCrtState(setup, life.stage, life.outcome.status),
       referenceCandleScore: setup.referenceCandle?.score,
       referenceCandleGrade: setup.referenceCandle?.grade,
-      turtleSoup: Boolean(setup.turtleSoup)
+      turtleSoup: Boolean(setup.turtleSoup),
+      exitWarning: targetInvalidation?.message
     }
   };
 }

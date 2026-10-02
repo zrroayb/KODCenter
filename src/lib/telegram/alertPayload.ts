@@ -16,7 +16,7 @@ export type TelegramReadyAlertPayload = {
   grade: string;
   score: number;
   stage: "ready" | "watch";
-  alertKind?: "ready" | "raid" | "context";
+  alertKind?: "ready" | "raid" | "context" | "exit";
   playbook?: string;
   strategyId?: string;
   createdAt: number;
@@ -56,7 +56,7 @@ export type TelegramAlertRecord = {
   targets: number[];
   rr: number;
   reasons: string[];
-  alertKind: "ready" | "raid" | "context";
+  alertKind: "ready" | "raid" | "context" | "exit";
   rangeTf?: string;
   confirmTf?: string;
   currentStage?: SignalStage;
@@ -180,6 +180,23 @@ export function buildTelegramReadyAlertPayload(signal: TradingSignal): TelegramR
     riskPct,
     priority,
     tradeContext: buildGeminiTradeCommentaryPayload(signal)
+  };
+}
+
+// Open-trade warning (CRT Secrets §4): opposing SMT + opposing MSS after the fill cancels the DOL
+// target. One message per setup; KODCenter never closes the trade, it only tells the owner.
+export function buildTelegramExitAlertPayload(signal: TradingSignal): TelegramReadyAlertPayload | undefined {
+  const warning = signal.crtAnchor?.exitWarning;
+  if (!warning || signal.outcome.status !== "open") return undefined;
+  const ready = buildTelegramReadyAlertPayload(signal);
+  return {
+    ...ready,
+    dedupeKey: `exit|${ready.dedupeKey}`,
+    alertKind: "exit",
+    rangeTf: signal.crtAnchor?.rangeTf,
+    confirmTf: signal.crtAnchor?.confirmTf,
+    reasons: [warning],
+    tradeContext: undefined
   };
 }
 

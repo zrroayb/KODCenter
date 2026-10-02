@@ -40,7 +40,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 246 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 250 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -178,3 +178,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Killzone/session saati kalite puanından çıktı (kaynak mekanik saat kuralı reddediyor; 1/5/9 ile aynı gerekçe): CRT skorundan `sessionTimedRaid` (+4) ve `inSession` (+2), referans mum skorundan killzone bileşeni (+10, skor 90→100'e yeniden ölçeklendi) ve iki killzone uyarısı silindi; "trend rejiminde counter-bias" uyarısı `biasConflict` uyarısını tekrar ettiği için silindi. Killzone saati hâlâ ekranda bilgi olarak görünüyor, kararı etkilemiyor. Gemini: reference-candle-quality kaydı "session/killzone kalite faktörü değil" diyor. 247 test.
 - 2026-10-02 — Deneysel anchor aileleri (FVG-origin, Active CRT) motordan silindi (~320 satır): canlıda kapalıydı (`experimentalAnchors`), hep blocker'lı WATCH üretiyordu ve kaynakta karşılığı yok. `AnchorOrigin` tipi, iki builder, manipulation/direction dalları, `originLabel`/`originClosed` alanları ve UI'daki "range mumu kapansın" dalı gitti; iki deneysel test silindi. Gemini metinlerinde bu ailelerden söz yoktu. 245 test.
 - 2026-10-02 — Hata: `eqConsumed` EQ dokunuşunu raid'den sonraki TÜM confirm mumlarında arıyordu; işleme girildikten sonra fiyat EQ'ya gelince (stop BE'ye, hedef DOL) canlı sinyal "missed / setup tüketildi" oluyor ve açık pozisyon ekrandan düşüyordu. Artık yalnız girişten (retest mumu) ÖNCEKİ mumlar sayılıyor (`isCrtEqConsumed(..., entryIndex)`). Gemini bilgi tabanı zaten "entry'den önce" diyordu. Test eklendi; 246 test.
+- 2026-10-02 — Hedef iptali / çıkış uyarısı (CRT Secrets §4): açık işlemde (outcome `open`) girişten sonra ters SMT + onay TF'sinde son ters swing'in gövde kapanışıyla kırılması (ters MSS) birlikte gelirse `crtAnchor.exitWarning` (`src/lib/strategies/crt/targetInvalidation.ts`). Yalnız UYARI — sistem işlem kapatmaz. Telegram: `cloud-scan` açık işlemleri (görünür + gizli + inactive listeler) tarar, `buildTelegramExitAlertPayload` ile setup başına bir "ÇIKIŞ UYARISI" (`alertKind: "exit"`, dedupe `exit|…`, AI yorumu yok); sunucu exit'i kabul eder. Site: detayda kırmızı not, tarama kartında "hedef iptal riski" etiketi. Gemini: uyarı yorum payload'unun başında; crt-targets kaydı ve mentor SOP'u "açık işlemde hedef iptal → çıkış/stop sıkılaştırmayı öner, sistem kapattı deme". 250 test. **Bilinen açık:** açık işlemin entry penceresi (16 onay mumu) dolunca stage `missed`'e düşüyor — işlem hâlâ açıkken ekranda "GEÇMİŞ" görünür.
