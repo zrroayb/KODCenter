@@ -1,21 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { DemoMarket } from "../data/demoData";
+import { activeCrtRange, crtPhaseText } from "../lib/charts/crtRange";
 import { signalConfirmTimeframe } from "../lib/charts/selectedSignal";
-import type { Candle, DealingRange, MarketContext, TradingSignal } from "../lib/ict/types";
+import type { Candle, MarketContext, TradingSignal } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 import type { JournalEntry } from "../lib/journal/types";
 import { CrtLiteChart } from "./CrtLiteChart";
 import { SignalDetailsPanel } from "./SignalDetailsPanel";
 
-type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly";
+type ChartTab = "m15" | "h1" | "h4" | "daily" | "weekly" | "monthly";
 
-const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string; mode: "execution" | "confirmation" | "context" | "daily" }> = [
-  { id: "m15", label: "15m", caption: "execution", mode: "execution" },
-  { id: "h1", label: "1h", caption: "confirmation", mode: "confirmation" },
-  { id: "h4", label: "4h", caption: "CRT Range", mode: "context" },
-  { id: "daily", label: "1D", caption: "DOL", mode: "daily" },
-  { id: "weekly", label: "1W", caption: "CRT", mode: "daily" }
+// One CRT range per tab, nothing else. 4H / 1D / 1W / 1M draw their own active Candle 1; the
+// 15m / 1h execution tabs show the 1D range carried down (CRT Secrets: 1D range -> 1H/15m model,
+// HTF levels are transferred unchanged to the LTF chart).
+const RANGE_SOURCE: Record<ChartTab, { tab: ChartTab; label: string }> = {
+  m15: { tab: "daily", label: "1D" },
+  h1: { tab: "daily", label: "1D" },
+  h4: { tab: "h4", label: "4H" },
+  daily: { tab: "daily", label: "1D" },
+  weekly: { tab: "weekly", label: "1W" },
+  monthly: { tab: "monthly", label: "1M" }
+};
+
+const CHART_TABS: Array<{ id: ChartTab; label: string; caption: string }> = [
+  { id: "m15", label: "15m", caption: "giriş · 1D range" },
+  { id: "h1", label: "1h", caption: "onay · 1D range" },
+  { id: "h4", label: "4H", caption: "CRT range" },
+  { id: "daily", label: "1D", caption: "CRT range" },
+  { id: "weekly", label: "1W", caption: "CRT range" },
+  { id: "monthly", label: "1M", caption: "CRT range" }
 ];
 
 function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
@@ -23,6 +37,7 @@ function candlesForTab(market: DemoMarket, tab: ChartTab): Candle[] {
   if (tab === "h1") return market.timeframes.h1;
   if (tab === "h4") return market.timeframes.h4;
   if (tab === "weekly") return market.timeframes.weekly;
+  if (tab === "monthly") return market.timeframes.monthly;
   return market.timeframes.daily;
 }
 
@@ -51,29 +66,6 @@ function captionFor(item: { id: ChartTab; caption: string }, signal: TradingSign
   if (ANCHOR_TAB[signal.crtAnchor.rangeTf] === item.id) return "CRT Range";
   if (confirmTabFor(signal) === item.id) return "Confirmation";
   return item.caption;
-}
-
-// Chart üstünde çizilecek "range" kutusu. CRT'de CRT range; Trend Continuation'da pullback FVG
-// (POI) — CRT range'i çizmek continuation'da alakasız/yanıltıcıydı. Sinyal yoksa aktif CRT range.
-function chartRangeFor(signal: TradingSignal | null, context: MarketContext): DealingRange {
-  if (signal?.crtAnchor) {
-    return {
-      high: signal.crtAnchor.rangeHigh,
-      low: signal.crtAnchor.rangeLow,
-      midpoint: (signal.crtAnchor.rangeHigh + signal.crtAnchor.rangeLow) / 2,
-      source: `CRT ${signal.crtAnchor.rangeTf} range`
-    };
-  }
-  if (signal?.strategyId === "trend-continuation") {
-    const fvg = signal.plan.entryModel?.fairValueGap;
-    if (fvg) {
-      return { high: fvg.high, low: fvg.low, midpoint: (fvg.high + fvg.low) / 2, source: "Pullback FVG · continuation POI" };
-    }
-    const high = Math.max(signal.plan.entry, signal.plan.stopLoss);
-    const low = Math.min(signal.plan.entry, signal.plan.stopLoss);
-    return { high, low, midpoint: (high + low) / 2, source: "Continuation giriş bölgesi" };
-  }
-  return context.crt.activeRange;
 }
 
 function MarketContextPanel({ context, signals }: { context: MarketContext; signals: TradingSignal[] }) {
@@ -153,6 +145,10 @@ export function ChartsView({
     if (selectedConfirmTab) setActiveTab(selectedConfirmTab);
   }, [activeSelectedSignal?.id, selectedConfirmTab]);
   const tab = CHART_TABS.find((item) => item.id === activeTab) ?? CHART_TABS[0];
+  const activeRange = useMemo(
+    () => activeCrtRange(candlesForTab(market, RANGE_SOURCE[activeTab].tab)),
+    [market, activeTab]
+  );
 
   const pairRail = symbols.map((symbol) => {
     const anchors = signals
@@ -218,7 +214,9 @@ export function ChartsView({
         </div>
         <CrtLiteChart
           candles={candlesForTab(market, activeTab)}
-          range={chartRangeFor(activeSelectedSignal, context)}
+          crtRange={activeRange}
+          rangeLabel={RANGE_SOURCE[activeTab].label}
+          phaseText={activeRange ? crtPhaseText(activeRange, RANGE_SOURCE[activeTab].label) : undefined}
           title={`${market.symbol} · ${tab.label} ${captionFor(tab, activeSelectedSignal)}`}
           bias={activeSelectedSignal ? activeSelectedSignal.direction : context.crt.selectedBias.direction}
           plan={activeSelectedSignal?.plan}

@@ -5554,3 +5554,7 @@ button {
   .exit-compare__tags .tag.live { color: #7a5c00; border-color: #c9a84c; }
   .exit-compare__progress span { background: #c9a84c; }
 }
+
+/* CRT cycle phase under the chart head: C3 = trade window (gold), C2 = waiting (muted). */
+.crt-lite-chart__phase { font-size: 12px; font-weight: 600; padding: 2px 2px 6px; color: var(--muted); }
+.crt-lite-chart__phase.c3 { color: var(--gold-ink); }
