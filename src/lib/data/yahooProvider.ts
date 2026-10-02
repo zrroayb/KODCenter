@@ -202,6 +202,17 @@ async function withRetry<T>(label: string, task: () => Promise<T>, attempts = 2)
   throw new Error(`${label}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
+// Daily series on the New York-close anchor: NY sessions rebuilt from 1h (the first bucket is
+// dropped — the 1h window starts mid-session), Yahoo's own bars only before that.
+export function nyCloseDaily(yahooDaily: Candle[], h1: Candle[]): Candle[] {
+  const sessions = aggregateCandles(h1, "1d").slice(1);
+  const first = sessions[0];
+  if (!first) return yahooDaily;
+  // Trade date of the first rebuilt session (its open is the previous evening, NY).
+  const firstTradeDay = Math.floor((first.time + 12 * 60 * 60 * 1000) / YAHOO_INTERVAL_MS["1d"]) * YAHOO_INTERVAL_MS["1d"];
+  return [...yahooDaily.filter((candle) => candle.time < firstTradeDay), ...sessions];
+}
+
 export async function loadYahooMarket(
   item: YahooSymbolDefinition,
   signal?: AbortSignal,
@@ -221,13 +232,19 @@ export async function loadYahooMarket(
     throw new Error(`${item.symbol}: Yahoo eksik candle döndürdü`);
   }
 
+  // CRT reads the daily candle off a New York-close chart (17:00 NY), the same anchor as the 4H
+  // series. Yahoo's 1d bar is a London/UTC day, so its high/low is a DIFFERENT Candle 1. Rebuild
+  // every day the 1h feed covers on the NY anchor; older history (weekly/monthly depth only)
+  // keeps Yahoo's bars.
+  const nyDaily = isCryptoSymbol(item.symbol) ? daily : nyCloseDaily(daily, h1);
+
   return {
     symbol: item.symbol,
     name: item.name,
     timeframes: {
-      monthly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1M"), 24), item.symbol),
-      weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(daily, "1w", { sundayOpensWeek: !isCryptoSymbol(item.symbol) }), 80), item.symbol),
-      daily: enrichWithSyntheticBidAsk(trimCandles(daily, 180), item.symbol),
+      monthly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(nyDaily, "1M"), 24), item.symbol),
+      weekly: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(nyDaily, "1w", { sundayOpensWeek: !isCryptoSymbol(item.symbol) }), 80), item.symbol),
+      daily: enrichWithSyntheticBidAsk(trimCandles(nyDaily, 180), item.symbol),
       h4: enrichWithSyntheticBidAsk(trimCandles(aggregateCandles(h1, "4h"), 180), item.symbol),
       h1: enrichWithSyntheticBidAsk(trimCandles(h1, 780), item.symbol),
       m15: enrichWithSyntheticBidAsk(trimCandles(m15.length ? m15 : aggregateCandles(m5, "15m"), 3_000), item.symbol),

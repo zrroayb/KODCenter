@@ -192,84 +192,6 @@ describe("CRT direction sources", () => {
     expect(dailySignal?.evidence.some((item) => item.id === "turtle-soup")).toBe(false);
     expect(dailySignal?.governance.blockers.join(" ")).toContain("1h ChoCH");
   });
-
-  it("surfaces a tapped 4H FVG origin candle as its own CRT watch setup", () => {
-    const base = createStructureContext();
-    const h4 = patchCandles(base.timeframes.h4, {
-      18: { open: 99, high: 100, low: 98, close: 99.2 },
-      19: { open: 99.2, high: 106, low: 99, close: 105.5 },
-      20: { open: 105.5, high: 107, low: 102, close: 106.2 },
-      21: { open: 106.2, high: 106.4, low: 101.4, close: 103.2 },
-      22: { open: 103.2, high: 105.2, low: 102.8, close: 104.6 },
-      23: { open: 104.6, high: 106.2, low: 104.1, close: 105.7 }
-    });
-    const m15 = base.timeframes.m15.map((candle) => ({ ...candle, open: 105, high: 105.4, low: 104.6, close: 105 }));
-    const context = createStructureContext({
-      timeframes: { ...base.timeframes, h4, m15, m5: m15 },
-      bias: { monthly: "bullish", weekly: "bullish", daily: "bullish", h4: "bullish", h1: "bullish" },
-      premiumDiscount: { zone: "discount", positionPct: 0.3, midpoint: 103.5 },
-      liquidityObjectives: [
-        { id: "PDH", kind: "PDH", side: "buy-side", level: 107, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
-        { id: "PDL", kind: "PDL", side: "sell-side", level: 100, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
-      ]
-    });
-
-    const result = crtStrategy.scan({
-      context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
-    });
-    const signal = result.signals.find((item) => item.crtAnchor?.origin === "fvg-origin");
-
-    expect(signal).toBeDefined();
-    expect(signal?.direction).toBe("long");
-    expect(signal?.stage).toBe("watch");
-    expect(signal?.crtAnchor?.originLabel).toBe("4H FVG origin CRT");
-    expect(signal?.governance.blockers.join(" ")).toContain("deneysel model");
-    expect(signal?.evidence.find((item) => item.id === "crt-range")?.detail).toContain("FVG origin candle");
-    expect(signal?.evidence.find((item) => item.id === "poi")?.detail).toContain("CRT yine geçerlidir");
-    expect(signal?.governance.blockers.join(" ")).toContain("Manipulation");
-    expect(signal?.governance.blockers.join(" ")).toContain("ChoCH");
-
-    // Varsayılan: deneysel aileler canlı listede yok (WATCH gürültüsü).
-    const defaults = crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false } });
-    expect(defaults.signals.some((item) => item.crtAnchor?.origin === "fvg-origin" || item.crtAnchor?.origin === "active-crt")).toBe(false);
-  });
-
-  it("surfaces the current Daily CRT candle as visible context instead of hiding it", () => {
-    const base = createStructureContext();
-    const daily = patchCandles(base.timeframes.daily, {
-      20: { open: 1650, high: 1778, low: 1600, close: 1740 },
-      21: { open: 1740, high: 1790, low: 1708, close: 1735 },
-      22: { open: 1735, high: 1780, low: 1718, close: 1744 },
-      23: { open: 1744.26, high: 1806.82, low: 1736.61, close: 1798.76 }
-    });
-    const h1 = base.timeframes.h1.map((candle) => ({ ...candle, open: 1796, high: 1802, low: 1790, close: 1798.76 }));
-    const context = createStructureContext({
-      symbol: "ETHUSD",
-      timeframes: { ...base.timeframes, daily, h1 },
-      bias: { monthly: "bullish", weekly: "bullish", daily: "bullish", h4: "bullish", h1: "bullish" },
-      premiumDiscount: { zone: "discount", positionPct: 0.34, midpoint: 1736 },
-      liquidityObjectives: [
-        { id: "PDH", kind: "PDH", side: "buy-side", level: 1806.82, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
-        { id: "PDL", kind: "PDL", side: "sell-side", level: 1736.61, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" }
-      ]
-    });
-
-    const result = crtStrategy.scan({
-      context,
-      settings: { ...crtStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false, experimentalAnchors: true }
-    });
-    const dailyActive = result.signals.find((signal) => signal.crtAnchor?.origin === "active-crt" && signal.crtAnchor.rangeTf === "1d");
-
-    expect(dailyActive).toBeDefined();
-    expect(dailyActive?.symbol).toBe("ETHUSD");
-    expect(dailyActive?.direction).toBe("long");
-    expect(dailyActive?.stage).toBe("watch");
-    expect(dailyActive?.crtAnchor?.originLabel).toBe("Forming 1D CRT");
-    expect(dailyActive?.crtAnchor?.rangeHigh).toBe(1806.82);
-    expect(dailyActive?.crtAnchor?.rangeLow).toBe(1736.61);
-    expect(dailyActive?.evidence.find((item) => item.id === "crt-range")?.detail).toContain("Forming 1D CRT");
-  });
 });
 
 describe("CRT raid persistence", () => {
@@ -330,7 +252,7 @@ describe("CRT raid persistence", () => {
     expect(signal.direction).toBe("short");
     expect(signal.stage).toBe("missed");
     expect(signal.outcome.summary).toContain("%50/EQ");
-    expect(signal.plan.planWarnings.join(" ")).toContain("setup tüketildi");
+    expect(signal.governance.blockers.join(" ")).toContain("setup tüketildi");
   });
 
   it("drops the mirrored LONG setup once price has already reached the CRT midpoint", () => {
@@ -442,5 +364,17 @@ describe("CRT manipulation must be an anchor-range raid", () => {
     expect(h4Standard?.crtAnchor?.raidActive).toBe(false);
     expect(h4Standard?.governance.blockers.join(" ")).toContain("raid yok");
     expect(h4Standard?.stage).not.toBe("ready");
+  });
+});
+
+describe("EQ consumed only counts BEFORE the entry fill", () => {
+  it("EQ reached after the retest entry is the open trade arming BE, not a consumed setup", async () => {
+    const { isCrtEqConsumed } = await import("../lib/strategies/crt/crt.strategy");
+    const bar = (high: number, low: number) => ({ time: 0, open: low, high, low, close: high, volume: 1, closed: true });
+    // Long, EQ 100: raid at 0, entry (retest) at 2, EQ touched at 3.
+    const candles = [bar(95, 90), bar(97, 93), bar(96, 94), bar(101, 95)];
+    expect(isCrtEqConsumed(candles, "long", 100, 0, 2)).toBe(false);
+    // Without an entry yet, the same EQ touch consumes the setup.
+    expect(isCrtEqConsumed(candles, "long", 100, 0)).toBe(true);
   });
 });

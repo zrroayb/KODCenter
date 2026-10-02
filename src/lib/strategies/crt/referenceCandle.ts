@@ -13,7 +13,6 @@ export type ReferenceCandleComponents = {
   rangeVsAtr: number;  // 0-25  0.8x-2.5x of ATR = meaningful, not noise and not exhausted
   expansion: number;   // 0-15  range vs recent median range (an expansion candle)
   location: number;    // 0-20  swept extreme sits at meaningful HTF liquidity / PD array
-  session: number;     // 0-10  formed at a key open / killzone
 };
 
 export type ReferenceCandleGrade = "A" | "B" | "C" | "D";
@@ -64,7 +63,6 @@ export function evaluateReferenceCandle(input: {
   candle: Candle;
   recentCandles: Candle[];
   atMeaningfulLocation?: boolean;
-  keyTime?: boolean;
   config?: Partial<typeof REFERENCE_CANDLE_DEFAULTS>;
 }): ReferenceCandleScore {
   const cfg = { ...REFERENCE_CANDLE_DEFAULTS, ...input.config };
@@ -106,12 +104,10 @@ export function evaluateReferenceCandle(input: {
   if (input.atMeaningfulLocation) reasons.push("Mum, anlamlı HTF likidite / PD array üzerinde.");
   else reasons.push("Anlamlı HTF key level / PD array yakınında değil (konum artısı yok).");
 
-  // 5) Session — a key open / killzone candle carries the session narrative.
-  const session = input.keyTime ? 10 : 0;
-  if (input.keyTime) reasons.push("Key open / killzone mumu.");
-
-  const components: ReferenceCandleComponents = { imbalance, rangeVsAtr, expansion, location, session };
-  const score = Math.max(0, Math.min(100, imbalance + rangeVsAtr + expansion + location + session));
+  // No session/killzone component (CRT Secrets: no mechanical time rule). The four parts sum to
+  // 90; rescale to 0-100 so the grade bands keep their meaning.
+  const components: ReferenceCandleComponents = { imbalance, rangeVsAtr, expansion, location };
+  const score = Math.max(0, Math.min(100, Math.round(((imbalance + rangeVsAtr + expansion + location) * 100) / 90)));
 
   return { score, grade: gradeFor(score), bodyRatio, rangeAtrMultiple, exhausted, components, reasons };
 }

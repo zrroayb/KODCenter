@@ -18,3 +18,4 @@ vite.config.d.ts
 
 # External CRT/ICT reference repos (inspected, not shipped)
 references/
+.alert-state/

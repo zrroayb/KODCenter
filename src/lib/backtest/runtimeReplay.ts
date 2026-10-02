@@ -1125,12 +1125,14 @@ function liveExitModelId(settings: StrategySettings): ScenarioId {
 // Compare exit rules over the SAME entered trades: same entries, same candles, only the exit
 // differs. Every row is a variant (no "rMultiple" shortcut), so the live row is labelled by the
 // configured exit model, not assumed.
-function managementScenarios(trades: RuntimeReplayTrade[], settings: StrategySettings): RuntimeReplayManagementScenario[] {
+type ScenarioTrade = Pick<RuntimeReplayTrade, "signalTime" | "status" | "rMultiple" | "managementVariants">;
+
+export function managementScenarios(trades: ScenarioTrade[], settings: StrategySettings): RuntimeReplayManagementScenario[] {
   const sample = trades
     .filter((trade) => trade.status !== "not-triggered" && trade.managementVariants)
     .sort((a, b) => a.signalTime - b.signalTime);
   const liveId = liveExitModelId(settings);
-  const rows: Array<{ id: ScenarioId; label: string; description: string; rOf: (trade: RuntimeReplayTrade) => number }> = [
+  const rows: Array<{ id: ScenarioId; label: string; description: string; rOf: (trade: ScenarioTrade) => number }> = [
     { id: "dol-be", label: "DOL hedef + EQ'da BE", description: "Tamamı DOL'da kapanır; EQ görülünce stop BE'ye.", rOf: (trade) => trade.managementVariants?.dolBe ?? trade.rMultiple },
     { id: "eq-full", label: "EQ'da tam çıkış", description: "Tamamı ilk hedefte (EQ) kapanır; DOL beklenmez.", rOf: (trade) => trade.managementVariants?.eqFull ?? trade.rMultiple },
     { id: "eq-partial-be", label: "EQ %50 + BE", description: "EQ'da yarısı alınır, kalan DOL'a; +1R sonrası stop BE.", rOf: (trade) => trade.managementVariants?.eqPartialBe ?? trade.rMultiple },
@@ -1187,7 +1189,7 @@ function managementScenarios(trades: RuntimeReplayTrade[], settings: StrategySet
 
 // The decision itself: highest expectancy, and the steadiest (lowest best-day share among the
 // profitable ones) — a consistency-payout trader weighs both. No pick below the sample gate.
-function managementDecision(scenarios: RuntimeReplayManagementScenario[]): RuntimeReplayManagementDecision | undefined {
+export function managementDecision(scenarios: RuntimeReplayManagementScenario[]): RuntimeReplayManagementDecision | undefined {
   if (!scenarios.length) return undefined;
   const live = scenarios.find((item) => item.live) ?? scenarios[0];
   const sample = live.trades;

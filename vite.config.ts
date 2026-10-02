@@ -281,6 +281,16 @@ function telegramCaption(payload: ReadyTelegramPayload) {
       reasons || "- Raid + reclaim aktif"
     ].join("\n");
   }
+  if (payload.alertKind === "exit") {
+    return [
+      `<b>ÇIKIŞ UYARISI</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")} CRT, açık işlem)`,
+      `Entry ${formatTelegramPrice(payload.entry)} · Stop ${formatTelegramPrice(payload.stopLoss)} · DOL ${formatTelegramPrice(payload.targets?.[1] ?? payload.targets?.[0])}`,
+      "",
+      reasons || "- Ters SMT + ters MSS",
+      "",
+      "Otomatik işlem yok: çıkış / stop sıkılaştırma kararı senin."
+    ].join("\n");
+  }
   if (payload.alertKind === "context") {
     return [
       `<b>CRT CONTEXT</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")})`,
@@ -426,7 +436,7 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
 Sen deneyimli bir Candle Range Theory (CRT) mentorusun; öğrencinin chartını okuyup net ve doğrudan konuşursun.
 CRT modelin 3 mum döngüsüdür: Candle 1 range'i (wick high/low ve %50 EQ) tanımlar; Candle 2 tek bir ucu fitille süpürür ve range içinde kapanır (manipulation); yalnız Candle 3 işlenir (distribution) — Candle 2 kapanmadan işleme girilmez.
 Zorunlu iki şart: CRT bir key level'da olmalı (eski HTF high/low, HTF FVG, açılış fiyatı) ve HTF trend yönünde olmalı. Key level'sız veya trend tersine CRT'ye "işlenmez" dersin; istisna yok.
-SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → EQ (0.5) görülünce stop break-even'a → çıkış DOL (karşı likidite), pozisyonun tamamı; kısmi TP yok.
+SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → EQ (0.5) görülünce stop break-even'a → çıkış DOL (karşı likidite), pozisyonun tamamı; kısmi TP yok. Açık işlemde uyarılarda "Hedef iptal riski" (ters SMT + ters MSS) varsa: DOL hedefi kaynak kuralına göre iptal — çıkışı veya stop sıkılaştırmayı değerlendirmesini söyle; sistemin işlemi kapattığını asla söyleme.
 Sıra disiplini bozulmaz: sweep yoksa "manipulation bekle" dersin, ChoCH yoksa "kapanış onayı bekle" dersin, retest kaçtıysa "kovalanmaz, yeni model bekle" dersin.
 Stop entry'nin yanlış tarafındaysa veya TP entry'nin gerisindeyse bunu sert söyle: bu plan geometrisi bozuk, trade edilmez.
 Zamanlamayı değerlendir: haftalık döngüde Pazartesi çoğu zaman sahte high/low, Salı/Çarşamba haftanın gerçek high/low'u, Perşembe/Cuma karşı uca genişleme. Mekanik saat kalıbı (4H 1/5/9 gibi) kural değildir.
@@ -994,7 +1004,7 @@ async function sendTelegramReadyAlert(payload: ReadyTelegramPayload, env: Telegr
     return { status: "disabled" as const, reason: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing" };
   }
 
-  const shouldUseAiCommentary = payload.alertKind !== "raid" && payload.alertKind !== "context";
+  const shouldUseAiCommentary = payload.alertKind !== "raid" && payload.alertKind !== "context" && payload.alertKind !== "exit";
   const aiResult = payload.aiCommentary || !shouldUseAiCommentary
     ? undefined
     : await generateGeminiTradeCommentary(payload.tradeContext ?? payload, env);
@@ -1111,7 +1121,7 @@ async function handleTelegramReadyAlert(request: JsonRequest, response: YahooPro
   try {
     const payload = await readJsonBody(request) as ReadyTelegramPayload & { dedupeKey?: string; record?: unknown };
     const acceptedWatchAlert = payload.stage === "watch" && (payload.alertKind === "raid" || payload.alertKind === "context");
-    if (payload.stage !== "ready" && !acceptedWatchAlert) {
+    if (payload.stage !== "ready" && !acceptedWatchAlert && payload.alertKind !== "exit") {
       jsonResponse(response, 400, { status: "error", error: "Only READY, CRT raid or CRT context alerts are accepted" });
       return;
     }

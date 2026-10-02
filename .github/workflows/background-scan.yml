@@ -32,8 +32,24 @@ jobs:
       # Single alert engine: scans with the current code and posts READY alerts to the live
       # site (Render). CLOUD_SCAN_URL = the Render base URL; SCAN_TOKEN = same value as the
       # SCAN_TOKEN env var on Render.
+      # Sent-alert memory: Render (free plan) loses its alert log when it sleeps, so the scanner
+      # keeps the dedupe keys it already delivered. Restore the newest saved copy, save a new one.
+      - name: Restore sent-alert state
+        uses: actions/cache/restore@v4
+        with:
+          path: .alert-state
+          key: alert-state-${{ github.run_id }}
+          restore-keys: alert-state-
+
       - name: Scan all markets
         run: npm run cloud:scan
         env:
           CLOUD_SCAN_URL: ${{ secrets.CLOUD_SCAN_URL }}
           SCAN_TOKEN: ${{ secrets.SCAN_TOKEN }}
+
+      - name: Save sent-alert state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .alert-state
+          key: alert-state-${{ github.run_id }}

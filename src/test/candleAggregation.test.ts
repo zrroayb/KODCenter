@@ -89,3 +89,47 @@ describe("weekly bucket and the Sunday open", () => {
     expect(weeks[1].high).toBe(121);
   });
 });
+
+describe("New York-close daily (FX/futures CRT Candle 1)", () => {
+  const HOUR = 60 * 60 * 1000;
+  // Hourly bars from Wed 2026-09-23 18:00 UTC to Thu 23:00 UTC (EDT: 17:00 NY = 21:00 UTC).
+  const start = Date.UTC(2026, 8, 23, 18);
+  const h1 = Array.from({ length: 30 }, (_, i) => {
+    const time = start + i * HOUR;
+    // A spike at 22:00 UTC Wed (= Thursday's NY session) must land in Thursday's candle.
+    const high = time === Date.UTC(2026, 8, 23, 22) ? 150 : 101;
+    return { time, open: 100, high, low: 99, close: 100, volume: 1, closed: true };
+  });
+
+  it("buckets 17:00 NY -> 17:00 NY, not UTC midnight", () => {
+    const days = aggregateCandles(h1, "1d");
+    expect(days.map((d) => d.time)).toEqual([Date.UTC(2026, 8, 22, 21), Date.UTC(2026, 8, 23, 21), Date.UTC(2026, 8, 24, 21)]);
+    expect(days[1].high).toBe(150); // the evening spike belongs to the NEXT trade day
+    expect(days[0].high).toBe(101);
+  });
+
+  it("a NY session opening the evening before still counts in its trade week / month", () => {
+    // Session for Thu 2026-10-01 opens Wed 2026-09-30 21:00 UTC -> October, not September.
+    const oct1 = candle(Date.UTC(2026, 8, 30, 21), 100, 200, 99, 100);
+    const sep30 = candle(Date.UTC(2026, 8, 29, 21), 100, 101, 99, 100);
+    const months = aggregateCandles([sep30, oct1], "1M");
+    expect(months.map((m) => m.time)).toEqual([Date.UTC(2026, 8, 1), Date.UTC(2026, 9, 1)]);
+    expect(months[1].high).toBe(200);
+    // Monday's session opens Sunday 21:00 UTC -> same week as the rest of Mon-Fri.
+    const monSession = candle(Date.UTC(2026, 8, 20, 21), 100, 120, 99, 100);
+    const friSession = candle(Date.UTC(2026, 8, 24, 21), 100, 101, 99, 100);
+    const lastFri = candle(Date.UTC(2026, 8, 17, 21), 100, 101, 99, 100);
+    const weeks = aggregateCandles([lastFri, monSession, friSession], "1w", { sundayOpensWeek: true });
+    expect(weeks).toHaveLength(2);
+    expect(weeks[1].high).toBe(120);
+  });
+
+  it("nyCloseDaily keeps Yahoo's old bars and replaces the 1h-covered days", async () => {
+    const { nyCloseDaily } = await import("../lib/data/yahooProvider");
+    const yahoo = [candle(Date.UTC(2026, 8, 22), 1, 2, 0.5, 1), candle(Date.UTC(2026, 8, 23), 1, 2, 0.5, 1), candle(Date.UTC(2026, 8, 24), 1, 2, 0.5, 1)];
+    const merged = nyCloseDaily(yahoo, h1);
+    // First 1h bucket (partial, Wed session) dropped; Thu + Fri sessions rebuilt from 1h.
+    expect(merged.map((d) => d.time)).toEqual([Date.UTC(2026, 8, 22), Date.UTC(2026, 8, 23), Date.UTC(2026, 8, 23, 21), Date.UTC(2026, 8, 24, 21)]);
+    expect(merged[2].high).toBe(150);
+  });
+});

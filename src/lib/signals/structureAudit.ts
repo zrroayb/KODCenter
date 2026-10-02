@@ -52,7 +52,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
   const items: StructureAuditItem[] = [
     {
       label: "CRT Range",
-      status: signal.crtAnchor?.originClosed === false ? "wait" : "pass",
+      status: "pass",
       detail: `${(signal.crtAnchor?.rangeTf ?? "4h").toUpperCase()} range ${formatPrice(signal.crtAnchor?.rangeLow ?? signal.context.crt.activeRange.low)} - ${formatPrice(signal.crtAnchor?.rangeHigh ?? signal.context.crt.activeRange.high)}.`
     },
     {

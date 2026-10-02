@@ -25,7 +25,9 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
   vite.config'in kullandığı yardımcı modüldür (alert auth + sunucu tarafı dedupe).
 - **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
   motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
-  Dedupe sunucuda (`.data/alert-log.json`), geçmiş `/api/live-alerts`. Tarayıcı alert
+  Dedupe iki katmanlı: tarayıcı-dışı tarama kendi gönderilen-anahtar kaydını `actions/cache` ile
+  tutar (`.alert-state/sent.json`, `sentAlertState.ts`) + sunucuda `.data/alert-log.json`. Render
+  free planda disk kalıcı değil ve 15 dk boşta uyur → sunucu kaydı tek başına güvenilmez. Geçmiş `/api/live-alerts`. Tarayıcı alert
   GÖNDERMEZ, yalnızca geçmişi gösterir.
 - Cloudflare Worker 2026-10-02'de silindi; tek sunucu Render.
 
@@ -40,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 244 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -98,8 +100,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
-- **Anchor aileleri**: gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
-  (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
+- **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m; 1H→5m izleme modunda,
+  READY üretmez). Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
 - **Tek yön kaynağı = motor** (`context.crt.selectedBias.direction` veya seçili
   `signal.direction`). UI/grafik yardımcıları buna TABİ olmalı, asla ters yön
@@ -115,6 +117,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
   değiştiğinde, AYNI commit'te Gemini de güncellenir: `src/lib/gemini/crtKnowledge.ts` (bilgi
   tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `vite.config.ts`
   trade mentoru prompt'u ve `commentaryGuard.ts`. Sahibi bunu her seferinde söylememeli.
+  Aynı commit'te `REPLAY_ARCHIVE_VERSION` (`src/lib/backtest/replayArchive.ts`) de artırılır:
+  farklı motorun işlemleri tek örnekte karışmaz.
 - **Çıktı dili: TÜRKÇE.** Sistem talimatlarında kural var: serbest-metin alanları
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
@@ -173,3 +177,11 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Sadeleştirme 2/5: Trend Continuation playbook'u kaldırıldı (CRT değildi ama canlı taramada CRT'nin yanında koşuyordu). Strateji + testi, Setups'taki ayrı Continuation paneli, Replay'deki playbook seçici, detay/plan ekranlarındaki continuation dalları, `validate-continuation`/`measure-continuation`/`diagnose-symbol` scriptleri ve CSS'i silindi. CRT'nin "continuation acceptance" bastırması (kabul görmüş karşı-trend fade'i göstermeme) DURUYOR — o CRT kuralı. Registry artık yalnız CRT. 244 test.
 - 2026-10-02 — Sadeleştirme 3/5: eski KOD stratejisi (`kod.strategy.ts` + entryModel/rules/scoring) ve yalnız onun kullandığı `src/lib/rules/` üretim kodundan `src/test/fixtures/kod/`'a taşındı. Silinmedi: 12 genel pipeline testi (lifecycle, journal, replay, readyHold, Gemini yorumu) `createStructureContext` üzerinde sinyal istiyor ve CRT orada sinyal üretmiyor; testleri CRT'ye taşımak fikstürleri baştan yazmak demek. Canlı kod artık ona hiç dokunmuyor. 244 test.
 - 2026-10-02 — Sadeleştirme 5/5: işi biten `measure-1h-anchor` scripti ve silinen Session / Silver Bullet özelliklerinin 8 dokümanı (`docs/CRT_SESSION_*`, `docs/SILVER_BULLET_*`) kaldırıldı. Kalan scriptler: `cloud-scan` (alarm motoru), `robustness-report`, `measure-candle-boundaries` (NY 17:00 günlük kova ölçümü hâlâ açık). Madde 4 (4'lü çıkış karşılaştırması) bilinçli olarak duruyor: 30 işlem kapısı dolunca kazanan kalır, diğerleri silinir.
+- 2026-10-02 — Günlük mum NY 17:00'ye hizalandı (4H ile aynı çapa, TradingView FX günlüğü). Önce: günlük = Yahoo 1d barı (Londra/UTC günü) → 1D CRT'nin Candle 1 high/low'u, PDH/PDL ve ondan türeyen haftalık/aylık, kullanıcının grafiğindekinden farklı mumdu. Şimdi FX/altın/NAS'ta 1h'nin kapsadığı ~60 gün NY 17:00→17:00 seansından kuruluyor (`aggregateCandles(h1, "1d")`, ilk yarım seans atılır); daha eski günler (yalnız haftalık/aylık derinliği) Yahoo'dan (`nyCloseDaily`, `yahooProvider.ts`). Haftalık/aylık kovalar mumun işlem gününe göre (+12h): Pazartesi seansı Pazar 21:00 UTC açılır ama Pazartesi haftasına, 1 Ekim seansı 30 Eylül akşamı açılır ama Ekim'e sayılır. Kripto değişmedi (UTC günü). Ölçüm artık gerekmediği için `measure-candle-boundaries` silindi. 247 test.
+- 2026-10-02 — Motor tutarlılığı: `eqConsumed` (raid sonrası EQ görülmüş = setup tüketildi) READY'yi gizlice engelleyip ekranda "uyarı" görünüyordu → artık görünür blocker. CRT range PD hem blocker hem "hard gate değil" uyarısı + checklist'te "kalite notu" diyordu → çelişen uyarı silindi, checklist "fail / hard gate". Gemini'ye öğretildi: `crtKnowledge` discount-long/premium-short kayıtları artık CRT'nin kendi range'inde PD zorunlu (geniş dealing range PD yalnız not) diyor; crt-targets'a "EQ entry'den önce görüldüyse setup tüketildi". 247 test.
+- 2026-10-02 — Killzone/session saati kalite puanından çıktı (kaynak mekanik saat kuralı reddediyor; 1/5/9 ile aynı gerekçe): CRT skorundan `sessionTimedRaid` (+4) ve `inSession` (+2), referans mum skorundan killzone bileşeni (+10, skor 90→100'e yeniden ölçeklendi) ve iki killzone uyarısı silindi; "trend rejiminde counter-bias" uyarısı `biasConflict` uyarısını tekrar ettiği için silindi. Killzone saati hâlâ ekranda bilgi olarak görünüyor, kararı etkilemiyor. Gemini: reference-candle-quality kaydı "session/killzone kalite faktörü değil" diyor. 247 test.
+- 2026-10-02 — Deneysel anchor aileleri (FVG-origin, Active CRT) motordan silindi (~320 satır): canlıda kapalıydı (`experimentalAnchors`), hep blocker'lı WATCH üretiyordu ve kaynakta karşılığı yok. `AnchorOrigin` tipi, iki builder, manipulation/direction dalları, `originLabel`/`originClosed` alanları ve UI'daki "range mumu kapansın" dalı gitti; iki deneysel test silindi. Gemini metinlerinde bu ailelerden söz yoktu. 245 test.
+- 2026-10-02 — Hata: `eqConsumed` EQ dokunuşunu raid'den sonraki TÜM confirm mumlarında arıyordu; işleme girildikten sonra fiyat EQ'ya gelince (stop BE'ye, hedef DOL) canlı sinyal "missed / setup tüketildi" oluyor ve açık pozisyon ekrandan düşüyordu. Artık yalnız girişten (retest mumu) ÖNCEKİ mumlar sayılıyor (`isCrtEqConsumed(..., entryIndex)`). Gemini bilgi tabanı zaten "entry'den önce" diyordu. Test eklendi; 246 test.
+- 2026-10-02 — Hedef iptali / çıkış uyarısı (CRT Secrets §4): açık işlemde (outcome `open`) girişten sonra ters SMT + onay TF'sinde son ters swing'in gövde kapanışıyla kırılması (ters MSS) birlikte gelirse `crtAnchor.exitWarning` (`src/lib/strategies/crt/targetInvalidation.ts`). Yalnız UYARI — sistem işlem kapatmaz. Telegram: `cloud-scan` açık işlemleri (görünür + gizli + inactive listeler) tarar, `buildTelegramExitAlertPayload` ile setup başına bir "ÇIKIŞ UYARISI" (`alertKind: "exit"`, dedupe `exit|…`, AI yorumu yok); sunucu exit'i kabul eder. Site: detayda kırmızı not, tarama kartında "hedef iptal riski" etiketi. Gemini: uyarı yorum payload'unun başında; crt-targets kaydı ve mentor SOP'u "açık işlemde hedef iptal → çıkış/stop sıkılaştırmayı öner, sistem kapattı deme". 250 test. **Bilinen açık:** açık işlemin entry penceresi (16 onay mumu) dolunca stage `missed`'e düşüyor — işlem hâlâ açıkken ekranda "GEÇMİŞ" görünür.
+- 2026-10-02 — Çift alarm düzeltmesi: Render free plan kalıcı disk vermiyor ve 15 dk trafik yoksa uyuyor; seyrek GitHub cron'u arasında sunucu uyuyunca `.data/alert-log.json` siliniyor, hâlâ READY olan setup tekrar Telegram'a gidiyordu. Tarama artık gönderdiği dedupe anahtarlarını kendisi tutuyor: `.alert-state/sent.json` (`ALERT_STATE_PATH`), `background-scan.yml` her koşuda `actions/cache/restore` + `save` ile taşıyor, 7 gün saklama; sunucu "sent"/"duplicate" dediği anahtar kaydedilir, kayıtlı anahtar tekrar POST edilmez. Sunucu dedupe'u ikinci savunma olarak duruyor. `sentAlertState.test.ts`; 252 test. Not: `/api/live-alerts` geçmişi de aynı sebeple Render uyuyunca/deploy olunca sıfırlanır.
+- 2026-10-02 — Replay arşivi: Yahoo 15m'i 60 gün veriyor, her replay yalnız son 1-2 ayı görüyordu; 30 işlem kapısı tek piyasa rejimine bakıyordu. Artık her replay'in KAPANMIŞ işlemleri tarayıcıda birikiyor (`replayArchive.ts`, localStorage `tradebot.replayArchive.v1`, hafif kayıt, en fazla 1500, aynı plan = aynı işlem). Worker arşivi alıp birleştiriyor; çıkış karşılaştırması + karar, arşiv tek replay'den büyükse arşivden hesaplanıyor (ekranda "bu tarayıcıda biriken N işlem"). Motor kuralı değişince `REPLAY_ARCHIVE_VERSION` artırılır → eski işlemler karışmaz (kalıcı kurala eklendi). Sınır: arşiv tarayıcıya özel. 254 test.

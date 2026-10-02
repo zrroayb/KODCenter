@@ -40,6 +40,7 @@ import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
 import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
 import { ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
+import { loadReplayArchive, saveReplayArchive, type ReplayArchive } from "./lib/backtest/replayArchive";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
@@ -644,8 +645,9 @@ export default function App() {
     const worker = new Worker(new URL("./workers/replay.worker.ts", import.meta.url), { type: "module" });
     replayWorkerRef.current = worker;
     setBacktestLoading(true);
-    worker.onmessage = (event: MessageEvent<{ ok: boolean; result?: typeof backtestResult; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ ok: boolean; result?: typeof backtestResult; error?: string; archive?: ReplayArchive }>) => {
       if (event.data.ok && event.data.result) setBacktestResult(event.data.result);
+      if (event.data.ok && event.data.archive) saveReplayArchive(event.data.archive);
       else console.warn("Replay worker failed", event.data.error);
       setBacktestLoading(false);
       worker.terminate();
@@ -660,6 +662,7 @@ export default function App() {
     worker.postMessage({
       markets,
       strategyId: strategy.id,
+      archive: loadReplayArchive(),
       settings: {
         ...strategy.defaultSettings,
         minimumRR: rules.minimumRR,
