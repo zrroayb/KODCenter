@@ -2,11 +2,12 @@
 // modeliyle çelişirse gösterilmez; lokal fallback döner. vite.config.ts (canlı) ve
 // tradeCommentary.ts (istemci) aynı kuralı buradan okur.
 
-// Çıkış modeli eq-full: pozisyonun tamamı EQ'da kapanır, DOL yalnız uzatma bilgisi.
-export const EQ_FULL_EXIT_RULE = "Çıkış modeli: pozisyonun tamamı EQ'da kapanır; kısmi TP yok, DOL yalnız uzatma bilgisi.";
+// Çıkış modeli: pozisyonun tamamı DOL'da (karşı likidite) kapanır; fiyat EQ'ya gelince stop
+// break-even'a çekilir. Pozisyon bölünmez (kısmi TP yok).
+export const EXIT_MODEL_RULE = "Çıkış modeli: pozisyonun tamamı DOL'da (karşı likidite) kapanır; fiyat EQ'ya gelince stop break-even'a çekilir. Kısmi TP yok.";
 
-export function eqFullManagementLine(entry: string, eq: string): string {
-  return `Beklenen: Entry ${entry}; pozisyonun tamamı EQ ${eq} seviyesinde kapanır, DOL yalnız bilgi.`;
+export function dolBeManagementLine(entry: string, eq: string, dol: string): string {
+  return `Beklenen: Entry ${entry}; EQ ${eq} görülünce stop BE'ye, pozisyonun tamamı DOL ${dol} seviyesinde kapanır.`;
 }
 
 const REQUIRED_KARAR: Record<string, string> = {
@@ -14,7 +15,7 @@ const REQUIRED_KARAR: Record<string, string> = {
   watch: "Bekle"
 };
 
-// Kısmi TP / "kalanı DOL'a" dili eq-full modeline ters.
+// Kısmi TP / "kalanı DOL'a" dili tek-çıkış modeline ters: pozisyon EQ'da bölünmez, yalnız stop BE'ye gelir.
 const PARTIAL_EXIT_PATTERN = /kısmi\s+(al|kar|kâr|tp|çık)|kalan(ı|ını)\s+dol/i;
 
 function kararText(commentary: string): string | undefined {
@@ -30,9 +31,9 @@ export function tradeCommentaryViolation(commentary: string, stage: string | und
   if (required && !karar.toLocaleLowerCase("tr").startsWith(required.toLocaleLowerCase("tr"))) {
     return `Stage=${stage} için Karar "${required}" ile başlamalı.`;
   }
-  if (PARTIAL_EXIT_PATTERN.test(commentary)) return "Yorum kısmi TP diyor; çıkış modeli tam EQ.";
+  if (PARTIAL_EXIT_PATTERN.test(commentary)) return "Yorum kısmi TP diyor; çıkış tek: tamamı DOL'da, EQ'da yalnız stop BE'ye gelir.";
   return undefined;
 }
 
 export const TRADE_COMMENTARY_STAGE_RULE =
-  `Stage=ready ise Karar satırı "Plan hazır" ile başlar; Stage=watch ise "Bekle" ile başlar. ${EQ_FULL_EXIT_RULE}`;
+  `Stage=ready ise Karar satırı "Plan hazır" ile başlar; Stage=watch ise "Bekle" ile başlar. ${EXIT_MODEL_RULE}`;

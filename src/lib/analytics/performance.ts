@@ -22,6 +22,7 @@ export type RuntimeReplayTradeStatus = "tp2" | "tp1" | "breakeven" | "stopped" |
 export type RuntimeReplayTradeOrigin = "live-ready" | "watch-promoted";
 export type RuntimeReplayOutcomeReason =
   | "clean-model"
+  | "dol-be"
   | "eq-full"
   | "eq-then-be"
   | "dol-missed"
@@ -49,9 +50,8 @@ export type RuntimeReplayTrade = {
   stopLoss: number;
   target: number;
   rr: number;
-  // Entry→EQ(TP1) mesafesinin riske oranı. RR kapısı DOL'a bakar ama exit modeli EQ'da
-  // kapatır (0/13 DOL); 30+ işlem incelemesi "kapı EQ-RR'a mı bakmalı" sorusunu bu logla
-  // cevaplayacak. Ölçüm alanıdır, hiçbir filtreye girmez.
+  // Entry→EQ mesafesinin riske oranı. Çıkış modeli DOL + EQ'da BE: EQ, stop'un break-even'a
+  // çekildiği ara adımdır. Ölçüm alanıdır, hiçbir filtreye girmez.
   eqRR: number;
   // Dolmayan/süresi geçen retest emrinin karşı-olgusu: ChoCH sonrası ilk mumun açılışından
   // girilseydi aynı stop/hedeflerle ne öderdi. %48 dolmama sızıntısının maliyet ölçümü.

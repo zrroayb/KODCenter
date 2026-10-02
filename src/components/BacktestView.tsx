@@ -7,6 +7,7 @@ import { playbookLabel } from "../lib/strategies/playbookLabels";
 
 function reasonText(reason: string) {
   if (reason === "clean-model") return "Temiz model";
+  if (reason === "dol-be") return "DOL tam çıkış (EQ'da BE)";
   if (reason === "eq-full") return "EQ tam çıkış";
   if (reason === "eq-then-be") return "EQ sonra BE";
   if (reason === "dol-missed") return "DOL gelmedi";
@@ -163,9 +164,9 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
             {replay.reviewMeasurements ? (
               <>
                 <div>
-                  <span>EQ-RR (kapı DOL'a bakar, çıkış EQ'da)</span>
+                  <span>EQ-RR (EQ = stop'un BE'ye çekildiği ara adım; çıkış DOL'da)</span>
                   <b>ort. {replay.reviewMeasurements.eqRr.mean.toFixed(2)}R · {replay.reviewMeasurements.eqRr.sample} işlem</b>
-                  <small>{replay.reviewMeasurements.eqRr.below1} işlem &lt;1R · {replay.reviewMeasurements.eqRr.below1_5} işlem &lt;1.5R — inceleme sorusu: kapı EQ-RR'a mı bakmalı?</small>
+                  <small>{replay.reviewMeasurements.eqRr.below1} işlem &lt;1R · {replay.reviewMeasurements.eqRr.below1_5} işlem &lt;1.5R — EQ çok yakınsa stop erken BE'ye gelir, scratch artar.</small>
                 </div>
                 {replay.reviewMeasurements.unfilled && (
                   <div>

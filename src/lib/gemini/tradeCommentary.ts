@@ -3,7 +3,7 @@ import { formatPrice, formatR } from "../ict/format";
 import { selectedSignalAnnotations } from "../charts/selectedSignal";
 import { buildStructureAudit } from "../signals/structureAudit";
 import { closeConfirmationRequirement } from "../signals/waitingGuidance";
-import { eqFullManagementLine, tradeCommentaryViolation } from "./commentaryGuard";
+import { dolBeManagementLine, tradeCommentaryViolation } from "./commentaryGuard";
 
 export type GeminiTradeCommentaryPayload = {
   id: string;
@@ -177,7 +177,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
       : "Karar: Bekle; onay geldi ama plan henüz uygun değil.";
     neden = `Neden: ${audit.decision}`;
     beklenen = signal.stage === "ready"
-      ? eqFullManagementLine(formatPrice(plan.entry), formatPrice(plan.targets[0]))
+      ? dolBeManagementLine(formatPrice(plan.entry), formatPrice(plan.targets[0]), formatPrice(plan.targets[1] ?? plan.targets[0]))
       : `Beklenen: ${signal.governance.blockers[0] ?? "RR ve plan geometrisi uygun hale gelsin."}`;
   } else {
     karar = signal.stage === "watch" ? `Karar: Bekle; ${audit.headline}` : `Karar: ${audit.headline}`;
@@ -258,8 +258,8 @@ function buildChartMentorContext(signal: TradingSignal): GeminiTradeCommentaryPa
   keyLevels.push(
     { label: "ENTRY", price: signal.plan.entry, reason: `${signal.plan.entrySource}/${signal.plan.entryStatus}` },
     { label: "STOP", price: signal.plan.stopLoss, reason: `${signal.plan.stopSource} + buffer` },
-    { label: "EQ / TP1", price: signal.plan.targets[0], reason: "CRT 0.5 management" },
-    { label: "DOL / TP2", price: signal.plan.targets[1], reason: signal.plan.targetSource },
+    { label: "EQ / BE", price: signal.plan.targets[0], reason: "CRT 0.5: stop break-even'a çekilir" },
+    { label: "DOL / TP (çıkış)", price: signal.plan.targets[1], reason: signal.plan.targetSource },
     { label: "CRT HIGH", price: signal.context.crt.activeRange.high, reason: signal.context.crt.activeRange.source },
     { label: "CRT MID", price: signal.context.crt.activeRange.midpoint, reason: "CRT range 0.5" },
     { label: "CRT LOW", price: signal.context.crt.activeRange.low, reason: signal.context.crt.activeRange.source },

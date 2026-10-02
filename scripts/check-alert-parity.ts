@@ -24,10 +24,10 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
   const isCrt = (payload.strategyId ?? "crt") === "crt";
   const playbookLine = payload.playbook ? ` · ${escapeHtml(payload.playbook)}` : "";
   const rrLine = isCrt
-    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.rr)} (tam çıkış) · DOL uzatma ${formatR(payload.extensionRR ?? 0)}`
+    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · DOL net RR ${formatR(payload.rr)} (çıkış DOL) · EQ'da stop BE (${formatR(payload.extensionRR ?? 0)})`
     : `${escapeHtml(payload.grade)} · Score ${payload.score} · net RR ${formatR(payload.rr)}`;
-  const tp1Label = isCrt ? "EQ / TP1" : "TP1";
-  const tp2Label = isCrt ? "DOL (uzatma, bilgi)" : "TP2";
+  const tp1Label = isCrt ? "EQ (stop → BE)" : "TP1";
+  const tp2Label = isCrt ? "Çıkış DOL" : "TP2";
   const targetLines = [`${tp1Label}: <b>${formatPrice(payload.targets[0])}</b>`];
   if (payload.targets[1] !== undefined && payload.targets[1] !== payload.targets[0]) targetLines.push(`${tp2Label}: <b>${formatPrice(payload.targets[1])}</b>`);
   return [
@@ -50,10 +50,10 @@ function checkParity(label: string, signal: TradingSignal) {
   const msg = telegramCaption(p);
   const isCrt = signal.strategyId === "crt";
   // İçerik doğruluğu kuralları
-  if (isCrt && !msg.includes("EQ / TP1")) mismatches.push("CRT mesajında EQ/TP1 etiketi yok");
-  if (!isCrt && msg.includes("EQ / TP1")) mismatches.push("continuation mesajında CRT'ye özel EQ/TP1 sızmış");
+  if (isCrt && !msg.includes("Çıkış DOL")) mismatches.push("CRT mesajında Çıkış DOL etiketi yok");
+  if (!isCrt && msg.includes("EQ (stop")) mismatches.push("continuation mesajında CRT'ye özel EQ/BE sızmış");
   if (!isCrt && msg.includes("DOL")) mismatches.push("continuation mesajında DOL (CRT terimi) sızmış");
-  if (!isCrt && msg.includes("EQ net RR")) mismatches.push("continuation mesajında EQ net RR (CRT satırı) sızmış");
+  if (!isCrt && msg.includes("DOL net RR")) mismatches.push("continuation mesajında DOL net RR (CRT satırı) sızmış");
   if (!msg.includes(formatPrice(plan.entry))) mismatches.push("mesajda entry fiyatı görünmüyor");
   if (!msg.includes(formatPrice(plan.stopLoss))) mismatches.push("mesajda stop fiyatı görünmüyor");
   if (signal.strategyId === "trend-continuation" && plan.targets.length > 1) mismatches.push("continuation tek hedefli olmalı ama >1 target var");
