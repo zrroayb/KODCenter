@@ -5550,3 +5550,7 @@ button {
   .exit-compare__name { grid-column: 1 / -1; }
   .exit-compare__row span[data-label]::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10.5px; }
 }
+@media (prefers-color-scheme: light) {
+  .exit-compare__tags .tag.live { color: #7a5c00; border-color: #c9a84c; }
+  .exit-compare__progress span { background: #c9a84c; }
+}

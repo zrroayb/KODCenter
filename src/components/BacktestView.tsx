@@ -127,27 +127,6 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
               ? <p>{plainAiCommentary(aiReview.commentary)}</p>
               : <p className="muted-note">{aiReview.reason ?? "Son 1 ayı replay et, sonra Geminiye yorumlat."}</p>}
           </div>
-          <details className="replay-deep-dive">
-            <summary>Detaylı replay analizi</summary>
-            <div className="replay-deep-dive-body">
-          <div className="strategy-learning-list replay-diagnosis-list">
-            <strong>Replay teşhisi</strong>
-            {replay.replayDiagnosis.map((item) => (
-              <div key={item}>
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-          <div className="strategy-learning-list replay-filter-list">
-            <strong>Filtre denemesi</strong>
-            {replay.filterScenarios.map((item) => (
-              <div key={item.id}>
-                <span>{item.label}</span>
-                <b>{verdictText(item.verdict)} · {item.expectancyR.toFixed(2)}R · PF {item.profitFactor.toFixed(2)}</b>
-                <small>{item.triggered}/{item.sample} tetik · WR {item.winRate.toFixed(1)}% · DD {item.maxDrawdown.toFixed(2)}R · {item.description}</small>
-              </div>
-            ))}
-          </div>
           <div className="exit-compare">
             <strong>Çıkış modeli karşılaştırması</strong>
             <small className="exit-compare__lead">Aynı girişler, aynı mumlar — sadece çıkış kuralı farklı.</small>
@@ -199,6 +178,27 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
               <p className="muted-note">Karşılaştırma için tetiklenen CRT işlemi yok.</p>
             )}
             <small className="exit-compare__note">En iyi gün payı = en iyi günün R'ı / toplam R. Funded consistency kuralında düşük olan iyidir. Günlük σ düşükse günler daha dengelidir.</small>
+          </div>
+          <details className="replay-deep-dive">
+            <summary>Detaylı replay analizi</summary>
+            <div className="replay-deep-dive-body">
+          <div className="strategy-learning-list replay-diagnosis-list">
+            <strong>Replay teşhisi</strong>
+            {replay.replayDiagnosis.map((item) => (
+              <div key={item}>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+          <div className="strategy-learning-list replay-filter-list">
+            <strong>Filtre denemesi</strong>
+            {replay.filterScenarios.map((item) => (
+              <div key={item.id}>
+                <span>{item.label}</span>
+                <b>{verdictText(item.verdict)} · {item.expectancyR.toFixed(2)}R · PF {item.profitFactor.toFixed(2)}</b>
+                <small>{item.triggered}/{item.sample} tetik · WR {item.winRate.toFixed(1)}% · DD {item.maxDrawdown.toFixed(2)}R · {item.description}</small>
+              </div>
+            ))}
           </div>
           <div className="strategy-learning-list replay-review-measurements">
             <strong>30+ işlem incelemesi ölçümleri</strong>

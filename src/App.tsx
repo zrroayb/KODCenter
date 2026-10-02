@@ -1,16 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { BiasBoard } from "./components/BiasBoard";
 import { BrandLogo } from "./components/BrandLogo";
 import { NAV_ITEMS, Sidebar } from "./components/Sidebar";
 // Dashboard dışındaki görünümler ilk yüklemede gerekmez; kendi chunk'larına bölünür
-// (ChartsView + CandleChart en ağır parça). named export'lar default'a sarılır.
+// (ChartsView en ağır parça). named export'lar default'a sarılır.
 const BacktestView = lazy(() => import("./components/BacktestView").then((m) => ({ default: m.BacktestView })));
 const ChartsView = lazy(() => import("./components/ChartsView").then((m) => ({ default: m.ChartsView })));
 const ScannerView = lazy(() => import("./components/ScannerView").then((m) => ({ default: m.ScannerView })));
-const SessionSetupsView = lazy(() => import("./components/SessionSetupsView").then((m) => ({ default: m.SessionSetupsView })));
 const SettingsView = lazy(() => import("./components/SettingsView").then((m) => ({ default: m.SettingsView })));
-const SilverBulletSection = lazy(() => import("./components/SilverBulletSection").then((m) => ({ default: m.SilverBulletSection })));
 import { createDemoMarkets } from "./data/demoData";
 import { runDemoBacktest } from "./lib/backtest/backtestEngine";
 import { focusChartOnSignal, type SelectedSignalState } from "./lib/charts/selectedSignal";
@@ -24,16 +22,9 @@ import { journalSetupKey } from "./lib/journal/journalEntry";
 import { journalInsights } from "./lib/journal/journalAnalyzer";
 import { journalLearningInsights } from "./lib/journal/strategyLearning";
 import type { JournalEntry } from "./lib/journal/types";
-import { createSessionRuntimeMemory } from "./lib/memory/sessionRuntimeMemory";
 import { compareSignalsByDecision, scanContexts } from "./lib/runtime/scanRuntime";
 import { formatTurkeySessionTime } from "./lib/session/sessionClock";
-import { buildSessionSetups } from "./lib/session/sessionConfluenceEngine";
-import { buildSilverBulletSetups } from "./lib/strategies/silverBullet/silverBulletEngine";
-import { loadSilverBulletLogs, loadSilverBulletSetups, reconcileSilverBulletStore } from "./lib/strategies/silverBullet/silverBulletStore";
-import type { SilverBulletLog, SilverBulletSetup } from "./lib/strategies/silverBullet/types";
 import { buildProfileSessionClock } from "./lib/session/sessionRangeEngine";
-import { loadSessionSetupLogs, loadSessionSetups, reconcileSessionSetupStore } from "./lib/session/sessionSetupStore";
-import type { SessionSetup, SessionSetupLog } from "./lib/session/types";
 import { mergeReadyHoldSignals, type ReadyHoldRecord } from "./lib/signals/readyHold";
 import type { RejectedSetup } from "./lib/strategies/types";
 import { getStrategy, strategyRegistry } from "./lib/strategies/registry";
@@ -47,13 +38,13 @@ import {
 } from "./lib/telegram/alertHistory";
 import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
 import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
-import { ruleAllowsContext, ruleAllowsSignal } from "./lib/userRules/applyRules";
+import { ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
 
-export type ViewId = "dashboard" | "charts" | "scanner" | "backtest" | "journal" | "ai" | "settings";
+export type ViewId = "dashboard" | "charts" | "scanner" | "backtest" | "journal" | "settings";
 
 const VIEW_TITLES: Record<ViewId, string> = {
   charts: "Chart",
@@ -61,7 +52,6 @@ const VIEW_TITLES: Record<ViewId, string> = {
   scanner: "Setups",
   backtest: "Replay",
   journal: "Notlar",
-  ai: "AI",
   settings: "Ayar"
 };
 const AUTO_REFRESH_MS = 60_000;
@@ -428,45 +418,6 @@ function JournalView({ entries, signals, onSelectSignal, onDelete }: { entries: 
   );
 }
 
-function AiWorkspace({ signal, signals, journalEntries }: { signal: TradingSignal | null; signals: TradingSignal[]; journalEntries: JournalEntry[] }) {
-  const best = signal ?? bestScanSignal(signals) ?? null;
-  const prompts = ["Neye bakmalıyım?", "Son işlemimi incele", "Taramayı özetle", "Setupı geliştir"];
-  const [selectedPrompt, setSelectedPrompt] = useState(prompts[0]);
-  const promptAnswer = selectedPrompt === "Son işlemimi incele"
-    ? journalEntries.length ? `Son ${journalEntries.length} not kayıtlı. En son kararda plan ile gerçek giriş/çıkışı kıyasla.` : "İncelenecek işlem notu yok."
-    : selectedPrompt === "Taramayı özetle"
-      ? signals.length ? `${signals.length} aktif aday var. Öncelik ${best?.symbol ?? "yok"}; ${best ? signalReason(best) : "bekle"}` : "Aktif aday yok."
-      : selectedPrompt === "Setupı geliştir"
-        ? best ? `Önce mevcut eksiği tamamla: ${signalReason(best)} Stop ve DOL değişmeden yeni entry üretme.` : "Geliştirilecek aktif setup yok."
-        : best ? `${best.symbol} ${best.direction.toUpperCase()}: ${signalReason(best)}` : "Şu an zorlanacak bir setup yok.";
-  return (
-    <section className="ai-workspace">
-      <article className="ai-chat-shell">
-        <header>
-          <span className="brand-mark soft"><Bot size={20} /></span>
-          <div>
-            <span className="eyebrow">Finance AI</span>
-            <h2>CRT karar koçu</h2>
-          </div>
-        </header>
-        <div className="message-stack">
-          <div className="message assistant">
-            <strong>Piyasa okuması</strong>
-            <p>{best ? best.decisionSummary.fullReasoning : "Şu an işlem gerektiren aktif setup yok."}</p>
-          </div>
-          <div className="message assistant">
-            <strong>{selectedPrompt}</strong>
-            <p>{promptAnswer}</p>
-          </div>
-        </div>
-        <div className="suggested-prompts">
-          {prompts.map((prompt) => <button className={selectedPrompt === prompt ? "active" : ""} key={prompt} onClick={() => setSelectedPrompt(prompt)} type="button">{prompt}</button>)}
-        </div>
-      </article>
-    </section>
-  );
-}
-
 export default function App() {
   const demoMarkets = useMemo(() => createDemoMarkets(), []);
   const [markets, setMarkets] = useState(demoMarkets);
@@ -486,9 +437,6 @@ export default function App() {
     [markets]
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");
-  // Setups ekranı tek yüzey: Tara / Session / Silver aynı sekmenin altında. Üç ayrı üst-menü
-  // yerine tek "Setups" — hepsi "şu an alınacak setup ne?" sorusunun farklı playbook'ları.
-  const [setupsTab, setSetupsTab] = useState<"scan" | "session" | "silver">("scan");
   const [activeSymbol, setActiveSymbol] = useState<MarketSymbol>("XAUUSD");
   const [strategyId] = useState(strategyRegistry[0].id);
   const [rules, setRules] = useState<UserRules>(() => loadUserRules());
@@ -496,7 +444,6 @@ export default function App() {
     selectedSignalId: null,
     showSelectedSignalOnly: true
   });
-  const [showSignalMarkers, setShowSignalMarkers] = useState(true);
   // scanContexts 12 sembolde ~2sn sürüyor. Bu değer yalnızca aşağıdaki state'leri TOHUMLAMAK
   // için kullanılıyordu, ama useMemo her contexts/rules değişiminde (yani her 60sn'lik veri
   // yenilemesinde) yeniden koşup sonucu çöpe atıyordu — render sırasında 2sn blocking, üstelik
@@ -506,10 +453,6 @@ export default function App() {
   const [hiddenSignals, setHiddenSignals] = useState<TradingSignal[]>([]);
   const [inactiveSignals, setInactiveSignals] = useState<TradingSignal[]>([]);
   const [rejectedSetups, setRejectedSetups] = useState<RejectedSetup[]>([]);
-  const [sessionSetups, setSessionSetups] = useState<SessionSetup[]>(() => loadSessionSetups());
-  const [sessionSetupLogs, setSessionSetupLogs] = useState<SessionSetupLog[]>(() => loadSessionSetupLogs());
-  const [silverBulletSetups, setSilverBulletSetups] = useState<SilverBulletSetup[]>(() => loadSilverBulletSetups());
-  const [silverBulletLogs, setSilverBulletLogs] = useState<SilverBulletLog[]>(() => loadSilverBulletLogs());
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => loadJournalEntries());
   const [telegramAlerts, setTelegramAlerts] = useState<TelegramAlertRecord[]>(() => loadTelegramAlertHistory());
   const [lastScanTime, setLastScanTime] = useState(Date.now());
@@ -518,21 +461,12 @@ export default function App() {
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestStrategyId, setBacktestStrategyId] = useState("crt");
   const replayWorkerRef = useRef<Worker | null>(null);
-  const [memory, setMemory] = useState(() => createSessionRuntimeMemory(activeSymbol));
   const readyHoldRef = useRef<Record<string, ReadyHoldRecord>>({});
   const activeContext = contexts.find((context) => context.symbol === activeSymbol) ?? contexts[0];
   const activeMarket = markets.find((market) => market.symbol === activeSymbol) ?? markets[0];
   const dataHealth = useMemo(() => buildDataHealthReport(markets, dataState), [dataState, markets]);
   const visibleSignals = useMemo(() => signals.filter((signal) => ruleAllowsSignal(signal, rules)), [rules, signals]);
   const chartSignals = useMemo(() => [...visibleSignals, ...hiddenSignals], [hiddenSignals, visibleSignals]);
-  const detectedSessionSetups = useMemo(
-    () => buildSessionSetups({ contexts, signals: [...chartSignals, ...inactiveSignals], now: lastScanTime }),
-    [chartSignals, contexts, inactiveSignals, lastScanTime]
-  );
-  const detectedSilverBulletSetups = useMemo(
-    () => buildSilverBulletSetups({ contexts, now: lastScanTime }),
-    [contexts, lastScanTime]
-  );
   const selectableSignals = useMemo(() => [...chartSignals, ...inactiveSignals], [chartSignals, inactiveSignals]);
   const allRuntimeSignals = useMemo(
     () => [...signals, ...hiddenSignals, ...inactiveSignals],
@@ -668,22 +602,6 @@ export default function App() {
     // Refetch the server-side alert history once per scan.
   }, [lastScanTime]);
 
-  useEffect(() => {
-    const reconciled = reconcileSessionSetupStore(sessionSetups, detectedSessionSetups, sessionSetupLogs);
-    const setupChanged = JSON.stringify(reconciled.setups) !== JSON.stringify(sessionSetups);
-    const logChanged = JSON.stringify(reconciled.logs) !== JSON.stringify(sessionSetupLogs);
-    if (setupChanged) setSessionSetups(reconciled.setups);
-    if (logChanged) setSessionSetupLogs(reconciled.logs);
-  }, [detectedSessionSetups, sessionSetupLogs, sessionSetups]);
-
-  useEffect(() => {
-    const reconciled = reconcileSilverBulletStore(silverBulletSetups, detectedSilverBulletSetups, silverBulletLogs);
-    const setupChanged = JSON.stringify(reconciled.setups) !== JSON.stringify(silverBulletSetups);
-    const logChanged = JSON.stringify(reconciled.logs) !== JSON.stringify(silverBulletLogs);
-    if (setupChanged) setSilverBulletSetups(reconciled.setups);
-    if (logChanged) setSilverBulletLogs(reconciled.logs);
-  }, [detectedSilverBulletSetups, silverBulletLogs, silverBulletSetups]);
-
   // Telegram alerts are sent ONLY by the server-side scanner (GitHub Actions → /api/telegram/
   // ready-alert with SCAN_TOKEN, deduped on the server). The browser used to send them itself:
   // no scan when the tab was hidden, and every device deduped separately (duplicates).
@@ -707,19 +625,6 @@ export default function App() {
     setInactiveSignals(result.inactiveSignals);
     setRejectedSetups(result.rejected);
     setLastScanTime(scanTime);
-    setMemory((current) => ({
-      ...current,
-      scanHistory: [
-        {
-          time: scanTime,
-          symbol: "ALL",
-          strategyId,
-          readySignals: held.signals.filter((signal) => signal.stage === "ready").length,
-          rejectedSetups: result.rejected.length
-        },
-        ...current.scanHistory
-      ].slice(0, 20)
-    }));
     const firstSignal = bestScanSignal(held.signals);
     if (firstSignal) {
       setActiveSymbol(firstSignal.symbol);
@@ -823,11 +728,6 @@ export default function App() {
     setActiveView("charts");
   };
 
-  const openSessionSignal = (signalId: string) => {
-    const signal = selectableSignals.find((item) => item.id === signalId);
-    if (signal) selectSignal(signal);
-  };
-
   // Picking a pair from the chart rail switches to it and auto-opens its most tradeable setup
   // (live READY beats watch, higher score breaks ties) so the "en mantıklı CRT" shows at once.
   const selectSymbolBest = (symbol: MarketSymbol) => {
@@ -860,19 +760,6 @@ export default function App() {
     const nextIndex = (currentIndex + step + chartSignals.length) % chartSignals.length;
     selectSignal(chartSignals[nextIndex]);
   };
-
-  useEffect(() => {
-    setMemory((current) => ({
-      ...current,
-      activeSymbol,
-      lastScanTime,
-      latestBias: activeContext.bias.h4,
-      previousBias: current.latestBias !== activeContext.bias.h4 ? current.latestBias : current.previousBias,
-      recentSignals: visibleSignals,
-      rejectedSetups,
-      liquidityMap: activeContext.liquidityPools
-    }));
-  }, [activeContext, activeSymbol, lastScanTime, rejectedSetups, visibleSignals]);
 
   return (
     <div className={`app-shell view-${activeView}`}>
@@ -967,18 +854,6 @@ export default function App() {
         )}
         {activeView === "scanner" && (
           <div className="setups-workspace">
-            <div className="setups-subtabs" role="tablist" aria-label="Setup playbook">
-              <button role="tab" aria-selected={setupsTab === "scan"} className={setupsTab === "scan" ? "active" : ""} onClick={() => setSetupsTab("scan")} type="button">
-                <strong>Tara</strong><span>Tüm playbook radarı</span>
-              </button>
-              <button role="tab" aria-selected={setupsTab === "session"} className={setupsTab === "session" ? "active" : ""} onClick={() => setSetupsTab("session")} type="button">
-                <strong>Session</strong><span>CRT akışı</span>
-              </button>
-              <button role="tab" aria-selected={setupsTab === "silver"} className={setupsTab === "silver" ? "active" : ""} onClick={() => setSetupsTab("silver")} type="button">
-                <strong>Silver</strong><span>NY 10-11</span>
-              </button>
-            </div>
-            {setupsTab === "scan" && (
               <ScannerView
                 marketCount={contexts.length}
                 signals={visibleSignals}
@@ -997,13 +872,6 @@ export default function App() {
                 onScan={runScan}
                 onSelectSignal={selectSignal}
               />
-            )}
-            {setupsTab === "session" && (
-              <SessionSetupsView logs={sessionSetupLogs} onOpenSignal={openSessionSignal} setups={sessionSetups} />
-            )}
-            {setupsTab === "silver" && (
-              <SilverBulletSection logs={silverBulletLogs} setups={silverBulletSetups} />
-            )}
           </div>
         )}
         {activeView === "charts" && (
@@ -1013,13 +881,10 @@ export default function App() {
             signals={chartSignals}
             selectedSignal={selectedSignal}
             journalEntry={selectedSignal ? journalEntries.find((entry) => entry.tradeId === selectedSignal.id) : undefined}
-            focusedTimeRange={selectedSignalState.focusedTimeRange}
-            showSignalMarkers={showSignalMarkers}
             onSelectSignal={selectSignal}
             onClearSelection={clearSelection}
             onNextSignal={() => selectAdjacentSignal(1)}
             onPreviousSignal={() => selectAdjacentSignal(-1)}
-            onToggleSignalMarkers={setShowSignalMarkers}
             onSaveJournal={saveSignalJournal}
             symbols={markets.map((market) => market.symbol)}
             activeSymbol={activeSymbol}
@@ -1039,8 +904,7 @@ export default function App() {
             onDelete={deleteJournalEntry}
           />
         )}
-        {activeView === "ai" && <AiWorkspace signal={selectedSignal} signals={visibleSignals} journalEntries={journalEntries} />}
-        {activeView === "settings" && <SettingsView strategies={strategyRegistry} rules={rules} memory={memory} onRulesChange={setRules} />}
+        {activeView === "settings" && <SettingsView rules={rules} onRulesChange={setRules} />}
         </Suspense>
         <footer className="safety-note">
           Bu araç market analizi ve eğitim/araştırma içindir. Finansal tavsiye vermez ve işlem açmaz.

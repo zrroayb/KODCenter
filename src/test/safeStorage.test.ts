@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { safeSetJson } from "../lib/storage/safeStorage";
+import { purgeLegacyStorage, safeSetJson } from "../lib/storage/safeStorage";
 
 // A storage that throws QuotaExceededError once the serialized value is over `limit` chars.
 function quotaStorage(limit: number) {
@@ -45,6 +45,18 @@ describe("safeSetJson (localStorage quota never crashes the app)", () => {
     vi.stubGlobal("window", { localStorage: store });
     store.data.set("tradebot.localJournal.v1", "[1]");
     expect(safeSetJson("tradebot.localJournal.v1", [1, 2, 3, 4, 5, 6, 7], { preserve: true })).toBe(false);
+    expect(store.data.get("tradebot.localJournal.v1")).toBe("[1]");
+  });
+
+  it("frees the quota held by removed features' histories, keeping the journal", () => {
+    const store = quotaStorage(10_000);
+    vi.stubGlobal("window", { localStorage: store });
+    store.data.set("tradebot.crtSessionSetups.v1", "[...]");
+    store.data.set("tradebot.silverBulletLogs.v1", "[...]");
+    store.data.set("tradebot.localJournal.v1", "[1]");
+    purgeLegacyStorage();
+    expect(store.data.has("tradebot.crtSessionSetups.v1")).toBe(false);
+    expect(store.data.has("tradebot.silverBulletLogs.v1")).toBe(false);
     expect(store.data.get("tradebot.localJournal.v1")).toBe("[1]");
   });
 });
