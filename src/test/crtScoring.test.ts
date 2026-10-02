@@ -17,7 +17,6 @@ const coreOnly = {
   displacementStrength: "none" as const,
   shiftFvgOrRetest: false,
   rangeRespect: false,
-  keyOpenRaid: false,
   pdAligned: true
 };
 
@@ -41,8 +40,7 @@ describe("CRT score / grade split", () => {
       referenceCandleScore: 90,
       displacementStrength: "strong",
       shiftFvgOrRetest: true,
-      rangeRespect: true,
-      keyOpenRaid: true
+      rangeRespect: true
     });
     expect(gradeFromScore(score)).toBe("A+");
   });

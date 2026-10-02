@@ -164,7 +164,7 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
     const extreme = signal.direction === "short" ? `range high ${formatPrice(range.high)}` : `range low ${formatPrice(range.low)}`;
     karar = "Karar: Bekle; manipulation yok.";
     neden = `Neden: CRT ${extreme} henüz süpürülmedi; likidite alınmadan distribution başlamaz.`;
-    beklenen = `Beklenen: ${extreme} wick ile alınsın. HTF mum kapanışı beklenmez; sonra yalnızca confirmation timeframe ChoCH kapanışı aranır.`;
+    beklenen = `Beklenen: ${extreme} wick ile alınsın ve C2 mumu range içinde kapansın (sadece Candle 3 işlenir); sonra confirmation timeframe ChoCH kapanışı aranır.`;
   } else if (evidenceStatus("choch") === "fail" || (closeReq && plan.entryStatus !== "confirmed")) {
     karar = "Karar: Bekle; karakter değişimi onayı eksik.";
     neden = "Neden: Sweep tamam ama ChoCH/Just kapanışı yok; şimdilik bu sadece likidite avı.";

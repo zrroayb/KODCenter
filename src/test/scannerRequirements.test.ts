@@ -25,8 +25,9 @@ describe("scanner waiting requirements", () => {
 
     const requirements = waitingRequirements(watchSignal);
 
-    expect(requirements.join(" ")).toContain("4H CRT high alınsın");
-    expect(requirements.join(" ")).toContain("Mum kapanışı beklenmez");
+    expect(requirements.join(" ")).toContain("4H CRT high fitille alınsın");
+    // CRT Secrets: only Candle 3 is traded — the waiting list asks for C2 to close back inside.
+    expect(requirements.join(" ")).toContain("C2 mumu range içinde kapansın");
     expect(requirements.join(" ")).toContain("15m mum");
     expect(requirements.join(" ")).toContain("kapanmalı");
     expect(requirements.join(" ")).toContain("Son kapalı mum");

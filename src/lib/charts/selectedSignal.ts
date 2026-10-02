@@ -30,13 +30,14 @@ export type SelectedSignalAnnotations = {
   };
 };
 
-export type ConfirmationTimeframe = Extract<Timeframe, "5m" | "15m" | "1h" | "4h">;
+export type ConfirmationTimeframe = Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d">;
 
 const TF_MS: Record<ConfirmationTimeframe, number> = {
   "5m": 5 * 60 * 1000,
   "15m": 15 * 60 * 1000,
   "1h": 60 * 60 * 1000,
-  "4h": 4 * 60 * 60 * 1000
+  "4h": 4 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000
 };
 
 // The timeframe a signal's setup structure lives on: CRT anchors confirm on their own lower

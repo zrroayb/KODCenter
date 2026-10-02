@@ -60,7 +60,7 @@ export function buildStructureAudit(signal: TradingSignal): StructureAudit {
       status: manipulationEvidence?.status === "pass" ? "pass" : "wait",
       detail: manipulationEvidence?.status === "pass"
         ? manipulationEvidence.detail
-        : `${expectedSweep} tarafındaki CRT kenarı wick ile alınmalı; HTF mum kapanışı beklenmez.`
+        : `${expectedSweep} tarafındaki CRT kenarı wick ile alınmalı ve C2 mumu range içinde kapanmalı (sadece Candle 3 işlenir).`
     },
     {
       label: "Distribution",
