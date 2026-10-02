@@ -1,5 +1,5 @@
-// TEST FİKSTÜRÜ (src/test/fixtures): canlı tarama/alert bunu çalıştırmaz; CRT test bağlamında sinyal
-// READY/WATCH sinyali üretmek için kullanıyor; yeni özellik buraya eklenmez (2026-09-26).
+// TEST FİKSTÜRÜ (src/test/fixtures): canlı tarama/alert bunu çalıştırmaz. Genel pipeline testleri
+// createStructureContext üzerinde READY/WATCH sinyali için kullanıyor (CRT orada sinyal üretmiyor).
 import { buildDecisionSummary } from "../../../lib/brain/financialBrain";
 import { SYMBOL_SPEC } from "../../../lib/ict/symbolSpec";
 import type { Candle, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, SignalEvidenceItem, SignalStage, StopSource, TargetSource, TradeDirection, TradePlan, TradingSignal } from "../../../lib/ict/types";
