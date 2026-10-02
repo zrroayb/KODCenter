@@ -6,38 +6,32 @@ import {
   LineStyle,
   type IChartApi,
   type ISeriesApi,
-  type UTCTimestamp,
-  type SeriesMarker,
-  type Time
+  type UTCTimestamp
 } from "lightweight-charts";
-import type { Candle, DealingRange } from "../lib/ict/types";
+import type { ChartCrtRange } from "../lib/charts/crtRange";
+import type { Candle } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 
 type CrtLiteChartProps = {
   candles: Candle[];
-  range?: DealingRange;
   title?: string;
-  pivotLen?: number;
   height?: number;
-  // Motorun (selectedBias / secili sinyal) otoriter yonu. Chart'taki geometrik etiketler
-  // buna TABI olur: asla motorun tersine "LONG/SHORT" bagirmaz. undefined -> yon iddiasi etmez.
+  // The engine's authoritative direction (single source; see CLAUDE.md §6).
   bias?: "long" | "short" | "neutral";
-  // Selected signal's plan: entry / stop / EQ (break-even) / DOL exit lines.
+  // This tab's own CRT range (previous closed candle of THIS timeframe). Nothing else is drawn
+  // about ranges — no other timeframe's lines, no break/status overlays.
+  crtRange?: ChartCrtRange;
+  rangeLabel?: string;
+  // Selected signal's plan: entry / stop / EQ (break-even) / DOL exit.
   plan?: { entry: number; stopLoss: number; targets: number[] };
 };
 
-type Bias = "long" | "short" | "neutral" | undefined;
-
-// TradingView lightweight-charts port'u: mumlar + CRT range (onceki HTF) H/EQ/L
-// cizgileri + MSB (market structure break) kirilim isaretleri + premium/discount.
-// Pine indikatoruyle ayni mantik; veriler uygulamanin kendi Candle/DealingRange'inden.
-
-// Uygulama Candle.time'i ms; lightweight-charts saniye (UTCTimestamp) ister.
+// App Candle.time is ms; lightweight-charts wants seconds.
 function toSeconds(ms: number): UTCTimestamp {
   return Math.floor(ms / 1000) as UTCTimestamp;
 }
 
-// Sadece kapanmis, artan-benzersiz zamanli mumlar (setData bunu ister).
+// Closed + forming candles, ascending, unique times (setData requires it).
 function cleanCandles(candles: Candle[]) {
   const seen = new Set<number>();
   const out: { time: UTCTimestamp; open: number; high: number; low: number; close: number }[] = [];
@@ -50,74 +44,8 @@ function cleanCandles(candles: Candle[]) {
   return out;
 }
 
-type MsbMarker = SeriesMarker<Time>;
-
-type Swings = {
-  swingHigh: number | null; swingHighBroken: boolean; swingHighTime: number | null;
-  swingLow: number | null; swingLowBroken: boolean; swingLowTime: number | null;
-};
-
-// Son (kirilmamis) swing high / swing low — pivot temelli.
-function lastUnbrokenSwings(candles: Candle[], len: number): Swings {
-  let swingHigh: number | null = null, swingHighBroken = false, swingHighTime: number | null = null;
-  let swingLow: number | null = null, swingLowBroken = false, swingLowTime: number | null = null;
-  for (let i = 0; i < candles.length; i++) {
-    const p = i - len;
-    if (p >= len && p < candles.length - len) {
-      let isHigh = true, isLow = true;
-      for (let j = p - len; j <= p + len; j++) {
-        if (j === p) continue;
-        if (candles[j].high >= candles[p].high) isHigh = false;
-        if (candles[j].low <= candles[p].low) isLow = false;
-      }
-      if (isHigh) { swingHigh = candles[p].high; swingHighTime = candles[p].time; swingHighBroken = false; }
-      if (isLow) { swingLow = candles[p].low; swingLowTime = candles[p].time; swingLowBroken = false; }
-    }
-    const c = candles[i];
-    if (swingHigh != null && !swingHighBroken && c.close > swingHigh) swingHighBroken = true;
-    if (swingLow != null && !swingLowBroken && c.close < swingLow) swingLowBroken = true;
-  }
-  return { swingHigh, swingHighBroken, swingHighTime, swingLow, swingLowBroken, swingLowTime };
-}
-
-// Range'e gore SIRADAKI kirilmasi gereken TEK seviye (CHoCH beklentisi).
-// premium -> asagi swing low kirilmali (SHORT); discount -> yukari swing high (LONG).
-// Mekanik kirilimin motorun yonuyle iliskisine gore etiket: ayni yon -> "teyit",
-// ters yon -> "yon doner" (tez gecersiz). Boylece ust rozet SHORT derken burada bare
-// "kırılırsa LONG" celiskisi cikmaz.
-function breakLabel(mechDir: "long" | "short", price: number, bias: Bias): string {
-  const arrow = mechDir === "long" ? "↑" : "↓";
-  const word = mechDir === "long" ? "LONG" : "SHORT";
-  const p = formatPrice(price);
-  if (!bias || bias === "neutral") return `${arrow} ${p} kırılırsa ${word}`;
-  if (mechDir === bias) return `${arrow} ${p} kırılırsa ${word} teyidi`;
-  return `${arrow} ${p} kırılırsa yön ${word}'a döner`;
-}
-
-type NextBreak = { price: number; time: number; dir: "up" | "down"; label: string } | null;
-function nextBreak(candles: Candle[], range: DealingRange | undefined, len: number, lastClose: number | undefined, bias: Bias): NextBreak {
-  if (!range || lastClose == null) return null;
-  const sw = lastUnbrokenSwings(candles, len);
-  if (lastClose > range.midpoint && sw.swingLow != null && !sw.swingLowBroken && sw.swingLowTime != null) {
-    return { price: sw.swingLow, time: sw.swingLowTime, dir: "down", label: breakLabel("short", sw.swingLow, bias) };
-  }
-  if (lastClose <= range.midpoint && sw.swingHigh != null && !sw.swingHighBroken && sw.swingHighTime != null) {
-    return { price: sw.swingHigh, time: sw.swingHighTime, dir: "up", label: breakLabel("long", sw.swingHigh, bias) };
-  }
-  return null;
-}
-
-type RangeStatus = { label: string; tone: "premium" | "discount" | "none" };
-
-// Fiyatin range icindeki KONUMU — sadece geometrik gercek, yon iddiasi ETMEZ. Yonu motor
-// (bias rozeti) soyler; burasi "neredeyiz"i gosterir, boylece ust yon rozetiyle celismez.
-function rangeStatus(range: DealingRange | undefined, lastClose: number | undefined): RangeStatus {
-  if (!range || lastClose == null) return { label: "—", tone: "none" };
-  if (lastClose > range.high) return { label: "range ÜSTÜ süpürüldü", tone: "premium" };
-  if (lastClose < range.low) return { label: "range ALTI süpürüldü", tone: "discount" };
-  if (lastClose > range.midpoint) return { label: "premium (üst yarı)", tone: "premium" };
-  return { label: "discount (alt yarı)", tone: "discount" };
-}
+// A few empty bars to the right so the range lines visibly run into the current period.
+const RIGHT_PAD_BARS = 6;
 
 const BIAS_META: Record<"long" | "short" | "neutral", { text: string; color: string }> = {
   long: { text: "Yön: LONG", color: "#089981" },
@@ -125,73 +53,25 @@ const BIAS_META: Record<"long" | "short" | "neutral", { text: string; color: str
   neutral: { text: "Yön: NÖTR", color: "#97a3bd" }
 };
 
-// Fiyat range kenarina yaklasti mi? (sweep/setup oncesi uyari)
-// Esik: range yuksekliginin %12'si kadar kenara yaklasinca alarm.
-type ProximityAlert = { edge: "HIGH" | "LOW"; msg: string } | null;
-function proximityAlert(range: DealingRange | undefined, lastClose: number | undefined): ProximityAlert {
-  if (!range || lastClose == null) return null;
-  const size = range.high - range.low;
-  if (size <= 0) return null;
-  const nearHigh = (range.high - lastClose) / size;
-  const nearLow = (lastClose - range.low) / size;
-  if (lastClose <= range.high && lastClose > range.midpoint && nearHigh <= 0.12) {
-    return { edge: "HIGH", msg: `⚠️ RANGE HIGH yakın (${formatPrice(range.high)}) — üst sweep olası` };
-  }
-  if (lastClose >= range.low && lastClose < range.midpoint && nearLow <= 0.12) {
-    return { edge: "LOW", msg: `⚠️ RANGE LOW yakın (${formatPrice(range.low)}) — alt sweep olası` };
-  }
-  return null;
-}
+const RANGE_COLOR = "#ffd700";
 
-export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460, bias, plan }: CrtLiteChartProps) {
+export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, rangeLabel, plan }: CrtLiteChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const breakLineRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const rangeSeriesRef = useRef<Array<ISeriesApi<"Line">>>([]);
 
   const data = useMemo(() => cleanCandles(candles), [candles]);
-  const lastClose = candles.length ? candles[candles.length - 1].close : undefined;
-  const brk = useMemo(
-    () => nextBreak(candles, range, pivotLen, lastClose, bias),
-    [candles, range?.high, range?.low, range?.midpoint, pivotLen, lastClose, bias]
-  );
-  // Sadece TEK isaret: kirilmasi beklenen swing'i gosterir (spam yok).
-  const markers = useMemo<MsbMarker[]>(() => {
-    if (!brk) return [];
-    return [
-      {
-        time: toSeconds(brk.time),
-        position: brk.dir === "down" ? "belowBar" : "aboveBar",
-        color: "#f2a33c",
-        shape: brk.dir === "down" ? "arrowDown" : "arrowUp",
-        text: "kırılacak"
-      }
-    ];
-  }, [brk]);
-  const status = rangeStatus(range, lastClose);
-  const alert = proximityAlert(range, lastClose);
-  const notifiedRef = useRef<string>("");
+  // Whitespace bars after the last candle (same spacing as the last two bars).
+  const padded = useMemo(() => {
+    if (data.length < 2) return data;
+    const step = data[data.length - 1].time - data[data.length - 2].time;
+    const last = data[data.length - 1].time;
+    const pad = Array.from({ length: RIGHT_PAD_BARS }, (_, i) => ({ time: (last + step * (i + 1)) as UTCTimestamp }));
+    return [...data, ...pad];
+  }, [data]);
 
-  // Kenara yaklasinca tarayici bildirimi (izin varsa), her yaklasmada bir kez.
-  useEffect(() => {
-    if (!alert) {
-      notifiedRef.current = "";
-      return;
-    }
-    const key = `${title ?? ""}:${alert.edge}`;
-    if (notifiedRef.current === key) return;
-    notifiedRef.current = key;
-    if (typeof Notification === "undefined") return;
-    if (Notification.permission === "granted") {
-      new Notification(`${title ?? "CRT"} — ${alert.edge}`, { body: alert.msg });
-    } else if (Notification.permission !== "denied") {
-      Notification.requestPermission().then((perm) => {
-        if (perm === "granted") new Notification(`${title ?? "CRT"} — ${alert.edge}`, { body: alert.msg });
-      });
-    }
-  }, [alert?.edge, alert?.msg, title]);
-
-  // Chart'i bir kez kur.
+  // Build the chart once.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -211,56 +91,57 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
       wickUpColor: "#0a9981",
       wickDownColor: "#f23645"
     });
-    const breakLine = chart.addLineSeries({
-      color: "#f2a33c",
-      lineWidth: 2,
+    const rangeLine = (style: LineStyle, width: 1 | 2) => chart.addLineSeries({
+      color: RANGE_COLOR,
+      lineWidth: width,
+      lineStyle: style,
       lastValueVisible: true,
       priceLineVisible: false,
-      crosshairMarkerVisible: false,
-      title: "KIRILACAK"
+      crosshairMarkerVisible: false
     });
+    rangeSeriesRef.current = [rangeLine(LineStyle.Solid, 2), rangeLine(LineStyle.Dotted, 1), rangeLine(LineStyle.Solid, 2)];
     chartRef.current = chart;
     seriesRef.current = series;
-    breakLineRef.current = breakLine;
     return () => {
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
-      breakLineRef.current = null;
+      rangeSeriesRef.current = [];
     };
   }, []);
 
-  // Veri + markerlar degisince guncelle.
+  // Candles.
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    series.setData(data);
-    series.setMarkers(markers);
+    series.setData(padded);
     chartRef.current?.timeScale().fitContent();
-  }, [data, markers]);
+  }, [padded]);
 
-  // Range H/EQ/L cizgileri (onceki HTF mumu).
+  // This tab's CRT range: High / EQ / Low from the reference candle to the right edge.
   useEffect(() => {
-    const series = seriesRef.current;
-    if (!series) return;
-    const lines = [
-      range
-        ? series.createPriceLine({ price: range.high, color: "#f23645", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "RANGE HIGH" })
-        : null,
-      range
-        ? series.createPriceLine({ price: range.midpoint, color: "#97a3bd", lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: true, title: "EQ" })
-        : null,
-      range
-        ? series.createPriceLine({ price: range.low, color: "#089981", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "RANGE LOW" })
-        : null
-    ];
-    return () => {
-      for (const l of lines) if (l) series.removePriceLine(l);
-    };
-  }, [range?.high, range?.low, range?.midpoint]);
+    const [highSeries, eqSeries, lowSeries] = rangeSeriesRef.current;
+    if (!highSeries || !eqSeries || !lowSeries) return;
+    const end = padded[padded.length - 1]?.time;
+    if (!crtRange || end === undefined) {
+      highSeries.setData([]);
+      eqSeries.setData([]);
+      lowSeries.setData([]);
+      return;
+    }
+    const start = toSeconds(crtRange.time);
+    const tag = rangeLabel ?? "CRT";
+    const segment = (value: number) => (end > start ? [{ time: start, value }, { time: end, value }] : [{ time: start, value }]);
+    highSeries.applyOptions({ title: `${tag} H` });
+    eqSeries.applyOptions({ title: `${tag} EQ` });
+    lowSeries.applyOptions({ title: `${tag} L` });
+    highSeries.setData(segment(crtRange.high));
+    eqSeries.setData(segment(crtRange.eq));
+    lowSeries.setData(segment(crtRange.low));
+  }, [crtRange?.high, crtRange?.low, crtRange?.eq, crtRange?.time, rangeLabel, padded]);
 
-  // Seçili sinyalin planı: Giriş / Stop / EQ (stop → BE) / Çıkış (DOL). Tek hedefli planda
-  // (continuation) yalnız "Çıkış" çizilir.
+  // Selected signal's plan: Entry / Stop / EQ (stop -> BE) / Exit. Single-target plans
+  // (continuation) draw only the exit.
   const planEntry = plan?.entry;
   const planStop = plan?.stopLoss;
   const planEq = plan && plan.targets.length > 1 ? plan.targets[0] : undefined;
@@ -268,14 +149,14 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
   useEffect(() => {
     const series = seriesRef.current;
     if (!series) return;
-    const line = (price: number | undefined, color: string, title: string, style: LineStyle) =>
+    const line = (price: number | undefined, color: string, lineTitle: string, style: LineStyle) =>
       typeof price === "number" && Number.isFinite(price)
-        ? series.createPriceLine({ price, color, lineWidth: 2, lineStyle: style, axisLabelVisible: true, title })
+        ? series.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title: lineTitle })
         : null;
     const lines = [
-      line(planEntry, "#ffd700", "GİRİŞ", LineStyle.Solid),
+      line(planEntry, "#e8e4d8", "GİRİŞ", LineStyle.Solid),
       line(planStop, "#f23645", "STOP", LineStyle.Solid),
-      line(planEq, "#a9a49a", "EQ → BE", LineStyle.Dotted),
+      line(planEq, "#a9a49a", "EQ → BE", LineStyle.Dashed),
       line(planExit, "#089981", "ÇIKIŞ", LineStyle.Solid)
     ];
     return () => {
@@ -283,34 +164,15 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
     };
   }, [planEntry, planStop, planEq, planExit]);
 
-  // SIRADAKI kirilacak seviye — swing noktasindan SAGA cizgi (boydan boya DEGIL).
-  useEffect(() => {
-    const bl = breakLineRef.current;
-    if (!bl) return;
-    if (!brk || data.length < 1) {
-      bl.setData([]);
-      return;
-    }
-    const startT = toSeconds(brk.time);
-    const endT = data[data.length - 1].time;
-    bl.setData(
-      endT > startT
-        ? [{ time: startT, value: brk.price }, { time: endT, value: brk.price }]
-        : [{ time: startT, value: brk.price }]
-    );
-  }, [brk, data]);
-
-  const toneColor =
-    status.tone === "premium" ? "#f2a33c" : status.tone === "discount" ? "#3c9df2" : "#97a3bd";
   const biasMeta = bias ? BIAS_META[bias] : null;
 
   return (
     <div className="crt-lite-chart">
       <div className="crt-lite-chart__head">
-        <span className="crt-lite-chart__title">{title ?? "CRT (lightweight-charts)"}</span>
-        {range ? (
+        <span className="crt-lite-chart__title">{title ?? "CRT"}</span>
+        {crtRange ? (
           <span className="crt-lite-chart__range">
-            H {formatPrice(range.high)} · EQ {formatPrice(range.midpoint)} · L {formatPrice(range.low)}
+            {rangeLabel ?? "CRT"} range · H {formatPrice(crtRange.high)} · EQ {formatPrice(crtRange.eq)} · L {formatPrice(crtRange.low)}
           </span>
         ) : null}
         {biasMeta ? (
@@ -318,14 +180,7 @@ export function CrtLiteChart({ candles, range, title, pivotLen = 5, height = 460
             {biasMeta.text}
           </span>
         ) : null}
-        <span className="crt-lite-chart__status" style={{ color: toneColor }}>
-          {status.label}
-        </span>
       </div>
-      {brk ? <div className="crt-lite-chart__next">Sıradaki kırılım: {brk.label}</div> : null}
-      {alert ? (
-        <div className={`crt-lite-chart__alert crt-lite-chart__alert--${alert.edge.toLowerCase()}`}>{alert.msg}</div>
-      ) : null}
       <div ref={containerRef} style={{ width: "100%", height }} />
     </div>
   );
