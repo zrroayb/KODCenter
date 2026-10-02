@@ -227,7 +227,7 @@ describe("monthly runtime replay", () => {
     expect(review.gradeBuckets).toEqual([{ grade: "A", trades: 3, totalR: 1.2, expectancyR: 0.4 }]);
   });
 
-  it("scores CRT EQ management as partial profit plus breakeven instead of fake full TP", () => {
+  it("scores CRT as DOL target with break-even at EQ (EQ touch then pullback = 0R scratch)", () => {
     const baseContext = createStructureContext();
     const baseSignal = kodStrategy.scan({
       context: baseContext,
@@ -252,24 +252,46 @@ describe("monthly runtime replay", () => {
       { time: 1, open: 100, high: 101.2, low: 100, close: 101, volume: 1000 },
       { time: 2, open: 101, high: 101.1, low: 99.95, close: 100.1, volume: 1000 }
     ];
-    // Primary model (owner decision 2026-07-16): full close at EQ — the walk pays the full 1R.
+    // Primary model (owner decision 2026-09-27): DOL target, stop to break-even at EQ. The walk
+    // touches EQ (101) then pulls back to entry before DOL (103) — a 0R scratch, not a win.
     const outcome = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles);
 
-    expect(outcome.status).toBe("tp1");
-    expect(outcome.outcomeReason).toBe("eq-full");
-    expect(outcome.rMultiple).toBe(1);
+    expect(outcome.status).toBe("breakeven");
+    expect(outcome.outcomeReason).toBe("be-scratch");
+    expect(outcome.rMultiple).toBe(0);
     expect(outcome.tags).toContain("crt:eq");
-    expect(outcome.tags).toContain("crt:eq-full");
+    expect(outcome.tags).toContain("crt:be-scratch");
     // Counterfactuals from the same walk: the old EQ-partial+BE model banks 0.5R (half at EQ,
     // remainder scratched at BE on the pullback), no-BE holds the half for 0.5R, and the
     // no-partial full-DOL position scratches at BE (0R).
     expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqPartialBe: 0.5 });
 
-    // Legacy model still available behind the setting and still measures the old way.
+    // Older models stay available behind the setting and still measure the old way.
+    const eqFull = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-full" });
+    expect(eqFull.status).toBe("tp1");
+    expect(eqFull.outcomeReason).toBe("eq-full");
+    expect(eqFull.rMultiple).toBe(1);
+
     const legacy = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-partial-be" });
     expect(legacy.status).toBe("tp1");
     expect(legacy.outcomeReason).toBe("eq-then-be");
     expect(legacy.rMultiple).toBe(0.5);
+
+    // Same setup delivering to DOL: EQ arms BE on the way, the whole position closes at DOL (3R).
+    const toDol = __runtimeReplayInternals.evaluateForwardOutcome(signal, [
+      { time: 1, open: 100, high: 101.2, low: 100, close: 101, volume: 1000 },
+      { time: 2, open: 101, high: 103.2, low: 100.6, close: 103, volume: 1000 }
+    ]);
+    expect(toDol.status).toBe("tp2");
+    expect(toDol.outcomeReason).toBe("dol-be");
+    expect(toDol.rMultiple).toBe(3);
+
+    // A stop before EQ is still a full -1R loss.
+    const stopped = __runtimeReplayInternals.evaluateForwardOutcome(signal, [
+      { time: 1, open: 100, high: 100.5, low: 98.9, close: 99, volume: 1000 }
+    ]);
+    expect(stopped.status).toBe("stopped");
+    expect(stopped.rMultiple).toBe(-1);
   });
 
   it("marks an expired open trade at the final close instead of its MFE", () => {

@@ -4,7 +4,7 @@ import { loadEnv, type Plugin } from "vite";
 import process from "node:process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createAlertStore, isAuthorizedScan, type AlertStore } from "./server/alertGate";
-import { eqFullManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
+import { dolBeManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
 import { CRT_ANALYSIS_SYSTEM_INSTRUCTION, SESSION_ANALYSIS_SYSTEM_INSTRUCTION, SILVER_BULLET_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
 
 const yahooUserAgent = "Mozilla/5.0";
@@ -302,14 +302,14 @@ function telegramCaption(payload: ReadyTelegramPayload) {
     : undefined;
   return [
     `<b>${priorityTag}</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())}`,
-    // plan.rr is the EXIT's net RR (CRT: full close at EQ). DOL is extension info only.
-    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}${(payload.strategyId ?? "crt") === "crt" ? " (tam çıkış EQ)" : ""}`,
+    // plan.rr is the EXIT's net RR (CRT: full close at DOL, stop to break-even at EQ).
+    `${escapeHtml(payload.grade ?? "-")} · Score ${payload.score ?? "-"} · Net RR ${formatTelegramR(payload.rr)}${(payload.strategyId ?? "crt") === "crt" ? " (çıkış DOL)" : ""}`,
     ...(riskLine ? [riskLine] : []),
     "",
     `Entry: <b>${formatTelegramPrice(payload.entry)}</b>`,
     `Stop: <b>${formatTelegramPrice(payload.stopLoss)}</b>`,
     ...((payload.strategyId ?? "crt") === "crt"
-      ? [`Çıkış EQ: <b>${formatTelegramPrice(eqTarget)}</b>`, `DOL (uzatma, bilgi): ${formatTelegramPrice(dolTarget)}`]
+      ? [`EQ (stop → BE): ${formatTelegramPrice(eqTarget)}`, `Çıkış DOL: <b>${formatTelegramPrice(dolTarget)}</b>`]
       : [`TP1: <b>${formatTelegramPrice(eqTarget)}</b>`, ...(dolTarget !== eqTarget ? [`TP2: <b>${formatTelegramPrice(dolTarget)}</b>`] : [])]),
     "",
     "<b>Neden READY?</b>",
@@ -373,7 +373,7 @@ function fallbackTradeCommentary(input: GeminiTradePayload, reason?: string) {
   } else if (input.stage === "ready") {
     karar = "Karar: Plan hazır; disiplinle uygula.";
     neden = `Neden: ${audit?.decision || "CRT sırası tamam: bias, manipulation, ChoCH ve retest okunuyor."}`;
-    beklenen = eqFullManagementLine(formatTelegramPrice(input.entry), formatTelegramPrice(input.targets?.[0]));
+    beklenen = dolBeManagementLine(formatTelegramPrice(input.entry), formatTelegramPrice(input.targets?.[0]), formatTelegramPrice(input.targets?.[1] ?? input.targets?.[0]));
   } else {
     karar = "Karar: Bekle; onay geldi, retest gelsin, displacement kovalanmaz.";
     neden = `Neden: ${audit?.decision || decisionLine || "Kalite/RR filtreleri henüz READY vermiyor."}`;
@@ -425,7 +425,7 @@ function buildGeminiPrompt(input: GeminiTradePayload) {
   return clampText(`
 Sen deneyimli bir Candle Range Theory (CRT) mentorusun; öğrencinin chartını okuyup net ve doğrudan konuşursun.
 CRT modelin: bir önceki kapanmış HTF mumu range'dir. Range high/low'unun süpürülmesi manipulation, karşı tarafa dönen hareket distribution'dır.
-SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → çıkış range EQ (0.5), pozisyonun tamamı; DOL yalnız uzatma bilgisi.
+SOP sıran: HTF bias/DOL uyumu → valid pullback → range extremi sweep + reclaim → LTF ChoCH/Just kapanışı → kırılan seviyenin retest'inden entry → stop manipulation wick'inin dışına → EQ (0.5) görülünce stop break-even'a → çıkış DOL (karşı likidite), pozisyonun tamamı; kısmi TP yok.
 Sıra disiplini bozulmaz: sweep yoksa "manipulation bekle" dersin, ChoCH yoksa "kapanış onayı bekle" dersin, retest kaçtıysa "kovalanmaz, yeni model bekle" dersin.
 Stop entry'nin yanlış tarafındaysa veya TP entry'nin gerisindeyse bunu sert söyle: bu plan geometrisi bozuk, trade edilmez.
 Killzone dışı FX/endeks setup'ı zayıftır; zamanlamayı her zaman değerlendir.
@@ -1046,6 +1046,7 @@ async function handleGeminiSilverBulletAnalysis(request: JsonRequest, response: 
 
 const REPLAY_REASON_LABELS: Record<string, string> = {
   "clean-model": "temiz model",
+  "dol-be": "DOL tam çıkış (EQ'da BE)",
   "eq-full": "EQ tam çıkış",
   "eq-then-be": "EQ sonrası BE",
   "dol-missed": "DOL gelmedi",

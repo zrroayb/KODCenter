@@ -5,7 +5,7 @@ export type UserRules = {
   useExecutionCosts: boolean;
   slippageStress: "normal" | "high";
   minimumRR: number;
-  // CRT exits the whole position at EQ (eq-full); its READY gate is the EQ net RR.
+  // CRT runs the whole position to DOL (stop to break-even at EQ); its READY gate is the DOL net RR.
   crtExitMinimumRR: number;
   minimumScore: number;
   partialTpEnabled: boolean;

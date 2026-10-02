@@ -27,7 +27,7 @@ export function ruleAllowsContext(context: MarketContext, rules: UserRules): boo
 export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boolean {
   if (signal.stage === "invalidated" || signal.stage === "missed") return false;
   if (signal.score < effectiveMinimumScore(rules.minimumScore)) return false;
-  // Each strategy gates READY on its own exit RR (CRT: EQ net RR vs crtExitMinimumRR); the plan
+  // Each strategy gates READY on its own exit RR (CRT: DOL net RR vs crtExitMinimumRR); the plan
   // carries that threshold. Plans without one fall back to the generic rule.
   if (signal.stage === "ready" && signal.plan.rr < (signal.plan.minimumRR ?? rules.minimumRR)) return false;
   if (rules.usePremiumDiscountFilter && !hasValidPremiumDiscount(signal)) return false;

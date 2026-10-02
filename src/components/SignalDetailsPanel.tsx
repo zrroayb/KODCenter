@@ -229,9 +229,11 @@ export function SignalDetailsPanel({
         <div className="simple-plan-grid">
           <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
           <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
-          <div><span>Çıkış (EQ)</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
-          <div><span>EQ RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
-          <div><span>DOL uzatma</span><strong>{formatR(signal.plan.extensionRR ?? signal.plan.rr)}</strong></div>
+          {typeof signal.plan.targets[1] === "number" && (
+            <div><span>EQ (stop → BE)</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
+          )}
+          <div><span>Çıkış{typeof signal.plan.targets[1] === "number" ? " (DOL)" : ""}</span><strong>{formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}</strong></div>
+          <div><span>Net RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
         </div>
       )}
       <section className="simple-next-card">

@@ -589,16 +589,64 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
   const eqR = targetR(signal, 0);
   const dolR = targetR(signal, 1);
   const partialTpEnabled = settings.partialTpEnabled !== false;
-  // Owner decision 2026-07-16: the primary exit is FULL close at EQ/TP1 — no DOL runner, no BE.
-  // Measured on the same 12 entries: eq-full 11.85R vs the old EQ-partial+BE model's 6.12R.
-  // The old model stays available via settings.exitModel = "eq-partial-be" and keeps being
-  // measured as a management variant, so this stays reversible at the 30+ trade review.
-  const exitModel = settings.exitModel === "eq-partial-be" ? "eq-partial-be" : "eq-full";
+  // Owner decision 2026-09-27: the primary exit is DOL-target with break-even at EQ ("dol-be") —
+  // the whole position runs to DOL, and when price reaches EQ the stop moves to entry. Same model
+  // as the live outcomeEngine, so live == replay. The older models stay selectable via
+  // settings.exitModel ("eq-full" = full close at EQ, "eq-partial-be") and keep being measured
+  // as management variants for comparison.
+  const exitModel = settings.exitModel === "eq-partial-be"
+    ? "eq-partial-be"
+    : settings.exitModel === "eq-full" ? "eq-full" : "dol-be";
   const configuredBe = typeof settings.moveToBreakevenAtR === "number" ? settings.moveToBreakevenAtR : 1;
   const breakevenTriggerR = configuredBe > 0 ? configuredBe : Number.POSITIVE_INFINITY;
+  let dolBeArmed = false;
 
   for (let index = 0; index < afterEntry.length; index += 1) {
     const candle = afterEntry[index];
+    if (exitModel === "dol-be") {
+      const highR = rAtPrice(signal, executableHigh(candle, signal.direction === "short" ? "buy" : "sell"));
+      const lowR = rAtPrice(signal, executableLow(candle, signal.direction === "short" ? "buy" : "sell"));
+      maxFavorableR = Math.max(maxFavorableR, highR, lowR);
+      maxAdverseR = Math.min(maxAdverseR, highR, lowR);
+      // BE is armed from a PREVIOUS candle's EQ touch (conservative, same as outcomeEngine).
+      if (dolBeArmed ? priceTouched(candle, signal.plan.entry) : stopHit(signal, candle)) {
+        return dolBeArmed
+          ? {
+              status: "breakeven",
+              rMultiple: 0,
+              maxFavorableR,
+              maxAdverseR,
+              candlesHeld: index + 1,
+              outcomeReason: "be-scratch",
+              tags: Array.from(new Set([...tags, "crt:eq", "crt:be-scratch"])),
+              note: "EQ görüldü, stop BE'ye çekildi; DOL öncesi entry'ye dönüş — 0R scratch."
+            }
+          : {
+              status: "stopped",
+              rMultiple: -1,
+              maxFavorableR,
+              maxAdverseR,
+              candlesHeld: index + 1,
+              outcomeReason: stoppedReason(signal, maxFavorableR),
+              tags,
+              note: "CRT entry sonrası stop, EQ görülmeden önce çalıştı."
+            };
+      }
+      if (targetHit(signal, candle, 1)) {
+        return {
+          status: "tp2",
+          rMultiple: Number(dolR.toFixed(2)),
+          maxFavorableR,
+          maxAdverseR,
+          candlesHeld: index + 1,
+          outcomeReason: "dol-be",
+          tags: Array.from(new Set([...tags, "crt:dol", "crt:dol-be"])),
+          note: "Tam pozisyon DOL'da kapandı (EQ'da stop BE)."
+        };
+      }
+      if (targetHit(signal, candle, 0)) dolBeArmed = true;
+      continue;
+    }
     // Once the trade has paid +1R, the stop lives at entry: a winner is never allowed to
     // become a full -1R loser. Armed from the previous candle's extreme (conservative).
     // (eq-partial-be only — the eq-full model never moves the stop.)
@@ -707,7 +755,8 @@ function evaluateCrtForwardOutcomeCore(signal: TradingSignal, afterEntry: Candle
 
   return {
     status: "open",
-    rMultiple: expiryCloseR(signal, afterEntry),
+    // dol-be: once EQ armed break-even, an unresolved trade can no longer end below 0R.
+    rMultiple: dolBeArmed ? Math.max(0, expiryCloseR(signal, afterEntry)) : expiryCloseR(signal, afterEntry),
     maxFavorableR,
     maxAdverseR,
     candlesHeld: afterEntry.length,

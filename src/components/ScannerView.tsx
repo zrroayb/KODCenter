@@ -327,9 +327,11 @@ export function ScannerView({
               <div className="simple-plan-grid">
                 <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
                 <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
-                <div><span>EQ/TP1</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-                <div><span>EQ RR</span><strong>{formatR(best.plan.rr)}</strong></div>
-                <div><span>DOL uzatma</span><strong>{formatR(best.plan.extensionRR ?? best.plan.rr)}</strong></div>
+                {typeof best.plan.targets[1] === "number" && (
+                  <div><span>EQ → BE</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
+                )}
+                <div><span>Çıkış{typeof best.plan.targets[1] === "number" ? " DOL" : ""}</span><strong>{formatPrice(best.plan.targets[1] ?? best.plan.targets[0])}</strong></div>
+                <div><span>Net RR</span><strong>{formatR(best.plan.rr)}</strong></div>
               </div>
             )}
             <section className="simple-structure-box">

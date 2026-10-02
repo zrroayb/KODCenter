@@ -319,12 +319,12 @@ function telegramCaption(payload: TelegramReadyAlertPayload) {
   const isCrt = (payload.strategyId ?? "crt") === "crt";
   // Playbook etiketi mesajın ilk satırında — reversal mi continuation mı hemen belli olsun.
   const playbookLine = payload.playbook ? ` · ${escapeHtml(payload.playbook)}` : "";
-  // EQ/DOL sadece CRT reversal terimleri; continuation için TP1/TP2 ve düz net RR kullanılır.
+  // EQ/DOL sadece CRT reversal terimleri (EQ = stop BE, DOL = çıkış); continuation için TP1/TP2 ve düz net RR.
   const rrLine = isCrt
-    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · EQ net RR ${formatR(payload.rr)} (tam çıkış) · DOL uzatma ${formatR(payload.extensionRR ?? 0)}`
+    ? `${escapeHtml(payload.grade)} · Score ${payload.score} · DOL net RR ${formatR(payload.rr)} (çıkış DOL) · EQ'da stop BE (${formatR(payload.extensionRR ?? 0)})`
     : `${escapeHtml(payload.grade)} · Score ${payload.score} · net RR ${formatR(payload.rr)}`;
-  const tp1Label = isCrt ? "EQ / TP1" : "TP1";
-  const tp2Label = isCrt ? "DOL (uzatma, bilgi)" : "TP2";
+  const tp1Label = isCrt ? "EQ (stop → BE)" : "TP1";
+  const tp2Label = isCrt ? "Çıkış DOL" : "TP2";
   const targetLines = [`${tp1Label}: <b>${formatPrice(payload.targets[0])}</b>`];
   if (payload.targets[1] !== undefined && payload.targets[1] !== payload.targets[0]) {
     targetLines.push(`${tp2Label}: <b>${formatPrice(payload.targets[1])}</b>`);
@@ -662,9 +662,13 @@ type AlertRecord = {
 };
 
 // Muhafazakâr sonuç: entry sonrası mumlarda aynı mumda hem stop hem hedef varsa stop önce sayılır
-// (replay ile aynı konvansiyon). Hedef = ilk target (CRT eq-full ve continuation tek-hedef).
+// (replay ile aynı konvansiyon). CRT: hedef = DOL (targets[1]); EQ (targets[0]) görülünce stop
+// break-even'a çekilir, sonra entry'ye dönüş = "breakeven" (0R). Continuation tek-hedef (targets[0]).
 function resolveAlertOutcome(rec: AlertRecord, candles: ResolverCandle[]): { outcome: string; r: number; resolvedAt: number } | null {
-  const entry = rec.entry, stop = rec.stopLoss, target = rec.targets?.[0], created = rec.createdAt;
+  const isCrt = (rec.strategyId ?? "crt") === "crt";
+  const eq = isCrt ? rec.targets?.[0] : undefined;
+  const target = isCrt ? (rec.targets?.[1] ?? rec.targets?.[0]) : rec.targets?.[0];
+  const entry = rec.entry, stop = rec.stopLoss, created = rec.createdAt;
   const dir = rec.direction;
   if (![entry, stop, target, created].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
   if (dir !== "long" && dir !== "short") return null;
@@ -672,14 +676,17 @@ function resolveAlertOutcome(rec: AlertRecord, candles: ResolverCandle[]): { out
   if (risk <= 0) return null;
   const MAX_HOLD_MS = 96 * 15 * 60 * 1000; // replay maxHold 96 m15 ≈ 1 gün
   const after = candles.filter((c) => c.time > (created as number)).sort((a, b) => a.time - b.time);
+  let beArmed = false;
   for (const c of after) {
-    const stopHit = dir === "long" ? c.low <= (stop as number) : c.high >= (stop as number);
+    const effectiveStop = beArmed ? (entry as number) : (stop as number);
+    const stopHit = dir === "long" ? c.low <= effectiveStop : c.high >= effectiveStop;
     const targetHit = dir === "long" ? c.high >= (target as number) : c.low <= (target as number);
-    if (stopHit) return { outcome: "loss", r: -1, resolvedAt: c.time };
+    if (stopHit) return beArmed ? { outcome: "breakeven", r: 0, resolvedAt: c.time } : { outcome: "loss", r: -1, resolvedAt: c.time };
     if (targetHit) return { outcome: "win", r: Number((Math.abs((target as number) - (entry as number)) / risk).toFixed(2)), resolvedAt: c.time };
+    if (typeof eq === "number" && (dir === "long" ? c.high >= eq : c.low <= eq)) beArmed = true;
     if (c.time - (created as number) > MAX_HOLD_MS) {
       const raw = dir === "long" ? (c.close - (entry as number)) / risk : ((entry as number) - c.close) / risk;
-      return { outcome: "expired", r: Number(Math.max(-1, raw).toFixed(2)), resolvedAt: c.time };
+      return { outcome: "expired", r: Number(Math.max(beArmed ? 0 : -1, raw).toFixed(2)), resolvedAt: c.time };
     }
   }
   return null; // hâlâ açık

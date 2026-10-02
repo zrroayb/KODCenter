@@ -28,7 +28,7 @@ describe("Gemini trade commentary", () => {
 
     expect(payload.chart.timeframe).toBe("15m");
     expect(payload.chart.decisionLine).toBeTruthy();
-    expect(payload.chart.keyLevels.map((level) => level.label)).toEqual(expect.arrayContaining(["ENTRY", "STOP", "EQ / TP1", "DOL / TP2", "SWEEP", "ChoCH / Just", "FVG BOX"]));
+    expect(payload.chart.keyLevels.map((level) => level.label)).toEqual(expect.arrayContaining(["ENTRY", "STOP", "EQ / BE", "DOL / TP (çıkış)", "SWEEP", "ChoCH / Just", "FVG BOX"]));
     expect(payload.chart.recentCandles.length).toBeGreaterThan(0);
     expect(payload.chart.recentCandles.some((candle) => candle.role?.includes("liquidity sweep"))).toBe(true);
     expect(payload.chart.annotations.fairValueGap?.low).toBe(100.2);

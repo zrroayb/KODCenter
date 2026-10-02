@@ -76,7 +76,7 @@ export function SettingsView({
           <label>BE tetikleyici R<input type="number" step="0.25" min="0" value={rules.moveToBreakevenAtR} onChange={(event) => updateNumber("moveToBreakevenAtR", Number(event.target.value))} /></label>
         </div>
         <div className="toggle-grid">
-          <label><input type="checkbox" checked={rules.partialTpEnabled} onChange={(event) => onRulesChange({ ...rules, partialTpEnabled: event.target.checked })} /> EQ'da kısmi kâr (yalnız eq-partial-be replay modeli; CRT canlı model tam-EQ)</label>
+          <label><input type="checkbox" checked={rules.partialTpEnabled} onChange={(event) => onRulesChange({ ...rules, partialTpEnabled: event.target.checked })} /> EQ'da kısmi kâr (yalnız eq-partial-be replay modeli; CRT canlı model: tamamı DOL'da, EQ'da stop BE)</label>
           <label><input type="checkbox" checked={rules.useExecutionCosts} onChange={(event) => onRulesChange({ ...rules, useExecutionCosts: event.target.checked })} /> Spread / slippage dahil</label>
           <label><input type="checkbox" checked={rules.avoidNews} onChange={(event) => onRulesChange({ ...rules, avoidNews: event.target.checked })} /> Haber saatinde no trade</label>
           <label><input type="checkbox" checked={rules.usePremiumDiscountFilter} onChange={(event) => onRulesChange({ ...rules, usePremiumDiscountFilter: event.target.checked })} /> Premium / Discount</label>

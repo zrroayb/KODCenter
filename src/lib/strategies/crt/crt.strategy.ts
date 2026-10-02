@@ -1082,7 +1082,7 @@ function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromInd
 
 // Score communicates quality; it never redefines the CRT model. It feeds ONLY the grade
 // (readyEligible has no score threshold). Split so the grade actually varies (2026-09-26):
-//   base 12 + CORE 58 (manipulation 20, ChoCH 18, exit/EQ net RR 20) = 70 → B
+//   base 12 + CORE 58 (manipulation 20, ChoCH 18, exit/DOL net RR 20) = 70 → B
 //   QUALITY up to 38 (HTF alignment, SMT, killzone raid, session, location tier, reference
 //   candle, displacement, linked shift FVG/retest, range respect, key open) → A / A+ only with
 //   evidence. Before this split the core alone summed to 100 and every READY setup printed A+.
@@ -1458,12 +1458,12 @@ function crtDecisionSummary(context: MarketContext, anchor: AnchorCtx, setup: Cr
     `${context.symbol} ${side} CRT: ${anchor.spec.rangeTf} range ${formatPrice(anchor.range.low)}-${formatPrice(anchor.range.high)}.`,
     setup.manipulation ? `Manipulation ${formatPrice(setup.manipulation.level)} seviyesinde tamam.` : "Manipulation bekleniyor.",
     setup.choch ? `${anchor.spec.confirmTf} dağılım kapanışı ${formatPrice(setup.choch.level)} iç yapısını kırdı.` : `${anchor.spec.confirmTf} iç yapı kapanışı bekleniyor.`,
-    `Plan ${formatPrice(setup.plan.entry)} giriş, ${formatPrice(setup.plan.stopLoss)} stop, tam çıkış EQ ${formatPrice(setup.plan.targets[0])} (DOL ${formatPrice(setup.plan.targets[1])} yalnız uzatma bilgisi).`,
-    `Grade ${grade}, EQ net RR ${formatR(setup.plan.rr)}.`,
+    `Plan ${formatPrice(setup.plan.entry)} giriş, ${formatPrice(setup.plan.stopLoss)} stop; EQ ${formatPrice(setup.plan.targets[0])} görülünce stop BE'ye, tam çıkış DOL ${formatPrice(setup.plan.targets[1])}.`,
+    `Grade ${grade}, DOL net RR ${formatR(setup.plan.rr)}.`,
     ...riskWarnings
   ].join(" ");
   return {
-    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} · range → manipulation → EQ · RR ${formatR(setup.plan.rr)}.`,
+    shortSummary: `${context.symbol} ${setup.direction.toUpperCase()} · range → manipulation → EQ(BE) → DOL · RR ${formatR(setup.plan.rr)}.`,
     fullReasoning,
     checklist,
     warnings: Array.from(new Set([...setup.warnings, ...riskWarnings])).slice(0, 8),
@@ -1672,8 +1672,8 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
     symbol: context.symbol,
     entry: setup.plan.entry,
     stopLoss: setup.plan.stopLoss,
-    // eq-full: the trade exits at EQ, so size/gain are measured to EQ, not the DOL.
-    target: setup.plan.targets[0],
+    // Exit is DOL (stop to break-even at EQ), so size/gain are measured to the DOL.
+    target: setup.plan.targets[1] ?? setup.plan.targets[0],
     grade,
     minimumRR: setup.plan.minimumRR
   });
@@ -1804,7 +1804,7 @@ export const crtStrategy: StrategyModule = {
     slippageStress: "normal",
     noAutoExecution: true,
     useHtfAlignmentFilter: true,
-    exitModel: "eq-full",
+    exitModel: "dol-be",
     // 1H→5M anchor is in TRACKING: it shows as WATCH, never READY/alert, while replay collects
     // its own evidence (Master §14). A 2026-07-22 note promoted it to LIVE, but the value was
     // later set back to "tracking"; set "live" only as a deliberate owner decision.
