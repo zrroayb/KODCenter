@@ -37,10 +37,6 @@ const CHOCH_REFERENCE_LOOKBACK = 24;
 const CHOCH_MAX_DELAY_CANDLES = 12;
 // How many closed range candles back an accepted raid can keep being the anchor's reference.
 const RAID_PERSISTENCE_LOOKBACK = 6;
-// A tapped 4H FVG can create an origin-CRT read, but only while the tap is fresh. Old gaps
-// kept every pair in permanent WATCH and made the dashboard look smarter than the chart.
-const FVG_ORIGIN_MAX_AGE_CANDLES = 10;
-
 // CRT anchor/confirmation canon: each anchor timeframe confirms on its own lower timeframe.
 //   1M range -> 1D confirmation (CRT Secrets pairing)
 //   1W range -> 4H confirmation
@@ -62,21 +58,6 @@ const ANCHORS: AnchorSpec[] = [
 ];
 
 type AnchorRaid = { direction: TradeDirection; level: number; time: number; closed: boolean };
-type AnchorOrigin = {
-  kind: "fvg-origin";
-  direction: TradeDirection;
-  fvg: FairValueGap;
-  originIndex: number;
-  tapIndex: number;
-} | {
-  kind: "active-crt";
-  direction: TradeDirection;
-  originIndex: number;
-  label: string;
-  bias: CrtBiasContext;
-  closed: boolean;
-};
-
 type AnchorCtx = {
   spec: AnchorSpec;
   rangeCandles: Candle[];
@@ -91,7 +72,6 @@ type AnchorCtx = {
   atr: number;
   averageRange: number;
   turtleSoup?: TurtleSoupPattern;
-  origin?: AnchorOrigin;
 };
 
 // Master §6 lifecycle — 10 durum. `setupPhase` (4 durum) sıralama/UI için korunur.
@@ -109,7 +89,7 @@ export type CrtLifecycleState =
 
 type CrtSetup = {
   direction: TradeDirection;
-  directionSource: "turtle-soup" | "raid" | "bias" | "fvg-crt" | "active-crt";
+  directionSource: "turtle-soup" | "raid" | "bias";
   setupPhase: "context" | "raid" | "model" | "ready";
   lifecycleState: CrtLifecycleState;
   manipulation?: { side: "buy-side" | "sell-side"; level: number; candleIndex: number; reclaimed: boolean };
@@ -234,30 +214,6 @@ function liveConfirmCandlesFor(context: MarketContext, spec: AnchorSpec): Candle
 
 function rangeFromCandle(candle: Candle, spec: AnchorSpec): DealingRange {
   return { high: candle.high, low: candle.low, midpoint: (candle.high + candle.low) / 2, source: `CRT ${spec.rangeTf} range: previous closed candle` };
-}
-
-function rangeFromFvgOrigin(candle: Candle, spec: AnchorSpec, gap: FairValueGap): DealingRange {
-  return {
-    high: candle.high,
-    low: candle.low,
-    midpoint: (candle.high + candle.low) / 2,
-    source: `CRT ${spec.rangeTf} FVG origin candle: ${gap.direction.toUpperCase()} FVG tap`
-  };
-}
-
-function rangeFromActiveCrt(candle: Candle, spec: AnchorSpec, label: string): DealingRange {
-  return {
-    high: candle.high,
-    low: candle.low,
-    midpoint: (candle.high + candle.low) / 2,
-    source: `${label}: ${spec.rangeTf} candle high/low aktif CRT range`
-  };
-}
-
-function crtBiasAtIndex(candles: Candle[], index: number, spec: AnchorSpec): CrtBiasContext | undefined {
-  if (index < 1 || index >= candles.length) return undefined;
-  const timeframe = spec.rangeTf === "1h" ? "1h" : spec.rangeTf === "4h" ? "4h" : spec.rangeTf === "1d" ? "1d" : spec.rangeTf === "1M" ? "1M" : "1w";
-  return buildCrtBias([candles[index - 1], candles[index]], timeframe);
 }
 
 function raidFromPair(range: DealingRange, raidCandle: Candle, closed: boolean): AnchorRaid | undefined {
@@ -385,139 +341,6 @@ function buildAnchorCtx(context: MarketContext, spec: AnchorSpec): AnchorCtx | u
   };
 }
 
-function fvgTapHeld(rangeCandles: Candle[], gap: FairValueGap): number | undefined {
-  const start = Math.max(0, gap.candleIndex + 1);
-  const latestIndex = rangeCandles.length - 1;
-  let latestHeldTap: number | undefined;
-  for (let index = start; index < rangeCandles.length; index += 1) {
-    if (latestIndex - index > FVG_ORIGIN_MAX_AGE_CANDLES) continue;
-    const candle = rangeCandles[index];
-    const touched = candle.low <= gap.high && candle.high >= gap.low;
-    if (!touched) continue;
-    const latestClose = rangeCandles[latestIndex]?.close;
-    const held = typeof latestClose === "number" && (gap.direction === "long" ? latestClose > gap.high : latestClose < gap.low);
-    if (held) latestHeldTap = index;
-  }
-  return latestHeldTap;
-}
-
-function buildFvgOriginAnchorCtxs(context: MarketContext): AnchorCtx[] {
-  const spec: AnchorSpec = { rangeTf: "4h", confirmTf: "15m" };
-  const rangeCandles = context.timeframes.h4;
-  const confirmCandles = confirmCandlesFor(context, spec);
-  const liveConfirmCandles = liveConfirmCandlesFor(context, spec);
-  if (rangeCandles.length < 8 || confirmCandles.length < 20) return [];
-  const htfFvgs = detectFairValueGaps(rangeCandles);
-  const swings = detectSwingPoints(confirmCandles, 3);
-  const ranges = confirmCandles.slice(-20).map((candle) => candle.high - candle.low);
-  const base = {
-    spec,
-    rangeCandles,
-    confirmCandles,
-    liveConfirmCandles,
-    swings,
-    fvgs: detectFairValueGaps(confirmCandles),
-    orderBlocks: detectOrderBlocks(confirmCandles, swings),
-    htfFvgs,
-    atr: averageTrueRange(confirmCandles, 14),
-    averageRange: ranges.reduce((sum, value) => sum + value, 0) / Math.max(ranges.length, 1),
-    turtleSoup: detectLatestTurtleSoup(confirmCandles, spec.confirmTf)
-  };
-
-  return htfFvgs
-    .flatMap((gap): AnchorCtx[] => {
-      const tapIndex = fvgTapHeld(rangeCandles, gap);
-      const originIndex = Math.min(rangeCandles.length - 1, Math.max(0, gap.candleIndex));
-      const originCandle = rangeCandles[originIndex];
-      if (tapIndex === undefined || !originCandle) return [];
-      return [{
-        ...base,
-        range: rangeFromFvgOrigin(originCandle, spec, gap),
-        origin: { kind: "fvg-origin" as const, direction: gap.direction, fvg: gap, originIndex, tapIndex }
-      }];
-    })
-    .slice(-3);
-}
-
-const ACTIVE_CRT_LOOKBACK: Record<AnchorSpec["rangeTf"], number> = {
-  "1h": 12,
-  "4h": 8,
-  "1d": 6,
-  "1w": 3,
-  "1M": 2
-};
-
-function activeCrtStillValid(rangeCandles: Candle[], originIndex: number, direction: TradeDirection, range: DealingRange): boolean {
-  const later = rangeCandles.slice(originIndex + 1);
-  if (direction === "long") return !later.some((candle) => candle.close < range.low);
-  return !later.some((candle) => candle.close > range.high);
-}
-
-function activeCrtNotConsumed(rangeCandles: Candle[], originIndex: number, direction: TradeDirection, range: DealingRange): boolean {
-  const latestIndex = rangeCandles.length - 1;
-  if (originIndex >= latestIndex) return true;
-  const later = rangeCandles.slice(originIndex + 1);
-  // If the opposite side of that CRT candle already traded, its DOL did its job. The setup
-  // is no longer a fresh context alert; wait for a new CRT candle.
-  if (direction === "long") return !later.some((candle) => candle.high >= range.high);
-  return !later.some((candle) => candle.low <= range.low);
-}
-
-function buildActiveCrtAnchorCtxs(context: MarketContext): AnchorCtx[] {
-  return ANCHORS.flatMap((spec): AnchorCtx[] => {
-    const rangeCandles = rangeCandlesFor(context, spec);
-    const confirmCandles = confirmCandlesFor(context, spec);
-    const liveConfirmCandles = liveConfirmCandlesFor(context, spec);
-    if (rangeCandles.length < 4 || confirmCandles.length < 20) return [];
-    const latestIndex = rangeCandles.length - 1;
-    const hasExplicitState = rangeCandles.some((candle) => typeof candle.closed === "boolean");
-    const lookback = ACTIVE_CRT_LOOKBACK[spec.rangeTf];
-    const firstIndex = Math.max(1, latestIndex - lookback);
-    const htfFvgs = detectFairValueGaps(rangeCandles);
-    const swings = detectSwingPoints(confirmCandles, 3);
-    const confirmRanges = confirmCandles.slice(-20).map((candle) => candle.high - candle.low);
-    const anchorRanges = rangeCandles.slice(Math.max(0, latestIndex - 20), latestIndex + 1).map((candle) => candle.high - candle.low);
-    const anchorAverageRange = anchorRanges.reduce((sum, value) => sum + value, 0) / Math.max(anchorRanges.length, 1);
-
-    const candidates = [];
-    for (let originIndex = latestIndex; originIndex >= firstIndex; originIndex -= 1) {
-      const candle = rangeCandles[originIndex];
-      const bias = crtBiasAtIndex(rangeCandles, originIndex, spec);
-      if (!candle || !bias || bias.direction === "neutral") continue;
-      const originClosed = candle.closed === true || (!hasExplicitState && originIndex < latestIndex);
-      const originLabel = originClosed ? `Active ${spec.rangeTf.toUpperCase()} CRT` : `Forming ${spec.rangeTf.toUpperCase()} CRT`;
-      const range = rangeFromActiveCrt(candle, spec, originLabel);
-      const rangeHeight = range.high - range.low;
-      if (anchorAverageRange > 0 && rangeHeight < anchorAverageRange * 0.45) continue;
-      if (!activeCrtStillValid(rangeCandles, originIndex, bias.direction, range)) continue;
-      if (!activeCrtNotConsumed(rangeCandles, originIndex, bias.direction, range)) continue;
-      candidates.push({
-        spec,
-        rangeCandles,
-        confirmCandles,
-        liveConfirmCandles,
-        range,
-        swings,
-        fvgs: detectFairValueGaps(confirmCandles),
-        orderBlocks: detectOrderBlocks(confirmCandles, swings),
-        htfFvgs,
-        atr: averageTrueRange(confirmCandles, 14),
-        averageRange: confirmRanges.reduce((sum, value) => sum + value, 0) / Math.max(confirmRanges.length, 1),
-        turtleSoup: detectLatestTurtleSoup(confirmCandles, spec.confirmTf),
-        origin: {
-          kind: "active-crt" as const,
-          direction: bias.direction,
-          originIndex,
-          label: originLabel,
-          bias,
-          closed: originClosed
-        }
-      });
-    }
-    return candidates.slice(0, 1);
-  });
-}
-
 function symbolBuffer(anchor: AnchorCtx, symbol: MarketSymbol, profile: StrategyInput["settings"]["stopProfile"] = "normal"): number {
   const multiplier = profile === "aggressive" ? 0.85 : profile === "conservative" ? 1.25 : 1;
   return Math.max(anchor.atr * 0.2, anchor.averageRange * 0.15, SYMBOL_SPEC[symbol].minBuffer) * multiplier;
@@ -553,7 +376,6 @@ function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number
 }
 
 function anchorBias(anchor: AnchorCtx) {
-  if (anchor.origin?.kind === "active-crt") return anchor.origin.bias;
   return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
 }
 
@@ -562,8 +384,6 @@ function anchorBias(anchor: AnchorCtx) {
 // not a direction source. Guessing "premium -> short" painted every correlated pair the
 // same side on dollar days: the whole board read SHORT with no pair-specific setup behind it.
 function directionForAnchor(_context: MarketContext, anchor: AnchorCtx): { direction: TradeDirection; source: CrtSetup["directionSource"] } | undefined {
-  if (anchor.origin?.kind === "fvg-origin") return { direction: anchor.origin.direction, source: "fvg-crt" };
-  if (anchor.origin?.kind === "active-crt") return { direction: anchor.origin.direction, source: "active-crt" };
   if (anchor.raid) return { direction: anchor.raid.direction, source: "raid" };
   const bias = anchorBias(anchor);
   if (bias.direction !== "neutral") return { direction: bias.direction, source: "bias" };
@@ -583,36 +403,6 @@ export function isCrtEqConsumed(
 }
 
 function manipulationForAnchor(anchor: AnchorCtx, direction: TradeDirection): CrtSetup["manipulation"] {
-  if (anchor.origin?.kind === "fvg-origin" && anchor.origin.direction === direction) {
-    const origin = anchor.origin;
-    const tapCandle = anchor.rangeCandles[origin.tapIndex];
-    const nextRangeCandle = anchor.rangeCandles[origin.tapIndex + 1];
-    const tapWindowEnd = nextRangeCandle?.time ?? (tapCandle?.time ?? 0) + 4 * 60 * 60 * 1000;
-    const tapConfirmIndex = anchor.confirmCandles.findIndex((candle) =>
-      candle.time >= (tapCandle?.time ?? 0)
-      && candle.time < tapWindowEnd
-      && candle.low <= origin.fvg.high
-      && candle.high >= origin.fvg.low
-    );
-    if (tapConfirmIndex < 0) return undefined;
-    return {
-      side: expectedSweepSide(direction),
-      level: direction === "long" ? origin.fvg.low : origin.fvg.high,
-      candleIndex: tapConfirmIndex,
-      // fvgTapHeld already requires the latest HTF close back beyond the gap: the tap held.
-      reclaimed: true
-    };
-  }
-  if (anchor.origin?.kind === "active-crt" && anchor.origin.direction === direction && anchor.origin.bias.kind.includes("reversal")) {
-    const originCandle = anchor.rangeCandles[anchor.origin.originIndex];
-    return {
-      side: expectedSweepSide(direction),
-      level: direction === "long" ? originCandle.low : originCandle.high,
-      candleIndex: confirmIndexAtTime(anchor.confirmCandles, originCandle.time),
-      // A "reversal" CRT bias candle closed back inside by definition (buildCrtBias).
-      reclaimed: true
-    };
-  }
   // The HTF raid IS the manipulation — it stays valid while the reclaim holds, it does not
   // expire on an LTF freshness window. Confirmation-TF sweeps are the fine-grained variant.
   if (anchor.raid && anchor.raid.direction === direction) {
@@ -1192,12 +982,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     : context.premiumDiscount.zone === "discount";
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
   const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
-  const originReference = anchor.origin?.kind === "fvg-origin"
-    ? anchor.origin.fvg.midpoint
-    : anchor.origin?.kind === "active-crt"
-    ? (direction === "short" ? anchor.range.high : anchor.range.low)
-    : undefined;
-  const sweptExtreme = turtleSoup?.sweepLevel ?? originReference ?? (direction === "short" ? anchor.range.high : anchor.range.low);
+  const sweptExtreme = turtleSoup?.sweepLevel ?? (direction === "short" ? anchor.range.high : anchor.range.low);
   // STEP 3+6: liquidity/location ranking — weekly/monthly beats daily beats HTF-FVG.
   const nearSwept = (level: number) => Math.abs(level - sweptExtreme) <= buffer * 3;
   const weeklyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PWH" || objective.kind === "PWL" || objective.kind === "PMH" || objective.kind === "PML") && nearSwept(objective.level));
@@ -1236,7 +1021,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const blockers = [
     // CRT core: closed range -> one-side wick raid -> LTF character-shift close ->
     // opposite range edge. Everything else belongs in quality warnings, not this gate list.
-    anchor.origin ? `${anchor.origin.kind === "fvg-origin" ? "FVG-origin" : "Active CRT"} deneysel model; ana CRT ile ayrı ölçülene kadar yalnızca WATCH.` : undefined,
     !manipulation ? `Manipulation yok: ${anchor.spec.rangeTf.toUpperCase()} CRT high/low henüz alınmadı.` : undefined,
     manipulation && !manipulation.reclaimed ? `${anchor.spec.rangeTf.toUpperCase()} CRT kenarı alındı ama ${anchor.spec.confirmTf} kapanışı henüz range içine dönmedi (reclaim yok).` : undefined,
     // Direction guessed from the anchor candle's bias (no HTF raid) is context, not a trade:
@@ -1411,7 +1195,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
   const smtAligned = context.smtDivergences.some((item) => item.direction === direction);
   const bias = anchorBias(anchor);
   return [
-    checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, anchor.origin?.kind === "active-crt" && !anchor.origin.closed ? "neutral" : "pass", anchor.range.source),
+    checklistItem(`${anchor.spec.rangeTf.toUpperCase()} Range`, "pass", anchor.range.source),
     checklistItem("Manipulation", setup.manipulation ? "pass" : "fail", setup.manipulation ? `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alındı: ${formatPrice(setup.manipulation.level)}. ${setup.raidClosed ? "C2 range içinde kapandı → Candle 3." : "C2 henüz kapanmadı (sadece Candle 3 işlenir)."}` : `${anchor.spec.rangeTf.toUpperCase()} CRT ${setup.direction === "short" ? "high" : "low"} alınması bekleniyor.`),
     checklistItem("ChoCH / Just", setup.choch ? "pass" : "fail", setup.choch ? `${anchor.spec.confirmTf} kapanış ${formatPrice(setup.choch.level)} seviyesini kırdı.` : `${anchor.spec.confirmTf} kapanışla kırılma bekleniyor.`),
     checklistItem("Entry", setup.plan.entryStatus === "confirmed" ? "pass" : "neutral", setup.plan.entryStatus === "confirmed" ? `${formatPrice(setup.plan.entry)} ${setup.plan.entrySource} entry aktif.` : "ChoCH kapanışı gelmeden entry yok."),
@@ -1540,7 +1324,7 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
   // But "the trade already played out" is real for any concrete entry level (confirmed OR
   // pending POI): if price consumed the level and ran to the targets, the setup is gone —
   // advertising a limit at last month's liquidity grab is chasing in reverse.
-  const contextOnlyBiasWatch = (setup.directionSource === "bias" || setup.directionSource === "fvg-crt") && !readyCandidate;
+  const contextOnlyBiasWatch = setup.directionSource === "bias" && !readyCandidate;
   if (!contextOnlyBiasWatch && setup.plan.entryStatus !== "fallback"
     && (safeOutcome.status === "tp1" || safeOutcome.status === "tp2" || safeOutcome.status === "breakeven" || (safeOutcome.status === "missed" && safeOutcome.entryTouched))) {
     return { stage: "missed", outcome: safeOutcome, actionWindow: buildActionWindow(context, setup.plan, safeOutcome, "missed") };
@@ -1650,7 +1434,7 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
     minimumRR: setup.plan.minimumRR
   });
   return {
-    id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${anchor.spec.rangeTf}${anchor.origin ? `-${anchor.origin.kind}-${anchor.origin.originIndex}` : ""}`,
+    id: `${context.symbol}-${setup.direction}-${anchor.confirmCandles.at(-1)?.time ?? Date.now()}-crt-${anchor.spec.rangeTf}`,
     strategyId: CRT_STRATEGY_ID,
     counterTrend,
     symbol: context.symbol,
@@ -1675,13 +1459,11 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
       raidClosed: setup.raidClosed,
       rangeHigh: anchor.range.high,
       rangeLow: anchor.range.low,
-      origin: anchor.origin?.kind ?? "standard",
-      originLabel: anchor.origin?.kind === "fvg-origin" ? "4H FVG origin CRT" : anchor.origin?.kind === "active-crt" ? anchor.origin.label : undefined,
-      originClosed: anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true,
+      origin: "standard",
       setupPhase: setup.setupPhase,
       // Stage invalidated ise lifecycle de dürüstçe INVALIDATED olur (Master §6).
       lifecycleState: life.stage === "invalidated" ? "INVALIDATED" : setup.lifecycleState,
-      crtState: deriveCrtState(setup, life.stage, life.outcome.status, anchor.origin?.kind === "active-crt" ? anchor.origin.closed : true),
+      crtState: deriveCrtState(setup, life.stage, life.outcome.status),
       referenceCandleScore: setup.referenceCandle?.score,
       referenceCandleGrade: setup.referenceCandle?.grade,
       turtleSoup: Boolean(setup.turtleSoup)
@@ -1690,7 +1472,7 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
 }
 
 // Master §6: derive the CRT lifecycle state from the setup facts + realized outcome.
-function deriveCrtState(setup: CrtSetup, stage: TradingSignal["stage"], outcomeStatus: SignalOutcome["status"], originClosed: boolean): CrtState {
+function deriveCrtState(setup: CrtSetup, stage: TradingSignal["stage"], outcomeStatus: SignalOutcome["status"]): CrtState {
   if (outcomeStatus === "tp2") return "COMPLETED";
   if (outcomeStatus === "breakeven") return "COMPLETED";
   if (stage === "invalidated" || outcomeStatus === "stopped") return "INVALIDATED";
@@ -1700,7 +1482,6 @@ function deriveCrtState(setup: CrtSetup, stage: TradingSignal["stage"], outcomeS
   if (setup.choch) return "CONFIRMATION_PENDING";
   if (setup.manipulation?.reclaimed) return "RETURNED_INSIDE";
   if (setup.manipulation) return "SIDE_SWEPT";
-  if (!originClosed) return "CANDIDATE";
   return "ACTIVE_RANGE";
 }
 
@@ -1713,24 +1494,13 @@ const STAGE_RANK: Record<string, number> = { ready: 0, watch: 1, missed: 2, inva
 
 function signalPriority(signal: TradingSignal): number {
   if (signal.crtAnchor?.raidActive) return 0;
-  if (signal.crtAnchor?.origin === "standard") return 1;
-  if (signal.crtAnchor?.origin === "fvg-origin") return 2;
-  if (signal.crtAnchor?.origin === "active-crt") return 3;
   return 1;
 }
 
 const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3, "1h": 4 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
-  // Deneysel aileler (FVG-origin, Active CRT) daima blocker'lı WATCH üretir ve replay'de ayrı
-  // ölçülmez; sembol başına birkaç gürültü satırı ekliyordu. Varsayılan kapalı (2026-09-26);
-  // `experimentalAnchors: true` ile tekrar açılır.
-  const experimental = settings.experimentalAnchors === true;
-  const signals = [
-    ...ANCHORS.map((spec) => anchorSignal(context, settings, spec)),
-    ...(experimental ? buildActiveCrtAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor)) : []),
-    ...(experimental ? buildFvgOriginAnchorCtxs(context).map((anchor) => signalFromAnchor(context, settings, anchor)) : [])
-  ]
+  const signals = ANCHORS.map((spec) => anchorSignal(context, settings, spec))
     .filter((signal): signal is TradingSignal => Boolean(signal))
     .sort((a, b) => (STAGE_RANK[a.stage] ?? 9) - (STAGE_RANK[b.stage] ?? 9)
       || (RANGE_TF_RANK[String(a.crtAnchor?.rangeTf)] ?? 9) - (RANGE_TF_RANK[String(b.crtAnchor?.rangeTf)] ?? 9)
@@ -1780,8 +1550,7 @@ export const crtStrategy: StrategyModule = {
     // 1H→5M anchor is in TRACKING: it shows as WATCH, never READY/alert, while replay collects
     // its own evidence (Master §14). A 2026-07-22 note promoted it to LIVE, but the value was
     // later set back to "tracking"; set "live" only as a deliberate owner decision.
-    intradayAnchorMode: "tracking",
-    experimentalAnchors: false
+    intradayAnchorMode: "tracking"
   },
   scan(input: StrategyInput): StrategyResult {
     const signals = signalsFromContext(input.context, input.settings);

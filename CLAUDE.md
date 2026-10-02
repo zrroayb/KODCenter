@@ -40,7 +40,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 247 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 245 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -98,8 +98,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
-- **Anchor aileleri**: gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m/1H→5m) + deneysel
-  (FVG-origin, active-CRT). CRT kuralı: **dip sweep'i otomatik long yapmaz**,
+- **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m; 1H→5m izleme modunda,
+  READY üretmez). Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
 - **Tek yön kaynağı = motor** (`context.crt.selectedBias.direction` veya seçili
   `signal.direction`). UI/grafik yardımcıları buna TABİ olmalı, asla ters yön
@@ -176,3 +176,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Günlük mum NY 17:00'ye hizalandı (4H ile aynı çapa, TradingView FX günlüğü). Önce: günlük = Yahoo 1d barı (Londra/UTC günü) → 1D CRT'nin Candle 1 high/low'u, PDH/PDL ve ondan türeyen haftalık/aylık, kullanıcının grafiğindekinden farklı mumdu. Şimdi FX/altın/NAS'ta 1h'nin kapsadığı ~60 gün NY 17:00→17:00 seansından kuruluyor (`aggregateCandles(h1, "1d")`, ilk yarım seans atılır); daha eski günler (yalnız haftalık/aylık derinliği) Yahoo'dan (`nyCloseDaily`, `yahooProvider.ts`). Haftalık/aylık kovalar mumun işlem gününe göre (+12h): Pazartesi seansı Pazar 21:00 UTC açılır ama Pazartesi haftasına, 1 Ekim seansı 30 Eylül akşamı açılır ama Ekim'e sayılır. Kripto değişmedi (UTC günü). Ölçüm artık gerekmediği için `measure-candle-boundaries` silindi. 247 test.
 - 2026-10-02 — Motor tutarlılığı: `eqConsumed` (raid sonrası EQ görülmüş = setup tüketildi) READY'yi gizlice engelleyip ekranda "uyarı" görünüyordu → artık görünür blocker. CRT range PD hem blocker hem "hard gate değil" uyarısı + checklist'te "kalite notu" diyordu → çelişen uyarı silindi, checklist "fail / hard gate". Gemini'ye öğretildi: `crtKnowledge` discount-long/premium-short kayıtları artık CRT'nin kendi range'inde PD zorunlu (geniş dealing range PD yalnız not) diyor; crt-targets'a "EQ entry'den önce görüldüyse setup tüketildi". 247 test.
 - 2026-10-02 — Killzone/session saati kalite puanından çıktı (kaynak mekanik saat kuralı reddediyor; 1/5/9 ile aynı gerekçe): CRT skorundan `sessionTimedRaid` (+4) ve `inSession` (+2), referans mum skorundan killzone bileşeni (+10, skor 90→100'e yeniden ölçeklendi) ve iki killzone uyarısı silindi; "trend rejiminde counter-bias" uyarısı `biasConflict` uyarısını tekrar ettiği için silindi. Killzone saati hâlâ ekranda bilgi olarak görünüyor, kararı etkilemiyor. Gemini: reference-candle-quality kaydı "session/killzone kalite faktörü değil" diyor. 247 test.
+- 2026-10-02 — Deneysel anchor aileleri (FVG-origin, Active CRT) motordan silindi (~320 satır): canlıda kapalıydı (`experimentalAnchors`), hep blocker'lı WATCH üretiyordu ve kaynakta karşılığı yok. `AnchorOrigin` tipi, iki builder, manipulation/direction dalları, `originLabel`/`originClosed` alanları ve UI'daki "range mumu kapansın" dalı gitti; iki deneysel test silindi. Gemini metinlerinde bu ailelerden söz yoktu. 245 test.

@@ -84,9 +84,6 @@ export function waitingRequirementsForMinimumRR(signal: TradingSignal, minimumRR
   const closeRequirement = closeConfirmationRequirement(signal);
   const retestRequirement = entryRetestRequirement(signal);
   const passedLabels = new Set(signal.decisionSummary.checklist.filter((item) => item.status === "pass").map((item) => item.label));
-  if (signal.crtAnchor?.originClosed === false) {
-    needs.push(`${(signal.crtAnchor.rangeTf ?? "4h").toUpperCase()} CRT range mumu kapansın.`);
-  }
   if (!passedLabels.has("Manipulation")) {
     needs.push(simpleSweepText(signal));
   }
