@@ -264,7 +264,7 @@ describe("monthly runtime replay", () => {
     // Counterfactuals from the same walk: the old EQ-partial+BE model banks 0.5R (half at EQ,
     // remainder scratched at BE on the pullback), no-BE holds the half for 0.5R, and the
     // no-partial full-DOL position scratches at BE (0R).
-    expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqPartialBe: 0.5 });
+    expect(outcome.managementVariants).toEqual({ noBe: 0.5, fullDol: 0, eqPartialBe: 0.5, dolBe: 0, eqFull: 1 });
 
     // Older models stay available behind the setting and still measure the old way.
     const eqFull = __runtimeReplayInternals.evaluateForwardOutcome(signal, candles, [], { exitModel: "eq-full" });
@@ -371,11 +371,27 @@ describe("monthly runtime replay", () => {
     });
 
     const scenarios = result.replay?.managementScenarios ?? [];
-    expect(scenarios.map((item) => item.id)).toEqual(["model", "eq-partial-be", "no-be", "full-dol"]);
-    const model = scenarios.find((item) => item.id === "model");
-    expect(model?.deltaR).toBe(0);
+    expect(scenarios.map((item) => item.id)).toEqual(["dol-be", "eq-full", "eq-partial-be", "no-be"]);
+    // Default settings run the DOL + BE model, so that row is the live one.
+    const live = scenarios.find((item) => item.live);
+    expect(live?.id).toBe("dol-be");
+    expect(live?.deltaR).toBe(0);
     for (const scenario of scenarios) {
-      expect(scenario.trades).toBe(model?.trades);
+      expect(scenario.trades).toBe(live?.trades);
+      expect(scenario.winRate + scenario.scratchRate + scenario.lossRate).toBeCloseTo(scenario.trades ? 100 : 0, 0);
+    }
+    // Honesty invariant: the live-model variant IS the replay's real outcome for every trade.
+    for (const trade of result.replay?.trades ?? []) {
+      if (trade.status !== "not-triggered" && trade.managementVariants) {
+        expect(trade.managementVariants.dolBe).toBe(trade.rMultiple);
+      }
+    }
+    // No recommendation below the 30-trade gate.
+    const decision = result.replay?.managementDecision;
+    expect(decision?.required).toBe(30);
+    if (decision && !decision.ready) {
+      expect(decision.bestExpectancyId).toBeUndefined();
+      expect(decision.summary).toContain("örnek yetersiz");
     }
   }, 10_000);
 });

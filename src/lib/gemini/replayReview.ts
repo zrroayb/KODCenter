@@ -85,14 +85,14 @@ function localReplayReview(payload: GeminiReplayReviewPayload, reason?: string):
   const worst = payload.setupBreakdowns.find((item) => item.verdict === "avoid" && item.triggered >= MIN_REPLAY_BUCKET_TRADES);
   // Management counterfactuals are measured in the replay itself: same entries, same
   // candles, only the exit rule differs — report the comparison instead of asking for it.
-  const model = payload.managementScenarios.find((item) => item.id === "model");
+  const model = payload.managementScenarios.find((item) => item.live);
   const betterMgmt = [...payload.managementScenarios]
     .filter((item) => item.verdict === "better")
     .sort((a, b) => b.deltaR - a.deltaR)[0];
   const mgmtLine = model && payload.managementScenarios.length
     ? betterMgmt
-      ? `Yönetim ölçümü: "${betterMgmt.label}" mevcut modeli geçiyor (${betterMgmt.expectancyR.toFixed(2)}R vs ${model.expectancyR.toFixed(2)}R, Δ${betterMgmt.deltaR >= 0 ? "+" : ""}${betterMgmt.deltaR.toFixed(2)}R, ${betterMgmt.trades} trade).`
-      : `Yönetim ölçümü: BE/partial varyantları mevcut modeli geçemedi (model ${model.expectancyR.toFixed(2)}R); yönetim suçlu değil.`
+      ? `Yönetim ölçümü: "${betterMgmt.label}" canlı modeli ("${model.label}") geçiyor (${betterMgmt.expectancyR.toFixed(2)}R vs ${model.expectancyR.toFixed(2)}R, Δ${betterMgmt.deltaR >= 0 ? "+" : ""}${betterMgmt.deltaR.toFixed(2)}R, ${betterMgmt.trades} trade).`
+      : `Yönetim ölçümü: alternatif çıkışlar canlı modeli ("${model.label}") geçemedi (${model.expectancyR.toFixed(2)}R); yönetim suçlu değil.`
     : "";
   const degistir = smallSample
     ? "Değiştir: Hiçbir şey — bu örneklemle kural değiştirmek overfit olur; aynı kurallarla veri biriktir."

@@ -75,14 +75,21 @@ function replayResult(): BacktestResult {
         verdict: "needs-data"
       }],
       managementScenarios: [{
-        id: "model",
-        label: "Mevcut model",
-        description: "EQ'da %50 partial + %50 DOL'a, +1R sonrası stop BE.",
+        id: "dol-be",
+        label: "DOL hedef + EQ'da BE",
+        description: "Tamamı DOL'da kapanır; EQ görülünce stop BE'ye.",
+        live: true,
         trades: 0,
         totalR: 0,
         expectancyR: 0,
         profitFactor: 0,
         deltaR: 0,
+        winRate: 0,
+        scratchRate: 0,
+        lossRate: 0,
+        maxDrawdown: 0,
+        tradingDays: 0,
+        dailyStdR: 0,
         verdict: "needs-data"
       }],
       calibration: [{
