@@ -11,12 +11,26 @@ import { signalAlertChartSvg } from "../src/lib/telegram/alertChartSvg";
 import { Resvg } from "@resvg/resvg-js";
 import type { TradingSignal } from "../src/lib/ict/types";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
+import { alertWasDelivered, parseSentAlertState } from "../src/lib/telegram/sentAlertState";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const cloudUrl = process.env.CLOUD_SCAN_URL?.replace(/\/+$/, "");
 const scanToken = process.env.SCAN_TOKEN;
 
 if (!cloudUrl) throw new Error("CLOUD_SCAN_URL missing (live site base URL, e.g. the Render URL)");
 if (!scanToken) throw new Error("SCAN_TOKEN missing");
+
+// Sent-alert memory persisted across runs by actions/cache (see sentAlertState.ts).
+const statePath = process.env.ALERT_STATE_PATH ?? ".alert-state/sent.json";
+const sentState = parseSentAlertState(existsSync(statePath) ? readFileSync(statePath, "utf8") : undefined);
+
+function saveSentState() {
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(statePath, JSON.stringify(sentState));
+}
+// Write once up front so the cache-save step always finds the file, even if the scan fails.
+saveSentState();
 
 function chunks<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -27,6 +41,8 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 async function postAlert(signal: TradingSignal, payload: TelegramReadyAlertPayload = buildTelegramReadyAlertPayload(signal)): Promise<{ symbol: string; status: string; httpStatus: number }> {
+  const key = payload.dedupeKey;
+  if (key && sentState[key]) return { symbol: signal.symbol, status: "already-sent", httpStatus: 200 };
   const chart = payload.alertKind === "exit" ? undefined : alertChartFor(signal);
   const body = {
     ...payload,
@@ -40,6 +56,7 @@ async function postAlert(signal: TradingSignal, payload: TelegramReadyAlertPaylo
     body: JSON.stringify(body)
   });
   const result = await response.json().catch(() => ({})) as { status?: string };
+  if (key && alertWasDelivered(result.status)) sentState[key] = Date.now();
   return { symbol: signal.symbol, status: result.status ?? "unknown", httpStatus: response.status };
 }
 
@@ -80,6 +97,7 @@ async function run() {
     .map((signal) => ({ signal, payload: buildTelegramExitAlertPayload(signal) }))
     .filter((item): item is { signal: TradingSignal; payload: TelegramReadyAlertPayload } => Boolean(item.payload));
   for (const { signal, payload } of exitPayloads) alerts.push(await postAlert(signal, payload));
+  saveSentState();
   const failed = alerts.filter((alert) => alert.httpStatus >= 400);
 
   console.log(JSON.stringify({

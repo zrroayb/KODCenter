@@ -25,7 +25,9 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
   vite.config'in kullandığı yardımcı modüldür (alert auth + sunucu tarafı dedupe).
 - **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
   motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
-  Dedupe sunucuda (`.data/alert-log.json`), geçmiş `/api/live-alerts`. Tarayıcı alert
+  Dedupe iki katmanlı: tarayıcı-dışı tarama kendi gönderilen-anahtar kaydını `actions/cache` ile
+  tutar (`.alert-state/sent.json`, `sentAlertState.ts`) + sunucuda `.data/alert-log.json`. Render
+  free planda disk kalıcı değil ve 15 dk boşta uyur → sunucu kaydı tek başına güvenilmez. Geçmiş `/api/live-alerts`. Tarayıcı alert
   GÖNDERMEZ, yalnızca geçmişi gösterir.
 - Cloudflare Worker 2026-10-02'de silindi; tek sunucu Render.
 
@@ -40,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 250 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 252 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -179,3 +181,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Deneysel anchor aileleri (FVG-origin, Active CRT) motordan silindi (~320 satır): canlıda kapalıydı (`experimentalAnchors`), hep blocker'lı WATCH üretiyordu ve kaynakta karşılığı yok. `AnchorOrigin` tipi, iki builder, manipulation/direction dalları, `originLabel`/`originClosed` alanları ve UI'daki "range mumu kapansın" dalı gitti; iki deneysel test silindi. Gemini metinlerinde bu ailelerden söz yoktu. 245 test.
 - 2026-10-02 — Hata: `eqConsumed` EQ dokunuşunu raid'den sonraki TÜM confirm mumlarında arıyordu; işleme girildikten sonra fiyat EQ'ya gelince (stop BE'ye, hedef DOL) canlı sinyal "missed / setup tüketildi" oluyor ve açık pozisyon ekrandan düşüyordu. Artık yalnız girişten (retest mumu) ÖNCEKİ mumlar sayılıyor (`isCrtEqConsumed(..., entryIndex)`). Gemini bilgi tabanı zaten "entry'den önce" diyordu. Test eklendi; 246 test.
 - 2026-10-02 — Hedef iptali / çıkış uyarısı (CRT Secrets §4): açık işlemde (outcome `open`) girişten sonra ters SMT + onay TF'sinde son ters swing'in gövde kapanışıyla kırılması (ters MSS) birlikte gelirse `crtAnchor.exitWarning` (`src/lib/strategies/crt/targetInvalidation.ts`). Yalnız UYARI — sistem işlem kapatmaz. Telegram: `cloud-scan` açık işlemleri (görünür + gizli + inactive listeler) tarar, `buildTelegramExitAlertPayload` ile setup başına bir "ÇIKIŞ UYARISI" (`alertKind: "exit"`, dedupe `exit|…`, AI yorumu yok); sunucu exit'i kabul eder. Site: detayda kırmızı not, tarama kartında "hedef iptal riski" etiketi. Gemini: uyarı yorum payload'unun başında; crt-targets kaydı ve mentor SOP'u "açık işlemde hedef iptal → çıkış/stop sıkılaştırmayı öner, sistem kapattı deme". 250 test. **Bilinen açık:** açık işlemin entry penceresi (16 onay mumu) dolunca stage `missed`'e düşüyor — işlem hâlâ açıkken ekranda "GEÇMİŞ" görünür.
+- 2026-10-02 — Çift alarm düzeltmesi: Render free plan kalıcı disk vermiyor ve 15 dk trafik yoksa uyuyor; seyrek GitHub cron'u arasında sunucu uyuyunca `.data/alert-log.json` siliniyor, hâlâ READY olan setup tekrar Telegram'a gidiyordu. Tarama artık gönderdiği dedupe anahtarlarını kendisi tutuyor: `.alert-state/sent.json` (`ALERT_STATE_PATH`), `background-scan.yml` her koşuda `actions/cache/restore` + `save` ile taşıyor, 7 gün saklama; sunucu "sent"/"duplicate" dediği anahtar kaydedilir, kayıtlı anahtar tekrar POST edilmez. Sunucu dedupe'u ikinci savunma olarak duruyor. `sentAlertState.test.ts`; 252 test. Not: `/api/live-alerts` geçmişi de aynı sebeple Render uyuyunca/deploy olunca sıfırlanır.
