@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeReadyHoldSignals, readyHoldSignature } from "../lib/signals/readyHold";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 function structureContext() {

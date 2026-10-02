@@ -39,7 +39,6 @@ import {
 import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
 import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
 import { ruleAllowsSignal } from "./lib/userRules/applyRules";
-import { queueCloudRulesSync } from "./lib/userRules/cloudRulesSync";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
@@ -425,8 +424,7 @@ export default function App() {
     source: "demo",
     feedMode: "demo",
     loadedAt: Date.now(),
-    errors: [],
-    background: false
+    errors: []
   });
   const [dataLoading, setDataLoading] = useState(true);
   const [dataRefreshing, setDataRefreshing] = useState(false);
@@ -489,7 +487,6 @@ export default function App() {
 
   useEffect(() => {
     saveUserRules(rules);
-    queueCloudRulesSync(rules);
   }, [rules]);
 
   useEffect(() => () => replayWorkerRef.current?.terminate(), []);
@@ -510,9 +507,7 @@ export default function App() {
         source: result.source,
         feedMode: result.feedMode,
         loadedAt: result.loadedAt,
-        errors: result.errors,
-        background: result.background,
-        oldestLoadedAt: result.oldestLoadedAt
+        errors: result.errors
       });
     } catch (error) {
       setMarkets(demoMarkets);
@@ -520,8 +515,7 @@ export default function App() {
         source: "demo",
         feedMode: "demo",
         loadedAt: Date.now(),
-        errors: [error instanceof Error ? error.message : String(error)],
-        background: false
+        errors: [error instanceof Error ? error.message : String(error)]
       });
     } finally {
       hasLoadedDataRef.current = true;
@@ -809,9 +803,7 @@ export default function App() {
                 ? "Yükleniyor"
                 : dataRefreshing
                   ? "Güncelleniyor"
-                  : dataState.background
-                    ? "Canlı bot"
-                    : dataState.source === "yahoo-live"
+                  : dataState.source === "yahoo-live"
                     ? "Yahoo proxy"
                       : dataState.source === "mixed"
                         ? "Karma"
@@ -819,7 +811,7 @@ export default function App() {
             </span>
             <span
               className={`auto-refresh-badge ${dataRefreshing ? "refreshing" : ""}`}
-              title={dataState.background ? "Cloudflare botu sayfa kapalıyken de tarar." : "Sayfa açıkken canlı veri otomatik yenilenir."}
+              title="Sayfa açıkken canlı veri otomatik yenilenir."
             >
               <strong>{dataRefreshing ? "şimdi" : `${secondsToAutoRefresh}s`}</strong>
             </span>

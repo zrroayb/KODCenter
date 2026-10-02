@@ -1,17 +1,17 @@
-// TEST FİKSTÜRÜ: registry'de değil, canlı tarama/alert bunu çalıştırmaz. Birçok test hazır bir
-// READY/WATCH sinyali üretmek için kullanıyor; yeni özellik buraya eklenmez (2026-09-26).
-import { buildDecisionSummary } from "../../brain/financialBrain";
-import { SYMBOL_SPEC } from "../../ict/symbolSpec";
-import type { Candle, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, SignalEvidenceItem, SignalStage, StopSource, TargetSource, TradeDirection, TradePlan, TradingSignal } from "../../ict/types";
-import { executableClose, executableHigh, executableLow } from "../../data/bidAsk";
-import { calculatePositionSize } from "../../risk/positionSizing";
-import { defaultAccountModel } from "../../risk/accountModel";
-import { estimateExecutionCosts } from "../../risk/executionCosts";
-import { performanceFromSignals } from "../../analytics/performance";
-import { buildIctSequence, type IctSequence } from "../../intelligence/ictSequenceEngine";
-import { buildActionWindow, evaluateSignalOutcome } from "../../intelligence/outcomeEngine";
-import { buildSetupGovernance } from "../../intelligence/setupGovernance";
-import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
+// TEST FİKSTÜRÜ (src/test/fixtures): canlı tarama/alert bunu çalıştırmaz. Genel pipeline testleri
+// createStructureContext üzerinde READY/WATCH sinyali için kullanıyor (CRT orada sinyal üretmiyor).
+import { buildDecisionSummary } from "../../../lib/brain/financialBrain";
+import { SYMBOL_SPEC } from "../../../lib/ict/symbolSpec";
+import type { Candle, ExecutionCostStress, FairValueGap, MarketContext, MarketSymbol, SignalEvidenceItem, SignalStage, StopSource, TargetSource, TradeDirection, TradePlan, TradingSignal } from "../../../lib/ict/types";
+import { executableClose, executableHigh, executableLow } from "../../../lib/data/bidAsk";
+import { calculatePositionSize } from "../../../lib/risk/positionSizing";
+import { defaultAccountModel } from "../../../lib/risk/accountModel";
+import { estimateExecutionCosts } from "../../../lib/risk/executionCosts";
+import { performanceFromSignals } from "../../../lib/analytics/performance";
+import { buildIctSequence, type IctSequence } from "../../../lib/intelligence/ictSequenceEngine";
+import { buildActionWindow, evaluateSignalOutcome } from "../../../lib/intelligence/outcomeEngine";
+import { buildSetupGovernance } from "../../../lib/intelligence/setupGovernance";
+import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../../../lib/strategies/types";
 import { buildKodEntryModel } from "./entryModel";
 import { kodRuleResults } from "./kod.rules";
 import { kodGrade, kodScore } from "./kod.scoring";

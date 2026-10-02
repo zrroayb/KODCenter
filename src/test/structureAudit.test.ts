@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MarketContext } from "../lib/ict/types";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 function scanSignal(overrides: Partial<MarketContext> = {}) {

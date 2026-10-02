@@ -5,7 +5,6 @@
 import { loadYahooMarketBatch, YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
 import { runMonthlyRuntimeReplay } from "../src/lib/backtest/runtimeReplay";
 import { crtStrategy } from "../src/lib/strategies/crt/crt.strategy";
-import { trendContinuationStrategy } from "../src/lib/strategies/trendContinuation/trendContinuation.strategy";
 import type { StrategyModule } from "../src/lib/strategies/types";
 import type { RuntimeReplayTrade } from "../src/lib/analytics/performance";
 import { monteCarloAnalysis, walkForwardAnalysis } from "../src/lib/analytics/robustness";
@@ -42,7 +41,7 @@ async function run() {
   console.log(`\nBacktest sağlamlık raporu · ${markets.length} sembol · pencere ${windowDays}g`);
   console.log("(örneklem ayarı: minRR 0.1, maliyet kapalı — istatistik için yeterli işlem)\n");
 
-  for (const strategy of [crtStrategy, trendContinuationStrategy] as StrategyModule[]) {
+  for (const strategy of [crtStrategy] as StrategyModule[]) {
     const result = runMonthlyRuntimeReplay({
       markets,
       strategy,

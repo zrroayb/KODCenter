@@ -217,15 +217,8 @@ export function SignalDetailsPanel({
         <h3>{signal.symbol} {signal.direction.toUpperCase()} · {formatR(signal.plan.rr)}</h3>
         <p>{structureAudit.decision}</p>
       </section>
-      {/* EQ/DOL CRT reversal terimleri; continuation tek hedeflidir → Hedef + Net RR. */}
-      {signal.strategyId === "trend-continuation" ? (
-        <div className="simple-plan-grid">
-          <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
-          <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
-          <div><span>Hedef</span><strong>{formatPrice(signal.plan.targets[0])}</strong></div>
-          <div><span>Net RR</span><strong>{formatR(signal.plan.rr)}</strong></div>
-        </div>
-      ) : (
+      {/* CRT: EQ'da stop BE, çıkış DOL. */}
+      {(
         <div className="simple-plan-grid">
           <div><span>Giriş</span><strong>{formatPrice(signal.plan.entry)}</strong></div>
           <div><span>Stop</span><strong>{formatPrice(signal.plan.stopLoss)}</strong></div>
@@ -314,7 +307,7 @@ export function SignalDetailsPanel({
           <div><span>Zone</span><strong>{signal.context.premiumDiscount.zone}</strong></div>
           <div><span>Session</span><strong>{activeKillzone}</strong></div>
           <div><span>POI retest</span><strong>{signal.plan.entryModel.retested ? "var · bonus" : "yok · şart değil"}</strong></div>
-          <div><span>{signal.strategyId === "trend-continuation" ? "Kabul (BOS)" : "ChoCH/Just"}</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
+          <div><span>ChoCH/Just</span><strong>{signal.plan.entryModel.cisdConfirmed ? "var" : "bekliyor"}</strong></div>
           <div><span>Friction</span><strong>{signal.plan.executionCosts.stress === "off" ? "kapalı" : formatPrice(signal.plan.executionCosts.total)}</strong></div>
           <div><span>RR durumu</span><strong>{rrStatusText(signal)}</strong></div>
           <div><span>Rejim</span><strong>{signal.context.regime.type}</strong></div>

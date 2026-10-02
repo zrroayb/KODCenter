@@ -63,10 +63,7 @@ export function scanContexts(
   strategyId: string,
   rules: UserRules
 ): ScanRuntimeResult {
-  // İki playbook birlikte koşar: CRT Reversal + Trend Continuation. strategyId artık "birincil"
-  // playbook'u işaret eder; listede yoksa yine tüm playbook'lar taranır. Her sinyal kendi
-  // strategyId etiketini taşır, böylece aynı setup iki isimle görünmez (reversal vs continuation
-  // yapısal olarak birbirini dışlar: reclaim+karşı CHoCH vs same-direction BOS kabulü).
+  // strategyId = birincil playbook; PLAYBOOK_STRATEGIES'teki diğerleri de taranır (şu an yalnız CRT).
   const primary = getStrategy(strategyId);
   const strategies: StrategyModule[] = [primary, ...PLAYBOOK_STRATEGIES.filter((strategy) => strategy.id !== primary.id)];
   const allowedContexts = contexts.filter((context) => ruleAllowsContext(context, rules));

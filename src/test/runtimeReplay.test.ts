@@ -6,8 +6,7 @@ import type { RuntimeReplayTrade } from "../lib/analytics/performance";
 import { __runtimeReplayInternals, runMonthlyRuntimeReplay } from "../lib/backtest/runtimeReplay";
 import type { TradingSignal } from "../lib/ict/types";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
-import { trendContinuationStrategy } from "../lib/strategies/trendContinuation/trendContinuation.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("monthly runtime replay", () => {
@@ -141,27 +140,6 @@ describe("monthly runtime replay", () => {
     expect(result.replay?.trackingScenarios?.[0]?.id).toBe("anchor-1h-tracking");
     expect(result.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
     expect((result.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
-  }, 30_000);
-
-  it("measures the Trend Continuation playbook through the same replay pipeline (single-target model)", () => {
-    const result = runMonthlyRuntimeReplay({
-      markets: createDemoMarkets(),
-      strategy: trendContinuationStrategy,
-      settings: { ...trendContinuationStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false },
-      windowDays: 10,
-      maxHoldCandles: 48,
-      scanEveryCandles: 6
-    });
-
-    expect(result.replay).toBeDefined();
-    expect(result.replay?.scannedWindows).toBeGreaterThan(0);
-    // Continuation gerçekten ölçülebiliyor: en az bir tetiklenmiş trade + eşitlik eğrisi.
-    expect(result.replay?.triggeredTrades ?? 0).toBeGreaterThan(0);
-    expect(result.equityCurve.length).toBeGreaterThan(0);
-    // Tek hedefli model: continuation planları tek target taşır (CRT'nin EQ/DOL çiftinin aksine),
-    // ve hiçbir continuation trade'i CRT'ye özel 1H tracking tag'ini taşımaz.
-    expect(result.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
-    expect(result.replay?.trades.every((trade) => trade.status !== "tp2")).toBe(true);
   }, 30_000);
 
   it("keeps the 1H anchor watch-only when intradayAnchorMode is explicitly tracking", () => {

@@ -1611,14 +1611,13 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
 
 // Owner kuralı (2026-07-26): "sweep gördük diye otomatik ters işlem aramayacağız." Güçlü HTF
 // trend + fiyatın swept range kenarının ÖTESİNDE kapanışla KABUL görmesi (reclaim yok) =
-// continuation bağlamı; CRT reversal orada bastırılır (gösterilmez), trend-continuation playbook'u
-// devralır. Reclaim'e dayalı gerçek CRT dönüşleri ETKİLENMEZ (onlarda fiyat range'e geri döner,
+// continuation bağlamı; CRT reversal orada bastırılır (gösterilmez). Reclaim'e dayalı gerçek CRT dönüşleri ETKİLENMEZ (onlarda fiyat range'e geri döner,
 // kabul yoktur) — yani ölçülmüş "reversal-at-external-liquidity" edge'i korunur; yalnız
 // kabul-edilmiş (fiyat geçip tutundu) karşı-trend fade'ler elenir.
 function continuationAcceptanceSuppresses(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup): boolean {
   // Yalnız HTF anchor'lara uygula (1d/1w = trendi tanımlayan büyük range'ler). 4h/1h taktik
-  // raid'ler HTF trende karşı küçük düzeltmelerdir; onları CRT meşru fade eder, continuation
-  // playbook'u HTF trendi taşır. Owner örneği (USDCHF) 1W range idi.
+  // raid'ler HTF trende karşı küçük düzeltmelerdir; onları CRT meşru fade eder. Owner örneği
+  // (USDCHF) 1W range idi.
   if (anchor.spec.rangeTf !== "1d" && anchor.spec.rangeTf !== "1w" && anchor.spec.rangeTf !== "1M") return false;
   const daily = context.biasDetail?.daily;
   // Strong VEYA moderate directional daily yeterli (2026-07-27 genişletme: BTC gibi moderate uptrend'de

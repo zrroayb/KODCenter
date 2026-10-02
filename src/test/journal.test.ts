@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
 import { journalInsights } from "../lib/journal/journalAnalyzer";
 import { upsertJournalEntry } from "../lib/journal/localJournal";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 
 describe("local journal helpers", () => {
   it("upserts signal notes and derives strategy insights", () => {

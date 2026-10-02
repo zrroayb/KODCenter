@@ -76,8 +76,8 @@ async function fetchBinanceCandles(
   options: BinanceRequestOptions = {}
 ): Promise<Candle[]> {
   const fetcher = options.fetcher ?? fetch;
-  // Binance `access-control-allow-origin: *` gönderdiği için tarayıcı DOĞRUDAN çekebilir — worker
-  // proxy'sine gerek yok (Cloudflare egress IP'si zaten 403 yiyordu, kullanıcının IP'si engelsiz).
+  // Binance `access-control-allow-origin: *` gönderdiği için tarayıcı DOĞRUDAN çekebilir;
+  // proxy gerekmez.
   const baseUrl = options.baseUrl?.replace(/\/+$/, "") ?? "https://data-api.binance.vision";
   const url = `${baseUrl}/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
   const response = await fetcher(url, { signal, headers: { accept: "application/json" } });

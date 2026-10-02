@@ -59,10 +59,6 @@ const STAGE_LABEL: Record<string, string> = { ready: "ALINABİLİR", watch: "İZ
 // actually holds ITS range candle as "CRT Range" and its confirmation tab as "Confirmation",
 // instead of the static "4h = CRT / 1D = DOL" assumption.
 function captionFor(item: { id: ChartTab; caption: string }, signal: TradingSignal | null): string {
-  // Trend Continuation: kendi exec sekmesinde "Continuation POI" etiketi, CRT terimleri değil.
-  if (signal && !signal.crtAnchor && signal.strategyId === "trend-continuation") {
-    return confirmTabFor(signal) === item.id ? "Trend Continuation" : item.caption;
-  }
   if (!signal?.crtAnchor) return item.caption;
   if (ANCHOR_TAB[signal.crtAnchor.rangeTf] === item.id) return "CRT Range";
   if (confirmTabFor(signal) === item.id) return "Confirmation";

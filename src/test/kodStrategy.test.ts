@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
 import { buildLiquidityPools, detectSweeps } from "../lib/intelligence/liquidityMapEngine";
-import { buildStructureRiskPlan, kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { buildStructureRiskPlan, kodStrategy } from "./fixtures/kod/kod.strategy";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 import { getStrategy, strategyRegistry } from "../lib/strategies/registry";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("KOD strategy module", () => {
-  it("keeps CRT first and Trend Continuation as the registered playbooks; KOD stays a direct legacy module", () => {
+  it("registers only the CRT playbook; KOD stays a direct legacy module", () => {
     expect(strategyRegistry[0].id).toBe("crt");
-    expect(strategyRegistry.map((strategy) => strategy.id)).toEqual(["crt", "trend-continuation"]);
+    expect(strategyRegistry.map((strategy) => strategy.id)).toEqual(["crt"]);
     expect(getStrategy("missing-strategy").id).toBe(crtStrategy.id);
     expect(getStrategy(kodStrategy.id).id).toBe(crtStrategy.id); // KOD registry'de değil → CRT'ye düşer
   });

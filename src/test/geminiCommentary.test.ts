@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildGeminiTradeCommentaryPayload, fetchGeminiTradeCommentary } from "../lib/gemini/tradeCommentary";
 import { tradeCommentaryViolation } from "../lib/gemini/commentaryGuard";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 function signalFixture() {
