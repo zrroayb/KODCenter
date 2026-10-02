@@ -32,10 +32,7 @@ export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boole
   if (signal.stage === "ready" && signal.plan.rr < (signal.plan.minimumRR ?? rules.minimumRR)) return false;
   if (rules.usePremiumDiscountFilter && !hasValidPremiumDiscount(signal)) return false;
   if (rules.useJudasSwingFilter && !hasJudasSwing(signal)) return false;
-  // HTF kapısı BİLEREK burada değil: stratejide (crt.strategy readyEligible + blockers) duruyor,
-  // çünkü yalnız orada `reversalAtExternalHtf` istisnası var — haftalık/aylık external likidite
-  // süpürülmüş dönüş setup'ları veto edilmez, boyutu küçültülür (owner kuralı, USDCHF vakası).
-  // Burada tekrar uygulamak (a) o istisnayı sessizce delerdi, (b) aynı şeyi iki kez kapıya
-  // koyup watch listesini boğardı — ölçüm: 18 görünür sinyalin 12'si kaybolyordu.
+  // HTF yön ve key level kapıları stratejide (crt.strategy blockers + readyEligible) — burada
+  // tekrar uygulanmaz.
   return true;
 }

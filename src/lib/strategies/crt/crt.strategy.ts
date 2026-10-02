@@ -125,7 +125,6 @@ type CrtSetup = {
   anchorAtKeyLevel: boolean;
   fvgConfluence: boolean;
   htfAlignment: CrtHtfAlignment;
-  reversalAtExternalHtf: boolean;
   displacementStrength: "none" | "medium" | "strong";
   locationTier: "weekly" | "daily" | "fvg" | "none";
   referenceCandle?: ReferenceCandleScore;
@@ -1211,17 +1210,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
   const locationTier: CrtSetup["locationTier"] = weeklyLocation ? "weekly" : dailyLocation ? "daily" : fvgConfluence ? "fvg" : "none";
   const anchorAtKeyLevel = weeklyLocation || dailyLocation;
-  // Top/bottom reversal exception (Master §10.2/§10.4): at a top the 1D/1W candle bias is still
-  // bullish BY DEFINITION — it only flips after the move delivers. When the manipulation swept
-  // weekly/monthly-tier EXTERNAL liquidity (PWH/PML) or a STRONG opposing liquidity pool (old
-  // structural high/low, equal highs/lows — the classic BSL/SSL raid), that draw is consumed and
-  // the sweep itself is the counter-side evidence, so the opposing-HTF read demotes from veto to
-  // a size-down warning. Every other gate (ChoCH, retest, RR, geometry) applies unchanged.
-  const externalPoolSwept = context.liquidityPools.some((pool) =>
-    pool.strength === "strong"
-    && (direction === "short" ? pool.side === "buy-side" : pool.side === "sell-side")
-    && nearSwept(pool.level));
-  const reversalAtExternalHtf = !htfAlignment.aligned && (weeklyLocation || externalPoolSwept) && Boolean(manipulation);
   // STEP 7: the range must be respected — closes since the raid stay inside it.
   const sinceRaid = turtleSoup
     ? anchor.confirmCandles.slice(turtleSoup.turtleCandleIndex)
@@ -1272,7 +1260,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
           ? `${anchor.spec.confirmTf} kapanışı bu ${anchor.spec.rangeTf.toUpperCase()} setup'ın gerektirdiği ${direction === "short" ? "swing low" : "swing high"} ${formatPrice(chochRead.reference.level)}'i kırmadı (küçük LTF ChoCH bu setup'ı onaylamaz).`
           : `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.`)
       : undefined,
-    settings.useHtfAlignmentFilter === true && !htfAlignment.aligned && !reversalAtExternalHtf ? `HTF yön filtresi açık ve yön karşı: ${htfAlignment.summary}` : undefined,
+    // CRT Secrets: HTF yönüne ters CRT kesinlikle işlenmez (istisna yok, 2026-10-02).
+    !htfAlignment.aligned ? `HTF yönü ters: ${htfAlignment.summary} — trend tersine CRT işlenmez.` : undefined,
+    // CRT Secrets: key level'a (eski HTF high/low, HTF FVG) denk gelmeyen CRT işlenmez.
+    !anchorAtKeyLevel && !fvgConfluence ? "Key level yok: sweep eski HTF high/low (PDH/PDL/PWH/PWL/PMH/PML) veya HTF FVG'ye denk gelmiyor — key level'sız CRT işlenmez." : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !pdAligned ? "CRT range P/D yanlış: long discounttan, short premiumdan gelmeli." : undefined,
@@ -1286,7 +1277,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const warnings = [
     turtleSoup ? turtleSoup.summary : undefined,
     htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üst yön nötr (${htfAlignment.neutral.join(", ")}); karşı değil ama tam onay yok, boyutu küçük tut.` : undefined,
-    reversalAtExternalHtf ? `Karşı-HTF dönüş setup'ı: haftalık/aylık external likidite süpürüldü (draw tüketildi), HTF henüz dönmedi — geçerli ama boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
@@ -1296,13 +1286,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     context.eventRisk.noTrade && settings.avoidNews !== true ? `${context.eventRisk.summary} (haber filtresi kapalı; manuel risk notu.)` : undefined,
     continuationAgainst ? "HTF continuation setup yönüne ters; hard gate değil, kalite notu." : undefined,
     eqConsumed ? `CRT %50/EQ ${formatPrice(anchor.range.midpoint)} raid sonrası görüldü; setup tüketildi, yeni giriş yok.` : undefined,
-    !anchorAtKeyLevel && !fvgConfluence ? "Sweep ek HTF key level/FVG confluence taşımıyor; model geçerli olabilir ama kalite düşük." : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range, false shift riski yüksek.` : undefined,
     manipulation && displacementStrength === "none" && !linkedShiftFvg ? `Raid sonrası ${anchor.spec.confirmTf} displacement zayıf.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; küçük boyut kullan.` : undefined,
     !tp1Valid ? "Entry EQ seviyesini geçmiş; BE ara adımı yok, plan doğrudan DOL/TP hedefli." : undefined,
-    !anchorAtKeyLevel ? "Anchor mum key seviyede değil (PDH/PDL/PWH/PWL uzak); confluence eksik." : undefined,
-    !fvgConfluence ? "Raid bölgesi HTF FVG içinde değil; CRT-FVG confluence eksik." : undefined,
     biasConflict ? "HTF bias raid yönünün tersinde; counter-bias reversal, boyutu küçük tut." : undefined,
     dealingPdConflict ? "Global dealing range PD ters (CRT range PD doğru); geniş resimde ters yarıda, boyutu küçük tut." : undefined,
     context.regime.type === "chop" ? "Chop/low-energy rejim; fake MSS ve zayıf FVG riski, boyutu küçük tut." : undefined,
@@ -1358,7 +1345,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     && pdAligned
     && Boolean(manipulation) && !eqConsumed
     && hasRealTarget && stopValid && !retestFar
-    && (settings.useHtfAlignmentFilter !== true || htfAlignment.aligned || reversalAtExternalHtf)
+    && htfAlignment.aligned
     && modelReady
     && context.dataConfidence.score >= 35;
   const setupPhase: CrtSetup["setupPhase"] = readyEligible
@@ -1412,7 +1399,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     anchorAtKeyLevel,
     fvgConfluence,
     htfAlignment,
-    reversalAtExternalHtf,
     displacementStrength,
     locationTier,
     referenceCandle,
@@ -1445,7 +1431,7 @@ function crtChecklist(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup
     checklistItem("POI", setup.poi ? "pass" : "neutral", setup.poi ? `${setup.poi.label} ${formatPrice(setup.poi.low)}-${formatPrice(setup.poi.high)} kalite bonusu.` : "FVG/OB yok; CRT yine ChoCH kapanışıyla geçerli olabilir."),
     checklistItem("CRT Bias / DOL", bias.direction === direction ? "pass" : "neutral", bias.summary),
     checklistItem("Premium / Discount", pdAligned ? "pass" : "neutral", `Entry ${crtZone}; ideal ${expectedPd(direction)}. Kalite notu, hard gate değil.`),
-    checklistItem("HTF Yön Uyumu", setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned || setup.reversalAtExternalHtf ? "neutral" : "fail", setup.reversalAtExternalHtf ? `${setup.htfAlignment.summary} Karşı-HTF dönüş istisnası: haftalık external likidite süpürüldü.` : setup.htfAlignment.summary),
+    checklistItem("HTF Yön Uyumu", setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", setup.htfAlignment.summary),
     checklistItem("SMT", smtAligned ? "pass" : "neutral", smtAligned ? "SMT kalite teyidi var." : "SMT hard şart değil."),
     checklistItem("Data", context.dataConfidence.score >= 68 ? "pass" : context.dataConfidence.score >= 35 ? "neutral" : "fail", context.dataConfidence.summary)
   ];
@@ -1589,7 +1575,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
     // Master §6: lifecycle tam zinciriyle kanıt olarak sunulur (yalnız "ready mi" değil).
     { id: "crt-lifecycle", label: "CRT Lifecycle", status: setup.lifecycleState === "INVALIDATED" ? "fail" : setup.lifecycleState === "CONFIRMED" || setup.lifecycleState === "COMPLETED" || setup.lifecycleState.startsWith("TARGETING") ? "pass" : "neutral", detail: `${setup.lifecycleState} — Master §6 zinciri: CANDIDATE → ACTIVE_RANGE → SIDE_SWEPT → RETURNED_INSIDE → CONFIRMATION_PENDING → CONFIRMED → TARGETING_MIDPOINT/OPPOSITE → COMPLETED.`, timeframe: anchor.spec.rangeTf },
     { id: "crt-bias", label: "CRT Bias / DOL", status: bias.direction === setup.direction ? "pass" : "neutral", detail: bias.summary, timeframe: anchor.spec.rangeTf, price: bias.drawLevel },
-    { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : setup.reversalAtExternalHtf ? "warning" : "fail", detail: setup.reversalAtExternalHtf ? `${setup.htfAlignment.summary} Karşı-HTF dönüş istisnası aktif (haftalık external likidite süpürüldü).` : setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
+    { id: "htf-alignment", label: "HTF Yön Uyumu", status: setup.htfAlignment.fullyAligned ? "pass" : setup.htfAlignment.aligned ? "neutral" : "fail", detail: setup.htfAlignment.summary, timeframe: setup.htfAlignment.required[0] },
     { id: "crt-range", label: `${anchor.spec.rangeTf.toUpperCase()} Candle Range`, status: "pass", detail: anchor.range.source, timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "reference-candle", label: "Reference Candle", status: !setup.referenceCandle ? "neutral" : setup.referenceCandle.grade === "A" || setup.referenceCandle.grade === "B" ? "pass" : "warning", detail: setup.referenceCandle ? `reference_candle_score ${setup.referenceCandle.score}/100 (${setup.referenceCandle.grade}). ${setup.referenceCandle.reasons[0]}` : "Range mumu skorlanamadı.", timeframe: anchor.spec.rangeTf, price: anchor.range.midpoint },
     { id: "valid-pullback", label: "Valid Pullback", status: validCrtPullback(anchor.rangeCandles, setup.direction).valid ? "pass" : "neutral", detail: validCrtPullback(anchor.rangeCandles, setup.direction).summary, timeframe: anchor.spec.rangeTf },
@@ -1662,11 +1648,10 @@ function signalFromAnchor(context: MarketContext, settings: StrategyInput["setti
   const readyCandidate = setup.readyEligible;
   const life = lifecycle(context, anchor, setup, readyCandidate);
   const grade = gradeFromScore(setup.score);
-  // Trende karşı mı: daily yapısal yön (varsa) sinyal yönüne ters. reversalAtExternalHtf olan
-  // dış-likidite dönüşleri CRT'nin meşru edge'i — onları counter-trend saymayız.
+  // Trende karşı mı: daily yapısal yön (varsa) sinyal yönüne ters (bilgi; HTF kapısı ayrı).
   const dailyBias = context.biasDetail?.daily?.bias;
   const dailyDir = dailyBias === "bullish" ? "long" : dailyBias === "bearish" ? "short" : "none";
-  const counterTrend = dailyDir !== "none" && dailyDir !== setup.direction && !setup.reversalAtExternalHtf;
+  const counterTrend = dailyDir !== "none" && dailyDir !== setup.direction;
   const position = calculatePositionSize({
     account: accountFromSettings(settings),
     symbol: context.symbol,

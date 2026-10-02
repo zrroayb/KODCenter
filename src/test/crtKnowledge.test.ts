@@ -38,4 +38,13 @@ describe("CRT knowledge retrieval (Master §16)", () => {
     const ids = retrieveCrtKnowledge({ direction: "long", hasTurtleSoup: true }).map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("always sends the CRT Secrets core rules to Gemini, for both directions and with turtle soup", () => {
+    for (const input of [{ direction: "long" as const }, { direction: "short" as const }, { direction: "long" as const, hasTurtleSoup: true }]) {
+      const ids = retrieveCrtKnowledge(input).map((record) => record.id);
+      for (const core of ["three-candle-cycle", "key-level-required", "htf-bias-required", "confirmation-models", "crt-targets"]) {
+        expect(ids).toContain(core);
+      }
+    }
+  });
 });

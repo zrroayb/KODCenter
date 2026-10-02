@@ -10,7 +10,8 @@ function shortSignal(
   globalZone: PremiumDiscountContext["zone"],
   biasOverrides: Partial<MarketContext["bias"]> = {},
   extraObjectives: MarketContext["liquidityObjectives"] = [],
-  useHtfAlignmentFilter = false
+  useHtfAlignmentFilter = false,
+  withKeyLevels = true
 ) {
   const base = createStructureContext();
   const h4 = base.timeframes.h4.map((candle, index) =>
@@ -49,8 +50,10 @@ function shortSignal(
       { id: "sell-side", side: "sell-side", level: 90, label: "Sell-side", strength: "strong" }
     ],
     liquidityObjectives: [
-      { id: "PDH", kind: "PDH", side: "buy-side", level: 101.4, label: "PDH", timeframe: "1d", source: "fixture", strength: "strong" },
-      { id: "PDL", kind: "PDL", side: "sell-side", level: 95, label: "PDL", timeframe: "1d", source: "fixture", strength: "strong" },
+      ...(withKeyLevels ? [
+        { id: "PDH", kind: "PDH" as const, side: "buy-side" as const, level: 101.4, label: "PDH", timeframe: "1d" as const, source: "fixture", strength: "strong" as const },
+        { id: "PDL", kind: "PDL" as const, side: "sell-side" as const, level: 95, label: "PDL", timeframe: "1d" as const, source: "fixture", strength: "strong" as const }
+      ] : []),
       ...extraObjectives
     ],
     sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 22, reclaimed: true }],
@@ -96,19 +99,21 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(conflicting.decisionSummary.warnings.some((w) => w.includes("dealing range PD ters"))).toBe(true);
   });
 
-  it("keeps HTF conflict out of blockers when the optional alignment filter is off", () => {
-    const signal = shortSignal("premium", { weekly: "bullish" });
-
-    // Filter off: an opposing weekly is a quality note (htf-alignment evidence fails), never a blocker.
-    expect(signal.governance.blockers.join(" ")).not.toContain("HTF yön filtresi");
-    expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
+  it("an opposing HTF is always a blocker — no setting, no exception (CRT Secrets)", () => {
+    for (const filterFlag of [false, true]) {
+      const signal = shortSignal("premium", { weekly: "bullish" }, [], filterFlag);
+      expect(signal.stage).not.toBe("ready");
+      expect(signal.governance.blockers.join(" ")).toContain("HTF yönü ters");
+      expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
+    }
   });
 
-  it("honors the user setting when the optional HTF alignment filter is enabled", () => {
-    const signal = shortSignal("premium", { weekly: "bullish" }, [], true);
-
-    expect(signal.stage).toBe("watch");
-    expect(signal.governance.blockers.join(" ")).toContain("HTF yön filtresi açık");
+  it("a CRT without a key level (old HTF high/low or HTF FVG) cannot be READY (CRT Secrets)", () => {
+    const withLevel = shortSignal("premium");
+    expect(withLevel.governance.blockers.join(" ")).not.toContain("Key level yok");
+    const noLevel = shortSignal("premium", {}, [], false, false);
+    expect(noLevel.stage).not.toBe("ready");
+    expect(noLevel.governance.blockers.join(" ")).toContain("Key level yok");
   });
 
   it("checks the correct higher-timeframe chain for every CRT anchor", () => {
@@ -131,17 +136,15 @@ describe("dealing-range PD is a note, not a second veto", () => {
     expect(evaluateCrtHtfAlignment(context, "4h", "short").aligned).toBe(false);
   });
 
-  it("demotes the opposing-HTF veto to a warning when weekly external liquidity was swept (top reversal)", () => {
-    // USDCHF 2026-07-15 case: at a top the 1D/1W bias is still bullish by definition — the old
-    // hard veto killed every reversal. When the raid sweeps weekly/monthly-tier EXTERNAL
-    // liquidity (PWH at the swept high), the draw is consumed and the veto demotes to size-down.
+  it("a weekly external liquidity sweep no longer excuses an opposing HTF", () => {
+    // The old USDCHF top-reversal exception is removed: the source says counter-trend CRT is
+    // never traded, even when PWH was the swept level.
     const signal = shortSignal("premium", { weekly: "bullish" }, [
       { id: "PWH", kind: "PWH", side: "buy-side", level: 101.05, label: "PWH", timeframe: "1w", source: "fixture", strength: "strong" }
     ]);
-
-    expect(signal.governance.blockers.join(" ")).not.toContain("HTF yönü karşı");
-    expect(signal.plan.planWarnings.join(" ")).toContain("Karşı-HTF dönüş");
-    expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("warning");
+    expect(signal.stage).not.toBe("ready");
+    expect(signal.governance.blockers.join(" ")).toContain("HTF yönü ters");
+    expect(signal.evidence.find((item) => item.id === "htf-alignment")?.status).toBe("fail");
   });
 
   it("tolerates a neutral higher timeframe but still vetoes an opposing one", () => {
