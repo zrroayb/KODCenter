@@ -8,7 +8,7 @@ import {
   type ISeriesApi,
   type UTCTimestamp
 } from "lightweight-charts";
-import type { ChartCrtRange } from "../lib/charts/crtRange";
+import type { ChartBreakLevel, ChartCrtRange } from "../lib/charts/crtRange";
 import type { Candle } from "../lib/ict/types";
 import { formatPrice } from "../lib/ict/format";
 
@@ -26,6 +26,9 @@ type CrtLiteChartProps = {
   phaseText?: string;
   // Selected signal's plan: entry / stop / EQ (break-even) / DOL exit.
   plan?: { entry: number; stopLoss: number; targets: number[] };
+  // The confirmation-TF level a candle must close beyond (ChoCH / True MSS) and its header text.
+  breakLevel?: ChartBreakLevel;
+  breakText?: string;
 };
 
 // App Candle.time is ms; lightweight-charts wants seconds.
@@ -56,12 +59,17 @@ const BIAS_META: Record<"long" | "short" | "neutral", { text: string; color: str
 };
 
 const RANGE_COLOR = "#ffd700";
+// Break level (ChoCH / True MSS) — dataviz accent, distinct from the gold range.
+const BREAK_COLOR = "#3987e5";
+// Open zoomed on the recent bars (not the whole history): last N candles + the right pad.
+const VISIBLE_BARS = 90;
 
-export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, rangeLabel, phaseText, plan }: CrtLiteChartProps) {
+export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, rangeLabel, phaseText, plan, breakLevel, breakText }: CrtLiteChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const rangeSeriesRef = useRef<Array<ISeriesApi<"Line">>>([]);
+  const breakSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
   const data = useMemo(() => cleanCandles(candles), [candles]);
   // Whitespace bars after the last candle (same spacing as the last two bars).
@@ -102,6 +110,14 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
       crosshairMarkerVisible: false
     });
     rangeSeriesRef.current = [rangeLine(LineStyle.Solid, 2), rangeLine(LineStyle.Dotted, 1), rangeLine(LineStyle.Solid, 2)];
+    breakSeriesRef.current = chart.addLineSeries({
+      color: BREAK_COLOR,
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      crosshairMarkerVisible: false
+    });
     chartRef.current = chart;
     seriesRef.current = series;
     return () => {
@@ -109,6 +125,7 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
       chartRef.current = null;
       seriesRef.current = null;
       rangeSeriesRef.current = [];
+      breakSeriesRef.current = null;
     };
   }, []);
 
@@ -117,7 +134,12 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
     const series = seriesRef.current;
     if (!series) return;
     series.setData(padded);
-    chartRef.current?.timeScale().fitContent();
+    const total = padded.length;
+    if (total > VISIBLE_BARS + RIGHT_PAD_BARS) {
+      chartRef.current?.timeScale().setVisibleLogicalRange({ from: total - RIGHT_PAD_BARS - VISIBLE_BARS, to: total - 1 });
+    } else {
+      chartRef.current?.timeScale().fitContent();
+    }
   }, [padded]);
 
   // This tab's CRT range: High / EQ / Low from the reference candle to the right edge.
@@ -143,6 +165,24 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
     eqSeries.setData(segment(crtRange.eq));
     lowSeries.setData(segment(crtRange.low));
   }, [crtRange?.high, crtRange?.low, crtRange?.eq, crtRange?.time, rangeLabel, padded]);
+
+  // The break the setup waits for: from the swing candle to the right edge.
+  useEffect(() => {
+    const series = breakSeriesRef.current;
+    if (!series) return;
+    const end = padded[padded.length - 1]?.time;
+    if (!breakLevel || end === undefined) {
+      series.setData([]);
+      return;
+    }
+    const swingTime = toSeconds(breakLevel.time);
+    const start = (padded.find((bar) => bar.time >= swingTime) ?? padded[0]).time;
+    series.applyOptions({
+      title: breakLevel.done ? "KIRILDI ✓" : `KIRILIM ${breakLevel.side === "above" ? "↑" : "↓"}`,
+      lineStyle: breakLevel.done ? LineStyle.Dotted : LineStyle.Dashed
+    });
+    series.setData(end > start ? [{ time: start, value: breakLevel.level }, { time: end, value: breakLevel.level }] : [{ time: start, value: breakLevel.level }]);
+  }, [breakLevel?.level, breakLevel?.time, breakLevel?.side, breakLevel?.done, padded]);
 
   // Selected signal's plan: Entry / Stop / EQ (stop -> BE) / Exit. Single-target plans
   // (continuation) draw only the exit.
@@ -186,6 +226,7 @@ export function CrtLiteChart({ candles, title, height = 460, bias, crtRange, ran
         ) : null}
       </div>
       {phaseText ? <div className={`crt-lite-chart__phase ${crtRange?.phase ?? ""}`}>{phaseText}</div> : null}
+      {breakText ? <div className={`crt-lite-chart__phase break ${breakLevel?.done ? "done" : ""}`}>{breakText}</div> : null}
       <div ref={containerRef} style={{ width: "100%", height }} />
     </div>
   );
