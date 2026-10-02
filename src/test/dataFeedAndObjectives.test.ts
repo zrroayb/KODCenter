@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoMarkets } from "../data/demoData";
 import { buildMarketContext } from "../lib/intelligence/marketContext";
-import { buildStructureRiskPlan, kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { buildStructureRiskPlan, kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("bid/ask data layer and liquidity objectives", () => {

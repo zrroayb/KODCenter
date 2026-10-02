@@ -6,7 +6,7 @@ import type { RuntimeReplayTrade } from "../lib/analytics/performance";
 import { __runtimeReplayInternals, runMonthlyRuntimeReplay } from "../lib/backtest/runtimeReplay";
 import type { TradingSignal } from "../lib/ict/types";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("monthly runtime replay", () => {

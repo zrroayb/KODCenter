@@ -1,5 +1,5 @@
-import type { MarketContext, TradeDirection, TradePlan } from "../ict/types";
-import { isCryptoSymbol } from "../ict/symbols";
+import type { MarketContext, TradeDirection, TradePlan } from "../../../../lib/ict/types";
+import { isCryptoSymbol } from "../../../../lib/ict/symbols";
 import type { Rule, RuleResult } from "./ruleTypes";
 
 function result(passed: boolean, reason: string, scoreImpact = 10): RuleResult {

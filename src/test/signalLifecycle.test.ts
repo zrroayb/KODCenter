@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { signalDecisionClass, signalDecisionLabel, signalLifecycleState } from "../lib/signals/signalClassification";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { createStructureContext } from "./strategyFixtures";
 
 describe("signal lifecycle state", () => {

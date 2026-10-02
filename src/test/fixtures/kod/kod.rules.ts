@@ -1,5 +1,5 @@
-import type { MarketContext, TradeDirection, TradePlan } from "../../ict/types";
-import type { IctSequence } from "../../intelligence/ictSequenceEngine";
+import type { MarketContext, TradeDirection, TradePlan } from "../../../lib/ict/types";
+import type { IctSequence } from "../../../lib/intelligence/ictSequenceEngine";
 import {
   DisplacementCondition,
   FvgCondition,
@@ -9,9 +9,9 @@ import {
   PriceInPremiumCondition,
   RiskRewardCondition,
   SmtCondition
-} from "../../rules/conditions";
-import { evaluateRules } from "../../rules/ruleEngine";
-import type { RuleResult } from "../../rules/ruleTypes";
+} from "./rules/conditions";
+import { evaluateRules } from "./rules/ruleEngine";
+import type { RuleResult } from "./rules/ruleTypes";
 
 function sequenceCondition(sequence?: IctSequence): RuleResult {
   if (!sequence) {

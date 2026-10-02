@@ -5,7 +5,7 @@ import { runDemoBacktest } from "../lib/backtest/backtestEngine";
 import { focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime } from "../lib/charts/selectedSignal";
 import { buildMarketContext } from "../lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../lib/intelligence/smtEngine";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 
 describe("full tradebot flow", () => {
   it("turns market candles into scan output, chart focus, wait requirements, and backtest stats", () => {

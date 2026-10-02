@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
 import { buildLiquidityPools, detectSweeps } from "../lib/intelligence/liquidityMapEngine";
-import { buildStructureRiskPlan, kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { buildStructureRiskPlan, kodStrategy } from "./fixtures/kod/kod.strategy";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
 import { getStrategy, strategyRegistry } from "../lib/strategies/registry";
 import { createStructureContext } from "./strategyFixtures";

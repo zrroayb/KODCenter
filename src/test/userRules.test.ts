@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
-import { kodStrategy } from "../lib/strategies/kod/kod.strategy";
+import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { ruleAllowsContext, ruleAllowsSignal } from "../lib/userRules/applyRules";
 import { defaultRules } from "../lib/userRules/defaultRules";
 import { resolveStoredRules } from "../lib/userRules/resolveRules";

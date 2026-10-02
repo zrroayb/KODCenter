@@ -1,5 +1,5 @@
-import type { QualityGrade } from "../../ict/types";
-import type { RuleResult } from "../../rules/ruleTypes";
+import type { QualityGrade } from "../../../lib/ict/types";
+import type { RuleResult } from "./rules/ruleTypes";
 
 export function kodScore(results: RuleResult[]): number {
   const raw = results.reduce((score, result) => score + result.scoreImpact, 50);

@@ -1,4 +1,4 @@
-import type { Candle, EntrySource, EntryStatus, FairValueGap, MarketContext, TradeDirection, TradePlan } from "../../ict/types";
+import type { Candle, EntrySource, EntryStatus, FairValueGap, MarketContext, TradeDirection, TradePlan } from "../../../lib/ict/types";
 
 export type KodEntryModel = TradePlan["entryModel"];
 
