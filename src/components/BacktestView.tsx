@@ -93,19 +93,6 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
           <button className="ghost-btn" onClick={() => onRun()} type="button" disabled={loading}><RefreshCcw className={loading ? "spin" : ""} size={15} /> {loading ? "Replay çalışıyor" : "Son 1 ayı replay et"}</button>
         </div>
       </header>
-      <div className="playbook-toggle" role="group" aria-label="Hangi playbook replay edilsin">
-        {[{ id: "crt", label: "CRT Reversal" }, { id: "trend-continuation", label: "Trend Continuation" }].map((playbook) => (
-          <button
-            key={playbook.id}
-            className={`playbook-toggle-btn ${playbook.id} ${strategyId === playbook.id ? "active" : ""}`}
-            onClick={() => onRun(playbook.id)}
-            type="button"
-            disabled={loading}
-          >
-            {playbook.label}
-          </button>
-        ))}
-      </div>
       <div className="metric-grid">{metrics.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       {replay && (
         <>

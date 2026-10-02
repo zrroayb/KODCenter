@@ -34,13 +34,13 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 ```bash
 npm run dev      # geliştirme (vite, 127.0.0.1)
 npm test         # vitest run — PUSH ETMEDEN ÖNCE HER ZAMAN ÇALIŞTIR
-npm run build    # tsc -b + worker typecheck + vite build
+npm run build    # tsc -b + scripts typecheck + vite build
 npm start        # prod önizleme (Render bunu kullanır)
 npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx tsc --noEmit` hiçbir dosyayı kontrol etmez)
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 252 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 244 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -170,3 +170,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-09-26 — Gold & dark fintech reskin: tüm tema tek token katmanından değişti (`src/styles.css`). Yüzeyler sıcak near-black (#0c0b09 / #1a1a1a / #333), hairline'lar soft-gold, accent gold (#FFD700). İki `:root` katmanındaki `--blue*` accent'i gold'a (`var(--gold)`) çevrildi; dağınık mor (`rgba(124,140,255)`) ve mavi (`rgba(57,135,229)`) glow/gradient'ler gold'a toplu değiştirildi; `html` gradient gold; `primary-btn` gold dolgu + koyu yazı + gold lift shadow. **Trading semantiği korundu:** bull/bear mum renkleri (`--green` #089981 / `--red` #f23645) ve chart-surface #0f131c değişmedi (dataviz kuralı). Yeni token'lar: `--gold`, `--gold-ink`, `--gold-soft`, `--soft-gold`, `--glow-gold`. Salt CSS; typecheck + 272 test + build yeşil.
 - 2026-10-02 — Grafik: seçili sinyalin beklediği kırılım çiziliyor. Onay TF sekmesinde mavi kesikli "KIRILIM ↑/↓" çizgisi (internal swing, `closeConfirmationRequirement`) swing mumundan sağa uzanır + başlık satırı "Beklenen kırılım · 15m mum X üstünde KAPANMALI (ChoCH / True MSS)"; kırılım gelince "KIRILDI ✓" (yeşil). `chartBreakLevel`/`breakLevelText` (`src/lib/charts/crtRange.ts`). Grafik artık tüm geçmişi sığdırmıyor, son 90 mumla açılıyor. Kural değişmedi → Gemini güncellemesi gerekmedi.
 - 2026-10-02 — Sadeleştirme 1/5: Cloudflare Worker silindi (canlı site değildi, alarmı kapalıydı, main'e her push'ta ayrıca deploy ediliyordu): `worker/`, `wrangler.jsonc`, D1 `migrations/`, `cloudflare-deploy.yml`, `CLOUDFLARE_DEPLOY.md`, `check-alert-parity` + `edge-report` scriptleri, wrangler/workers-types bağımlılıkları. Sitede worker'a bağlı ölü yollar da gitti: `/api/live-markets` cache okuması (Render'da yoktu, her açılışta boşa istek) + "Canlı bot" rozeti, `/api/rules` senkronu (`cloudRulesSync.ts`). `cloud-scan.ts` tip kontrolü `tsconfig.scripts.json`'a taşındı. README Render'a göre yazıldı. Davranış değişmedi; 252 test.
+- 2026-10-02 — Sadeleştirme 2/5: Trend Continuation playbook'u kaldırıldı (CRT değildi ama canlı taramada CRT'nin yanında koşuyordu). Strateji + testi, Setups'taki ayrı Continuation paneli, Replay'deki playbook seçici, detay/plan ekranlarındaki continuation dalları, `validate-continuation`/`measure-continuation`/`diagnose-symbol` scriptleri ve CSS'i silindi. CRT'nin "continuation acceptance" bastırması (kabul görmüş karşı-trend fade'i göstermeme) DURUYOR — o CRT kuralı. Registry artık yalnız CRT. 244 test.

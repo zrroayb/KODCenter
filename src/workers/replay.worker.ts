@@ -8,7 +8,7 @@ import type { StrategySettings } from "../lib/strategies/types";
 type ReplayRequest = {
   markets: DemoMarket[];
   settings: StrategySettings;
-  // Hangi playbook ölçülüyor: "crt" (reversal) veya "trend-continuation". Boşsa CRT.
+  // Hangi playbook ölçülüyor: "crt". Boşsa CRT.
   strategyId?: string;
 };
 

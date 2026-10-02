@@ -16,7 +16,6 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit && npm run scripts:typecheck",
     "scripts:typecheck": "tsc -p tsconfig.scripts.json",
     "cloud:scan": "tsx scripts/cloud-scan.ts",
-    "validate:continuation": "tsx scripts/validate-continuation.ts",
     "report:robustness": "tsx scripts/robustness-report.ts"
   },
   "dependencies": {

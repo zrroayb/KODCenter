@@ -213,21 +213,9 @@ export function ScannerView({
     );
   };
   const sortedSignals = dataLoading ? [] : sortForAction(signals);
-  // İki playbook ayrı gösterilir (owner: "reversal vs continuation ayrı, aynı sinyali iki kez gösterme").
-  // Continuation kendi bölümünü GÖRÜNÜR + GİZLİ havuzun birleşiminden çeker; böylece CRT'nin yüksek-RR
-  // watch'ları görünür cap'i doldursa bile trend-devamı setup'ları asla ekrandan düşmez.
-  const seenPool = new Set<string>();
-  const dedupedPool = [...signals, ...lowQualitySignals].filter((signal) => {
-    if (seenPool.has(signal.id)) return false;
-    seenPool.add(signal.id);
-    return true;
-  });
-  const continuationSignals = dataLoading
-    ? []
-    : sortForAction(dedupedPool.filter((signal) => signal.strategyId === "trend-continuation")).slice(0, 8);
   // Chop (zıt raid çakışması) sembollerini tek satıra indir: iki competing sinyal yerine bir
   // "chop, dur" satırı. Chop olmayanlar normal gösterilir.
-  const reversalRaw = signals.filter((signal) => signal.strategyId !== "trend-continuation");
+  const reversalRaw = signals;
   const seenChopSymbols = new Set<string>();
   const reversalSignals = reversalRaw.filter((signal) => {
     if (!signal.chopConflict) return true;
@@ -237,7 +225,7 @@ export function ScannerView({
   });
   const sortedLowQualitySignals = dataLoading
     ? []
-    : sortForAction(lowQualitySignals.filter((signal) => signal.strategyId !== "trend-continuation")).slice(0, 8);
+    : sortForAction(lowQualitySignals).slice(0, 8);
   const best = sortedSignals.find((signal) => signal.stage === "ready" || signal.stage === "watch");
   // Desk view: the moment the scan lands, the AI reads the whole board and names ONE pick
   // ("bence şunu al, şu daha zayıf çünkü ...") — re-generated only when the board changes.
@@ -315,15 +303,8 @@ export function ScannerView({
               <strong>{best.symbol} · {best.direction.toUpperCase()}{best.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
               <span>{bestAudit?.headline ?? signalDecisionLabel(best)} · Kalite {best.grade}/{best.score}</span>
             </div>
-            {/* EQ/DOL CRT reversal terimleri; continuation tek hedeflidir → Hedef + Net RR. */}
-            {best.strategyId === "trend-continuation" ? (
-              <div className="simple-plan-grid">
-                <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
-                <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
-                <div><span>Hedef</span><strong>{formatPrice(best.plan.targets[0])}</strong></div>
-                <div><span>Net RR</span><strong>{formatR(best.plan.rr)}</strong></div>
-              </div>
-            ) : (
+            {/* CRT: EQ'da stop BE, çıkış DOL. */}
+            {(
               <div className="simple-plan-grid">
                 <div><span>Entry</span><strong>{formatPrice(best.plan.entry)}</strong></div>
                 <div><span>SL</span><strong>{formatPrice(best.plan.stopLoss)}</strong></div>
@@ -469,29 +450,6 @@ export function ScannerView({
           {!reversalSignals.length && <p className="muted-note">Mevcut runtime kurallarına uyan görünür reversal sinyali yok.</p>}
         </div>
       </article>
-      <article className="panel">
-        <header className="panel-head"><h2>Trend Continuation <span className="playbook-tag trend-continuation">Continuation</span></h2><span className="badge">{continuationSignals.length}</span></header>
-        <div className="scan-signal-list">
-          {continuationSignals.map((signal) => (
-            <button
-              className={selectedSignalId === signal.id ? "scan-signal-card selected" : "scan-signal-card"}
-              key={signal.id}
-              onClick={() => onSelectSignal(signal)}
-              type="button"
-            >
-              <span className={`status-dot ${signal.stage}`} />
-              <strong>{signal.symbol} {signal.direction.toUpperCase()} <span className={`playbook-tag ${signal.strategyId}`}>{playbookShortLabel(signal.strategyId)}</span>{signal.readyHoldExpiresAt && <span className="ready-hold-tag" title="Motor şu an READY demiyor; plan stop/TP görülene ya da kilit bitene kadar READY tutuluyor.">kilitli</span>}{signal.context.dataConfidence.stale && <span className="stale-tag">⚠ veri eski</span>}</strong>
-              <b>Kalite {signal.grade}/{signal.score}</b>
-              <small>{signalDecisionLabel(signal)} · {signal.stage.toUpperCase()} · Entry {formatPrice(signal.plan.entry)} · Net RR {formatR(signal.plan.rr)}</small>
-              {signal.stage !== "ready" && (
-                <em>Ne olmalı? {waitingRequirementsForMinimumRR(signal, minimumRR).slice(0, 2).join(" · ") || "HTF trend + kabullü breakout + pullback bekleniyor."}</em>
-              )}
-              {renderSimilar(signal)}
-            </button>
-          ))}
-          {!continuationSignals.length && <p className="muted-note">Şu an trend-devamı setup'ı yok; HTF trend + kabullü breakout (BOS) + pullback FVG/OB retest bekleniyor.</p>}
-        </div>
-      </article>
       <details className="scanner-more">
         <summary>Geçmiş, veri ve erken adaylar</summary>
         <div className="scanner-more-body">
@@ -504,9 +462,7 @@ export function ScannerView({
               <strong>{signal.symbol} {signal.direction.toUpperCase()}</strong>
               <b>{signal.stage.toUpperCase()}</b>
               <small>{signalDecisionReason(signal)}</small>
-                <em>Entry {formatPrice(signal.plan.entry)} · SL {formatPrice(signal.plan.stopLoss)} · {signal.strategyId === "trend-continuation"
-                  ? `Hedef ${formatPrice(signal.plan.targets[0])}`
-                  : `EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}`}</em>
+                <em>Entry {formatPrice(signal.plan.entry)} · SL {formatPrice(signal.plan.stopLoss)} · {`EQ ${formatPrice(signal.plan.targets[0])} · DOL ${formatPrice(signal.plan.targets[1] ?? signal.plan.targets[0])}`}</em>
             </button>
           ))}
           {!inactiveSignals.length && <p className="muted-note">Stop olmuş veya missed setup yok.</p>}
