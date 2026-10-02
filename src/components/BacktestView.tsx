@@ -117,6 +117,12 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
           <div className="exit-compare">
             <strong>Çıkış modeli karşılaştırması</strong>
             <small className="exit-compare__lead">Aynı girişler, aynı mumlar — sadece çıkış kuralı farklı.</small>
+            {replay.exitSample?.archived && (
+              <small className="exit-compare__lead">
+                Örnek: bu tarayıcıda biriken {replay.exitSample.trades} kapanmış işlem
+                {replay.exitSample.since ? ` (${new Date(replay.exitSample.since).toLocaleDateString("tr-TR")} itibarıyla)` : ""} — tek replay'in 60 günlük sınırı aşıldı.
+              </small>
+            )}
             {replay.managementDecision && (
               <div className={`exit-compare__decision ${replay.managementDecision.ready ? "ready" : "building"}`}>
                 <div className="exit-compare__progress" aria-label="Karar için örnek">

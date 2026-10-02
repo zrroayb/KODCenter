@@ -294,6 +294,9 @@ export type RuntimeReplaySummary = {
   filterScenarios: RuntimeReplayFilterScenario[];
   managementScenarios: RuntimeReplayManagementScenario[];
   managementDecision?: RuntimeReplayManagementDecision;
+  // Exit comparison sample: the browser's accumulated archive (all past replays of this engine
+  // version) when it is larger than this replay alone.
+  exitSample?: { trades: number; since?: number; archived: boolean };
   setupBreakdowns: RuntimeReplaySetupBreakdown[];
   failureCases: RuntimeReplayFailureCase[];
   failureReasons: Array<{ reason: RuntimeReplayOutcomeReason; count: number; totalR: number }>;
