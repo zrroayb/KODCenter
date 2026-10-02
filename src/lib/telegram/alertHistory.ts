@@ -1,3 +1,4 @@
+import { safeSetJson } from "../storage/safeStorage";
 import type { TradingSignal } from "../ict/types";
 import {
   readyTelegramDedupeKey,
@@ -58,7 +59,7 @@ export function loadTelegramAlertHistory(now = Date.now()): TelegramAlertRecord[
 
 export function saveTelegramAlertHistory(records: TelegramAlertRecord[], now = Date.now()): TelegramAlertRecord[] {
   const next = prune(records, now);
-  browserStorage()?.setItem(TELEGRAM_ALERT_HISTORY_KEY, JSON.stringify(next));
+  safeSetJson(TELEGRAM_ALERT_HISTORY_KEY, next);
   return next;
 }
 

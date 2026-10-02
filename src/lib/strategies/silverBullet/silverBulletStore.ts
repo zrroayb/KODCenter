@@ -1,11 +1,13 @@
+import { safeSetJson } from "../../storage/safeStorage";
 import { silverBulletTransitionLog } from "./silverBulletEngine";
 import type { SbLifecycle, SilverBulletLog, SilverBulletSetup } from "./types";
 
 // Separate SILVER_BULLET_SETUP persistence — never mixed into CRT/session stores (Master §27).
 const SETUP_KEY = "tradebot.silverBulletSetups.v1";
 const LOG_KEY = "tradebot.silverBulletLogs.v1";
-const MAX_SETUPS = 200;
-const MAX_LOGS = 1_000;
+// Full setup objects are heavy; keep the recent history small so localStorage never fills up.
+const MAX_SETUPS = 60;
+const MAX_LOGS = 300;
 
 function storageAvailable(): boolean {
   return typeof window !== "undefined" && Boolean(window.localStorage);
@@ -23,7 +25,7 @@ function readArray<T>(key: string): T[] {
 
 function writeArray<T>(key: string, value: T[]) {
   if (!storageAvailable()) return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  safeSetJson(key, value);
 }
 
 export function loadSilverBulletSetups(): SilverBulletSetup[] {
