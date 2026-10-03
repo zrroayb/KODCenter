@@ -53,7 +53,7 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | Günlük/4H mum NY 17:00 kapanışına hizalı (FX/altın/NAS) | ✅ `candleAggregation.ts`, `nyCloseDaily` (2026-10-02) |
 | Key level zorunlu | ✅ blocker (2026-10-02) |
 | HTF trend zorunlu, istisnasız | ✅ blocker (2026-10-02) |
-| Sadece Candle 3 (C2 HTF kapanışını bekle) | ✅ C2 range içinde kapanmadan READY yok (blocker, 2026-10-02) |
+| Sadece Candle 3 (C2 HTF kapanışını bekle) | ✅ C2 range içinde kapanmadan READY yok (blocker, 2026-10-02); giriş C3'ün zaman penceresinde dolmalı, C2 içindeki retest sayılmaz, C3 girişsiz kapanırsa setup biter (2026-10-03, `candle3Window`) |
 | 1/5/9 bonusu kaldır | ✅ skor ve referans mum kalitesinden çıkarıldı |
 | 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |

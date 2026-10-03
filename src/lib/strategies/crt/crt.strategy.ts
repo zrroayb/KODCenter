@@ -1,4 +1,5 @@
 import { checklistItem } from "../../brain/decisionSummary";
+import { timeframeToMs } from "../../data/timeframes";
 import { SYMBOL_SPEC } from "../../ict/symbolSpec";
 import { formatPrice, formatR } from "../../ict/format";
 import { averageTrueRange, completedCandles } from "../../ict/candles";
@@ -111,6 +112,7 @@ type CrtSetup = {
   locationTier: "weekly" | "daily" | "fvg" | "none";
   referenceCandle?: ReferenceCandleScore;
   eqConsumed: boolean;
+  candle3Expired: boolean;
   readyEligible: boolean;
 };
 
@@ -683,6 +685,36 @@ export function findCrtEntryRetestIndex(
   return index >= 0 ? index : undefined;
 }
 
+// CRT Secrets: ONLY Candle 3 is traded. C3 = the range-TF candle right after the raid candle (C2).
+// The entry (retest fill) must happen inside C3's time window: a retest during C2 does not count
+// (C2 has not closed yet), and once C3 is over the setup is done — C4 and later are not traded.
+export type Candle3Window = { start: number; end: number; shift: number };
+
+function nextRangeOpen(time: number, rangeTf: AnchorSpec["rangeTf"]): number {
+  if (rangeTf === "1M") {
+    const date = new Date(time);
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  }
+  return time + timeframeToMs(rangeTf);
+}
+
+export function candle3Window(rangeCandles: Candle[], raid: { time: number; closed: boolean } | undefined, rangeTf: AnchorSpec["rangeTf"]): Candle3Window | undefined {
+  if (!raid?.closed) return undefined;
+  const raidIndex = rangeCandles.findIndex((candle) => candle.time === raid.time);
+  if (raidIndex < 0) return undefined;
+  const start = rangeCandles[raidIndex + 1]?.time ?? nextRangeOpen(raid.time, rangeTf);
+  const end = rangeCandles[raidIndex + 2]?.time ?? nextRangeOpen(start, rangeTf);
+  // Weekly/monthly candles are labelled by trade date (Monday / the 1st, 00:00 UTC) while their
+  // New York sessions open the evening before; +12h puts a confirm candle on its trade day.
+  const shift = rangeTf === "1w" || rangeTf === "1M" ? 12 * 60 * 60 * 1000 : 0;
+  return { start, end, shift };
+}
+
+export function inCandle3(window: Candle3Window, candleTime: number): "before" | "inside" | "after" {
+  const t = candleTime + window.shift;
+  return t < window.start ? "before" : t < window.end ? "inside" : "after";
+}
+
 function targetDol(anchor: AnchorCtx, direction: TradeDirection, entry: number): number | undefined {
   // CRT distribution target: the opposite side of the range candle. Never fabricate a
   // synthetic entry±2R target — a setup without a real draw has no trade.
@@ -935,8 +967,14 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // break, but absence of an FVG must never erase an otherwise valid ChoCH.
   const choch = chochRead.confirmation ?? (linkedShiftFvg ? structuralShift : undefined);
   const plannedEntry = entryLevelForAnchor(anchor, direction, choch, poi);
-  const retestKnownIndex = choch ? Math.max(choch.candleIndex, poi?.candleIndex ?? choch.candleIndex) : undefined;
-  const retestIndex = typeof retestKnownIndex === "number"
+  // Only Candle 3 is traded: the retest search starts at C3's first confirm candle and a fill
+  // after C3 closed is no entry.
+  const c3 = anchor.raid?.direction === direction ? candle3Window(anchor.rangeCandles, anchor.raid, anchor.spec.rangeTf) : undefined;
+  const c3FirstIndex = c3 ? anchor.confirmCandles.findIndex((candle) => inCandle3(c3, candle.time) !== "before") : -1;
+  const retestKnownIndex = choch
+    ? Math.max(choch.candleIndex, poi?.candleIndex ?? choch.candleIndex, c3 && c3FirstIndex >= 0 ? c3FirstIndex - 1 : -1)
+    : undefined;
+  const retestFound = typeof retestKnownIndex === "number" && (!c3 || c3FirstIndex >= 0)
     ? findCrtEntryRetestIndex(
         anchor.confirmCandles,
         plannedEntry,
@@ -944,6 +982,12 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
         poi && isGapPoi(poi) ? { low: poi.low, high: poi.high } : undefined
       )
     : undefined;
+  const retestIndex = typeof retestFound === "number" && c3 && inCandle3(c3, anchor.confirmCandles[retestFound].time) === "after"
+    ? undefined
+    : retestFound;
+  const latestConfirm = anchor.liveConfirmCandles.at(-1) ?? anchor.confirmCandles.at(-1);
+  // C3 is over and no entry filled inside it: the CRT is done (no C4+ trades).
+  const candle3Expired = Boolean(c3 && typeof retestIndex !== "number" && latestConfirm && inCandle3(c3, latestConfirm.time) === "after");
   const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, retestIndex, minimumRR, buffer, executionCostStress(settings));
   // EQ before the entry fill = consumed setup; EQ after the fill = the open trade arming BE.
   const eqConsumed = isCrtEqConsumed(anchor.confirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex, retestIndex);
@@ -1055,6 +1099,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     retestFar ? "Fiyat entry alanından uzaklaşmış; kovalanmaz — yeni raid bekle." : undefined,
     // EQ already traded after the raid = setup consumed (CRT Secrets: EQ reached, no expansion).
     // It was a hidden READY gate listed as a warning; now it is a visible blocker.
+    candle3Expired ? `Candle 3 (${anchor.spec.rangeTf.toUpperCase()}) kapandı, içinde giriş gelmedi — sadece Candle 3 işlenir; C4 ve sonrası trade edilmez.` : undefined,
     eqConsumed ? `CRT %50/EQ ${formatPrice(anchor.range.midpoint)} raid sonrası görüldü; setup tüketildi, yeni giriş yok.` : undefined,
     settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
     context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
@@ -1180,6 +1225,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     locationTier,
     referenceCandle,
     eqConsumed,
+    candle3Expired,
     readyEligible
   };
 }
@@ -1303,6 +1349,17 @@ function lifecycle(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup, r
       summary: "Plan geometrisi geçersiz: stop veya DOL entry'nin yanlış tarafında. Setup işlem adayı değildir."
     };
     return { stage: "invalidated", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "invalidated") };
+  }
+  if (setup.candle3Expired) {
+    const outcome: SignalOutcome = {
+      status: "missed",
+      entryTouched: false,
+      maxFavorableR: 0,
+      maxAdverseR: 0,
+      candlesTracked: 0,
+      summary: `Candle 3 (${anchor.spec.rangeTf.toUpperCase()}) içinde giriş gelmedi; CRT tamamlandı — C4 ve sonrası işlenmez, yeni range bekle.`
+    };
+    return { stage: "missed", outcome, actionWindow: buildActionWindow(context, setup.plan, outcome, "missed") };
   }
   if (setup.eqConsumed) {
     const outcome: SignalOutcome = {

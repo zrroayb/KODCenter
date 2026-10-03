@@ -8,7 +8,7 @@ import { safeSetJson } from "../storage/safeStorage";
 //
 // Bump REPLAY_ARCHIVE_VERSION whenever a CRT rule changes: trades from a different engine must not
 // be mixed into one sample.
-export const REPLAY_ARCHIVE_VERSION = "crt-2026-10-02";
+export const REPLAY_ARCHIVE_VERSION = "crt-2026-10-03-c3only";
 export const REPLAY_ARCHIVE_CAP = 1500;
 
 export type ArchivedReplayTrade = Pick<RuntimeReplayTrade, "symbol" | "direction" | "signalTime" | "entry" | "stopLoss" | "status" | "rMultiple" | "managementVariants">;
