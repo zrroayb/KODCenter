@@ -159,7 +159,10 @@ function localTradeCommentary(signal: TradingSignal, reason?: string): GeminiTra
   } else if (signal.stage === "missed") {
     karar = "Karar: Kovalama yok; trade kaçtı.";
     const eqConsumed = plan.planWarnings.find((warning) => warning.includes("%50/EQ"));
-    neden = eqConsumed
+    const candle3Over = signal.governance.blockers.find((blocker) => blocker.startsWith("Candle 3 ("));
+    neden = candle3Over
+      ? `Neden: ${candle3Over}`
+      : eqConsumed
       ? `Neden: ${eqConsumed}`
       : "Neden: Fiyat planlanan giriş alanını bırakıp dağılıma başladı; geç girişin RR'ı kalmadı.";
     beklenen = "Beklenen: Sonraki HTF mumunda yeni CRT dizilimi (range → sweep → ChoCH) bekle.";

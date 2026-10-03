@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 256 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 260 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -87,7 +87,8 @@ docs/                CRT_CHANGELOG, CLOUDFLARE_DEPLOY...
 - **`readyEligible`**: `entryStatus==="confirmed"` + `rr>=exitMinimumRR` (CRT'de
   `plan.rr` = DOL çıkışının net RR'ı; kullanıcı kuralı `crtExitMinimumRR`, varsayılan 1.0) +
   `blockers.length===0` + PD hizası + manipulation (reclaim'li anchor raid) + **C2 (HTF raid mumu)
-  range içinde kapanmış — sadece Candle 3 işlenir** + key level + HTF yönü +
+  range içinde kapanmış — sadece Candle 3 işlenir; giriş (retest dolumu) C3'ün zaman penceresinde
+  olmalı, C3 girişsiz kapanırsa setup `missed` (`candle3Window`)** + key level + HTF yönü +
   gerçek hedef + geçerli stop + model hazır + `dataConfidence>=35`.
 - **Çıkış modeli = DOL hedef + EQ'da BE**: pozisyonun tamamı DOL'a (karşı likidite, `targets[1]`)
   koşar; fiyat EQ'ya (`targets[0]`) gelince stop break-even'a çekilir. EQ'ya gelip entry'ye
@@ -186,3 +187,4 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Çift alarm düzeltmesi: Render free plan kalıcı disk vermiyor ve 15 dk trafik yoksa uyuyor; seyrek GitHub cron'u arasında sunucu uyuyunca `.data/alert-log.json` siliniyor, hâlâ READY olan setup tekrar Telegram'a gidiyordu. Tarama artık gönderdiği dedupe anahtarlarını kendisi tutuyor: `.alert-state/sent.json` (`ALERT_STATE_PATH`), `background-scan.yml` her koşuda `actions/cache/restore` + `save` ile taşıyor, 7 gün saklama; sunucu "sent"/"duplicate" dediği anahtar kaydedilir, kayıtlı anahtar tekrar POST edilmez. Sunucu dedupe'u ikinci savunma olarak duruyor. `sentAlertState.test.ts`; 252 test. Not: `/api/live-alerts` geçmişi de aynı sebeple Render uyuyunca/deploy olunca sıfırlanır.
 - 2026-10-02 — Replay arşivi: Yahoo 15m'i 60 gün veriyor, her replay yalnız son 1-2 ayı görüyordu; 30 işlem kapısı tek piyasa rejimine bakıyordu. Artık her replay'in KAPANMIŞ işlemleri tarayıcıda birikiyor (`replayArchive.ts`, localStorage `tradebot.replayArchive.v1`, hafif kayıt, en fazla 1500, aynı plan = aynı işlem). Worker arşivi alıp birleştiriyor; çıkış karşılaştırması + karar, arşiv tek replay'den büyükse arşivden hesaplanıyor (ekranda "bu tarayıcıda biriken N işlem"). Motor kuralı değişince `REPLAY_ARCHIVE_VERSION` artırılır → eski işlemler karışmaz (kalıcı kurala eklendi). Sınır: arşiv tarayıcıya özel. 254 test.
 - 2026-10-02 — Açık işlem artık "GEÇMİŞ" görünmüyor: entry dolmuş ve işlem sürerken giriş penceresi (16 onay mumu) kapanınca motor stage'i `missed` kalıyor (yeni giriş yok, `ready`'ye bakan 30+ yer "şimdi gir" demesin diye) ama etiket/açıklama `signalIsOpenTrade` ile "AÇIK İŞLEM — yeni giriş yok, stop/BE/DOL yönet"; tarama ekranında açık işlemler listenin başında, hedef iptal etiketiyle. Gemini: yoruma `commentaryStage` → "open-trade" gidiyor, kontrat Karar "İşlem açık" istiyor ("kaçtı" reddedilir), lokal fallback aynı. 256 test.
+- 2026-10-03 — "Sadece Candle 3 trade edilir" tam uygulandı. Önce yalnız "C2 kapanmadan READY yok" vardı; raid 6 mum canlı kaldığı için C4/C5… sırasında da READY olabiliyor, C2 içindeki retest de C2 kapanınca giriş sayılıyordu. Şimdi: `candle3Window` = raid mumundan (C2) hemen sonraki range-TF mumu; retest araması C3'ün ilk onay mumundan başlar (C2 içindeki retest sayılmaz), C3 bittikten sonraki dolum giriş değildir; C3 girişsiz kapanırsa blocker "Candle 3 kapandı… C4 ve sonrası trade edilmez" + stage `missed`. 1W/1M'de onay mumları işlem gününe göre (+12h) karşılaştırılır (Pazartesi seansı Pazar 21:00 UTC açılır). Demo: 5 WATCH → missed. Gemini: three-candle-cycle kaydı, CRT sistem talimatı, mentor SOP'u, lokal fallback nedeni. `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-03-c3only` (eski arşiv karışmaz). `crtCandle3Only.test.ts`; 260 test.
