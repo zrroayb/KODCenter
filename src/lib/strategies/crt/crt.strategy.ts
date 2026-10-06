@@ -710,6 +710,11 @@ export function candle3Window(rangeCandles: Candle[], raid: { time: number; clos
   return { start, end, shift };
 }
 
+// How far into Candle 3 a confirm candle sits: 0 = C3 open, 1 = C3 close.
+export function candle3Progress(window: Candle3Window, candleTime: number): number {
+  return (candleTime + window.shift - window.start) / Math.max(window.end - window.start, 1);
+}
+
 export function inCandle3(window: Candle3Window, candleTime: number): "before" | "inside" | "after" {
   const t = candleTime + window.shift;
   return t < window.start ? "before" : t < window.end ? "inside" : "after";
@@ -988,6 +993,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const latestConfirm = anchor.liveConfirmCandles.at(-1) ?? anchor.confirmCandles.at(-1);
   // C3 is over and no entry filled inside it: the CRT is done (no C4+ trades).
   const candle3Expired = Boolean(c3 && typeof retestIndex !== "number" && latestConfirm && inCandle3(c3, latestConfirm.time) === "after");
+  // Power of 3: C3's opposing wick should form EARLY so the candle has time to expand. A fill in
+  // C3's second half leaves little of the distribution candle — quality note, not a gate.
+  const lateCandle3Entry = Boolean(c3 && typeof retestIndex === "number"
+    && candle3Progress(c3, anchor.confirmCandles[retestIndex].time) > 0.5);
   const plan = buildAnchorPlan(context, anchor, direction, turtleSoup, manipulation, choch, poi, retestIndex, minimumRR, buffer, executionCostStress(settings));
   // EQ before the entry fill = consumed setup; EQ after the fill = the open trade arming BE.
   const eqConsumed = isCrtEqConsumed(anchor.confirmCandles, direction, anchor.range.midpoint, manipulation?.candleIndex, retestIndex);
@@ -1113,6 +1122,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     !pullback.valid ? `${pullback.summary} (hard gate değil, kalite notu.)` : undefined,
     context.eventRisk.noTrade && settings.avoidNews !== true ? `${context.eventRisk.summary} (haber filtresi kapalı; manuel risk notu.)` : undefined,
     continuationAgainst ? "HTF continuation setup yönüne ters; hard gate değil, kalite notu." : undefined,
+    lateCandle3Entry ? `Giriş Candle 3'ün ikinci yarısında doldu; C3'ün genişlemesi için az süre kaldı (Power of 3: C3'ün ters fitili mumun başında oluşmalı) — boyutu küçük tut.` : undefined,
     rangeTooSmall ? `CRT range mumu ortalama ${anchor.spec.rangeTf} range'in altında; küçük range, false shift riski yüksek.` : undefined,
     manipulation && displacementStrength === "none" && !linkedShiftFvg ? `Raid sonrası ${anchor.spec.confirmTf} displacement zayıf.` : undefined,
     stopInNoise ? `Stop mesafesi ${anchor.spec.confirmTf} gürültü bandının içinde; küçük boyut kullan.` : undefined,

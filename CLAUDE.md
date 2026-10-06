@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 260 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 261 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -190,6 +190,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-03 — "Sadece Candle 3 trade edilir" tam uygulandı. Önce yalnız "C2 kapanmadan READY yok" vardı; raid 6 mum canlı kaldığı için C4/C5… sırasında da READY olabiliyor, C2 içindeki retest de C2 kapanınca giriş sayılıyordu. Şimdi: `candle3Window` = raid mumundan (C2) hemen sonraki range-TF mumu; retest araması C3'ün ilk onay mumundan başlar (C2 içindeki retest sayılmaz), C3 bittikten sonraki dolum giriş değildir; C3 girişsiz kapanırsa blocker "Candle 3 kapandı… C4 ve sonrası trade edilmez" + stage `missed`. 1W/1M'de onay mumları işlem gününe göre (+12h) karşılaştırılır (Pazartesi seansı Pazar 21:00 UTC açılır). Demo: 5 WATCH → missed. Gemini: three-candle-cycle kaydı, CRT sistem talimatı, mentor SOP'u, lokal fallback nedeni. `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-03-c3only` (eski arşiv karışmaz). `crtCandle3Only.test.ts`; 260 test.
 
 - 2026-10-06 — Graphify (Graphify-Labs/graphify) kuruldu: proje skill'i `.claude/skills/graphify/`, `.claude/CLAUDE.md`, PreToolUse hook'ları (Grep/Bash/Read/Glob öncesi "önce graph'a sor" bağlamı; graphify yoksa `|| true` ile atlanır), aşağıdaki graphify bölümü. `graphify-out/` gitignore'da, oturumda `graphify extract . --code-only` ile kurulur (190 kod dosyası → 1359 düğüm, 3735 kenar). Tüm cloud oturumlarına kalıcılık ortamın Setup script'inden.
+
+- 2026-10-06 — Power of 3 (OpenMobius-skill bilgi tabanı, Apache-2.0) CRT'ye uyarlandı: `knowledge/strategies/power_of_3.md` (C1/C2/C3 = A/M/D, OLHC/OHLC, alınan ve bilinçli alınmayan kurallar — saat kuralları, Fib std-sapma hedefleri, gövdeyle range çizimi alınmadı). Motor: C3'ün ikinci yarısında dolan girişe kalite uyarısı (`candle3Progress > 0.5`; kapı değil, skor değişmedi). Gemini: three-candle-cycle kaydına PO3 eşlemesi, yeni `power-of-3` kaydı (C2+CSD birlikte, C2 fitil büyüklüğü, C3 fitili erken), mentor SOP'una geç-C3 notu. Kapı değişmediği için `REPLAY_ARCHIVE_VERSION` aynı. 261 test.
 
 ## graphify
 

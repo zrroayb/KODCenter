@@ -59,4 +59,5 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
 | Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
 | Hedefe giderken ters SMT + ters MSS → hedef iptal | ✅ uyarı (`targetInvalidation.ts`, Telegram ÇIKIŞ UYARISI; otomatik kapatma yok) |
+| Power of 3: C3 girişi erken olmalı | ✅ kalite uyarısı (C3'ün ikinci yarısında giriş), ayrıntı `power_of_3.md` |
 | Gemini bilgi tabanı + talimatlar | ✅ `src/lib/gemini/crtKnowledge.ts`, `systemInstructions.ts`, trade mentoru prompt'u |
