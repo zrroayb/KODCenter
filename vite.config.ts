@@ -228,6 +228,8 @@ type TelegramEnv = {
 
 type JsonRequest = IncomingMessage;
 
+const SERVER_STARTED_AT = new Date().toISOString();
+
 function jsonResponse(response: YahooProxyResponse, statusCode: number, body: unknown) {
   response.statusCode = statusCode;
   response.setHeader("content-type", "application/json");
@@ -1187,6 +1189,10 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleTelegramReadyAlert(request, response, env);
       });
+      // Cheap liveness probe: Render health check + keep-alive pings (free plan sleeps after 15 idle min).
+      server.middlewares.use("/api/health", (_request: JsonRequest, response: YahooProxyResponse) => {
+        jsonResponse(response, 200, { status: "ok", startedAt: SERVER_STARTED_AT, uptimeSec: Math.round(process.uptime()) });
+      });
       server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
         handleLiveAlerts(request, response, env);
       });
@@ -1209,6 +1215,10 @@ function yahooFinanceProxy(env: TelegramEnv): Plugin {
       });
       server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
         void handleTelegramReadyAlert(request, response, env);
+      });
+      // Cheap liveness probe: Render health check + keep-alive pings (free plan sleeps after 15 idle min).
+      server.middlewares.use("/api/health", (_request: JsonRequest, response: YahooProxyResponse) => {
+        jsonResponse(response, 200, { status: "ok", startedAt: SERVER_STARTED_AT, uptimeSec: Math.round(process.uptime()) });
       });
       server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
         handleLiveAlerts(request, response, env);

@@ -193,6 +193,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-06 — Power of 3 (OpenMobius-skill bilgi tabanı, Apache-2.0) CRT'ye uyarlandı: `knowledge/strategies/power_of_3.md` (C1/C2/C3 = A/M/D, OLHC/OHLC, alınan ve bilinçli alınmayan kurallar — saat kuralları, Fib std-sapma hedefleri, gövdeyle range çizimi alınmadı). Motor: C3'ün ikinci yarısında dolan girişe kalite uyarısı (`candle3Progress > 0.5`; kapı değil, skor değişmedi). Gemini: three-candle-cycle kaydına PO3 eşlemesi, yeni `power-of-3` kaydı (C2+CSD birlikte, C2 fitil büyüklüğü, C3 fitili erken), mentor SOP'una geç-C3 notu. Kapı değişmediği için `REPLAY_ARCHIVE_VERSION` aynı. 261 test.
 
+- 2026-10-06 — Site uyuması/çökmesine karşı: `/api/health` (hafif JSON, `startedAt` + `uptimeSec`), `render.yaml` `healthCheckPath: /api/health` (Render cevap vermeyen instance'ı yeniden başlatır), `.github/workflows/keep-alive.yml` her 10 dk `CLOUD_SCAN_URL/api/health`'e ping (free plan 15 dk boşta uyuyordu → ilk açılış 30-60 sn "down"). GitHub cron gecikebildiği için güvenilir ek: cron-job.org'dan aynı adrese 10 dk'da bir GET (token gerekmez). 750 saat/ay free kotası tek servis için 7/24'e yeter.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
