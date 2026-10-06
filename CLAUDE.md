@@ -188,3 +188,21 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-02 — Replay arşivi: Yahoo 15m'i 60 gün veriyor, her replay yalnız son 1-2 ayı görüyordu; 30 işlem kapısı tek piyasa rejimine bakıyordu. Artık her replay'in KAPANMIŞ işlemleri tarayıcıda birikiyor (`replayArchive.ts`, localStorage `tradebot.replayArchive.v1`, hafif kayıt, en fazla 1500, aynı plan = aynı işlem). Worker arşivi alıp birleştiriyor; çıkış karşılaştırması + karar, arşiv tek replay'den büyükse arşivden hesaplanıyor (ekranda "bu tarayıcıda biriken N işlem"). Motor kuralı değişince `REPLAY_ARCHIVE_VERSION` artırılır → eski işlemler karışmaz (kalıcı kurala eklendi). Sınır: arşiv tarayıcıya özel. 254 test.
 - 2026-10-02 — Açık işlem artık "GEÇMİŞ" görünmüyor: entry dolmuş ve işlem sürerken giriş penceresi (16 onay mumu) kapanınca motor stage'i `missed` kalıyor (yeni giriş yok, `ready`'ye bakan 30+ yer "şimdi gir" demesin diye) ama etiket/açıklama `signalIsOpenTrade` ile "AÇIK İŞLEM — yeni giriş yok, stop/BE/DOL yönet"; tarama ekranında açık işlemler listenin başında, hedef iptal etiketiyle. Gemini: yoruma `commentaryStage` → "open-trade" gidiyor, kontrat Karar "İşlem açık" istiyor ("kaçtı" reddedilir), lokal fallback aynı. 256 test.
 - 2026-10-03 — "Sadece Candle 3 trade edilir" tam uygulandı. Önce yalnız "C2 kapanmadan READY yok" vardı; raid 6 mum canlı kaldığı için C4/C5… sırasında da READY olabiliyor, C2 içindeki retest de C2 kapanınca giriş sayılıyordu. Şimdi: `candle3Window` = raid mumundan (C2) hemen sonraki range-TF mumu; retest araması C3'ün ilk onay mumundan başlar (C2 içindeki retest sayılmaz), C3 bittikten sonraki dolum giriş değildir; C3 girişsiz kapanırsa blocker "Candle 3 kapandı… C4 ve sonrası trade edilmez" + stage `missed`. 1W/1M'de onay mumları işlem gününe göre (+12h) karşılaştırılır (Pazartesi seansı Pazar 21:00 UTC açılır). Demo: 5 WATCH → missed. Gemini: three-candle-cycle kaydı, CRT sistem talimatı, mentor SOP'u, lokal fallback nedeni. `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-03-c3only` (eski arşiv karışmaz). `crtCandle3Only.test.ts`; 260 test.
+
+- 2026-10-06 — Graphify (Graphify-Labs/graphify) kuruldu: proje skill'i `.claude/skills/graphify/`, `.claude/CLAUDE.md`, PreToolUse hook'ları (Grep/Bash/Read/Glob öncesi "önce graph'a sor" bağlamı; graphify yoksa `|| true` ile atlanır), aşağıdaki graphify bölümü. `graphify-out/` gitignore'da, oturumda `graphify extract . --code-only` ile kurulur (190 kod dosyası → 1359 düğüm, 3735 kenar). Tüm cloud oturumlarına kalıcılık ortamın Setup script'inden.
+
+## graphify
+
+Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
+girmez (.gitignore). Cloud oturumu sıfırdan başlar: `graphify` komutu yoksa ortamın Setup
+script'i kurmamış demektir — `uv tool install graphifyy && graphify install` çalıştır. Graph yoksa
+`graphify extract . --code-only` (yerel AST, API/anahtar yok, kod dışarı gitmez) ile kur.
+Hook'lar (`.claude/settings.json`) graphify yoksa sessizce atlanır.
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
