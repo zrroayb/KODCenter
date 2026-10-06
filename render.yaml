@@ -6,6 +6,8 @@ services:
     branch: main
     buildCommand: npm ci && npm run build
     startCommand: npm start
+    # Render restarts the instance if this stops answering (crash / hang protection).
+    healthCheckPath: /api/health
     autoDeploy: true
     envVars:
       - key: NODE_VERSION

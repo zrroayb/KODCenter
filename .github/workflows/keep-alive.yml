@@ -1,0 +1,25 @@
+name: Keep site awake
+
+# Render's free plan sleeps the site after 15 idle minutes; the next visitor then waits 30-60s
+# ("site down"). Ping the cheap /api/health endpoint every 10 minutes. GitHub may delay scheduled
+# runs, so an external pinger (e.g. cron-job.org GET <site>/api/health every 10 min) is the
+# reliable companion; this workflow is the free backup. CLOUD_SCAN_URL = the Render base URL.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping /api/health
+        env:
+          SITE_URL: ${{ secrets.CLOUD_SCAN_URL }}
+        run: |
+          if [ -z "$SITE_URL" ]; then echo "CLOUD_SCAN_URL secret missing"; exit 0; fi
+          curl -fsS --max-time 90 --retry 2 "${SITE_URL%/}/api/health" || echo "site did not answer"
