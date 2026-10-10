@@ -13,7 +13,7 @@ yapılmaz, "Bana sorular"a yazılır. Aynı adımda 3 başarısızlık → "tak�
 Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliyor
 
 - [x] 1. CRT test fikstürü: `strategyFixtures.ts`'e gerçek bir CRT sinyali (WATCH + READY) üreten yardımcı ekle (crtDealingPd kurgusundan)
-- [ ] 2. KOD → CRT: `signalLifecycle.test.ts`, `readyHold.test.ts`
+- [x] 2. KOD → CRT: `signalLifecycle.test.ts`, `readyHold.test.ts`
 - [ ] 3. KOD → CRT: `journal.test.ts`, `selectedSignal.test.ts`, `chartUi.test.tsx`
 - [ ] 4. KOD → CRT: `geminiCommentary.test.ts`, `structureAudit.test.ts`, `scannerRequirements.test.ts`
 - [ ] 5. KOD → CRT: `userRules.test.ts`, `dataFeedAndObjectives.test.ts`, `fullFlow.test.ts`
@@ -36,3 +36,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - 2026-10-10 — Plan çıkarıldı. KOD'a bağlı 13 test dosyası listelendi. Takvim kaynağı
   (nfs.faireconomy.media) bu ortamdan engelli. Yedek tetik: 60 dk sonra `send_later` check-in.
 - Adım 1 bitti: `createCrtShortContext` / `createCrtSignal` (strategyFixtures.ts). Gerçek motor 4H short READY (DOL RR 2.23) üretiyor; exitMinimumRR 10 → aynı setup WATCH. `crtFixture.test.ts` yeşil.
+- Adım 2 bitti: `readyHold` testleri gerçek CRT READY/WATCH ile. `signalLifecycleState` canlı kodda hiç kullanılmıyordu (yalnız testi vardı) → fonksiyon + tipleri silindi; karar-sınıfı testi CRT'ye taşındı. 264 test yeşil.
