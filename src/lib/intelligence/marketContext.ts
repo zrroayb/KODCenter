@@ -25,7 +25,9 @@ export type MarketTimeframes = {
   m5: Candle[];
 };
 
-export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimeframes): MarketContext {
+// `now` = wall-clock time for LIVE callers (app, scanner) so stale data is caught; replay omits it and
+// measures against the data's own latest candle (its "now" is the replayed moment).
+export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimeframes, now?: number): MarketContext {
   const execution = timeframes.m15.length ? timeframes.m15 : timeframes.m5;
   const latest = latestClosed(execution);
   const dealingRange = buildDealingRange(timeframes.h4.length ? timeframes.h4 : execution, "Active H4 dealing range");
@@ -107,7 +109,7 @@ export function buildMarketContext(symbol: MarketSymbol, timeframes: MarketTimef
     volatility: buildVolatilityContext(execution),
     regime: classifyMarketRegime(execution),
     eventRisk: buildEventRisk(symbol, latest.time),
-    dataConfidence: buildDataConfidence({ timeframes, dataFeed, now: latest.time }),
+    dataConfidence: buildDataConfidence({ timeframes, dataFeed, now: now ?? latest.time }),
     dataFeed,
     crt: buildCrtContext({
       monthly: timeframes.monthly,

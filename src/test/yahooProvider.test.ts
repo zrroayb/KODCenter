@@ -83,3 +83,18 @@ describe("Yahoo daily bar dates", () => {
     expect(candles[0].time).toBe(Date.UTC(2026, 8, 21));
   });
 });
+
+describe("fallback demo candles are labelled demo", () => {
+  it("a symbol Yahoo did not return is filled with candles marked feed=demo, not synthetic live data", async () => {
+    const { vi } = await import("vitest");
+    const { loadYahooMarkets } = await import("../lib/data/yahooProvider");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    try {
+      const result = await loadYahooMarkets();
+      expect(result.source).toBe("demo");
+      expect(result.markets.every((market) => market.timeframes.m15.every((candle) => candle.feed === "demo"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

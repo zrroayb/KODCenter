@@ -282,6 +282,17 @@ export async function loadYahooMarketBatch(
   return { markets, errors };
 }
 
+// A fallback market made of demo candles must SAY so: they used to carry the synthetic bid/ask
+// label of real Yahoo data, so a failed symbol looked live (fake June candles, fake setups).
+function asDemoMarket(market: DemoMarket): DemoMarket {
+  const mark = (candles: Candle[]) => candles.map((candle) => ({ ...candle, feed: "demo" as const }));
+  const tf = market.timeframes;
+  return {
+    ...market,
+    timeframes: { monthly: mark(tf.monthly), weekly: mark(tf.weekly), daily: mark(tf.daily), h4: mark(tf.h4), h1: mark(tf.h1), m15: mark(tf.m15), m5: mark(tf.m5) }
+  };
+}
+
 export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketDataLoadResult> {
   const demoMarkets = createDemoMarkets();
   const demoBySymbol = new Map(demoMarkets.map((market) => [market.symbol, market]));
@@ -291,7 +302,7 @@ export async function loadYahooMarkets(signal?: AbortSignal): Promise<MarketData
     const symbol = YAHOO_SYMBOLS[index].symbol;
     if (result.status === "fulfilled") return result.value;
     errors.push(`${symbol}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
-    return demoBySymbol.get(symbol) ?? demoMarkets[index];
+    return asDemoMarket(demoBySymbol.get(symbol) ?? demoMarkets[index]);
   });
 
   const failedCount = settled.filter((result) => result.status === "rejected").length;

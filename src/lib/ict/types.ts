@@ -438,7 +438,7 @@ export type TradingSignal = {
   // Sembolde aynı anda zıt yönlü canlı raid'ler var — yön yok, chop. Bu sinyaller tradeable değil;
   // en dibe sıralanır ve UI'da tek "chop, dur" satırına indirgenir.
   chopConflict?: boolean;
-  // READY kilidi (readyHold): motor artık READY demiyor ama plan stop/TP görülmeden düşürülmedi.
+  // READY kilidi (readyHold): motor bu taramada READY demedi ama somut bir bozulma da yok (en fazla 30 dk).
   // UI bunu "kilitli" rozetiyle belirgin gösterir; alert'e etkisi yok.
   readyHoldExpiresAt?: number;
 };

@@ -303,10 +303,6 @@ export type RuntimeReplaySummary = {
   watchReasonSummary: Array<{ reason: string; count: number }>;
   replayDiagnosis: string[];
   reviewMeasurements: RuntimeReplayReviewMeasurements;
-  // 1H anchor'ın izleme sonuçları — başlık metriklerine ASLA karışmaz (yeni aile,
-  // kendi kanıtını biriktirir); tek satırlık senaryo + ham işlem listesi.
-  trackingScenarios: RuntimeReplayFilterScenario[];
-  trackingTrades: RuntimeReplayTrade[];
   trades: RuntimeReplayTrade[];
   candidates: RuntimeReplayCandidate[];
   sampleWarning?: string;

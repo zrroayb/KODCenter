@@ -47,3 +47,14 @@ describe("Power of 3: the C3 entry should come early in the candle", () => {
     expect(candle3Progress(w, t0 + 2 * H4 + (3 * H4) / 4)).toBeGreaterThan(0.5);
   });
 });
+
+describe("stale live data is caught against the wall clock", () => {
+  it("a 2-day-old feed is stale for a live caller, while replay (no now) measures against its own candles", async () => {
+    const { createDemoMarkets } = await import("../data/demoData");
+    const { buildMarketContext } = await import("../lib/intelligence/marketContext");
+    const market = createDemoMarkets()[0];
+    const latest = market.timeframes.m15.at(-1)!.time;
+    expect(buildMarketContext(market.symbol, market.timeframes).dataConfidence.stale).toBe(false);
+    expect(buildMarketContext(market.symbol, market.timeframes, latest + 2 * 24 * 60 * 60 * 1000).dataConfidence.stale).toBe(true);
+  });
+});

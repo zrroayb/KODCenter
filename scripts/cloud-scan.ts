@@ -82,7 +82,7 @@ async function run() {
   }
 
   const contexts = attachSmtDivergences(
-    markets.map((market) => buildMarketContext(market.symbol, market.timeframes))
+    markets.map((market) => buildMarketContext(market.symbol, market.timeframes, Date.now()))
   );
   // Default rules: the live site has no server-side rules store. Change defaultRules to change
   // what the scanner alerts on.

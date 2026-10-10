@@ -53,10 +53,9 @@ const ANCHORS: AnchorSpec[] = [
   { rangeTf: "1d", confirmTf: "1h" },
   { rangeTf: "1w", confirmTf: "4h" },
   // CRT Secrets pairing: 1M range -> 1D model.
-  { rangeTf: "1M", confirmTf: "1d" },
-  // Master §8'in beşinci eşlemesi (1H→5M). Yeni aile: intradayAnchorMode "tracking"
-  // (varsayılan) READY üretmez — canlıda watch olarak izlenir, replay kanıt biriktirir.
-  { rangeTf: "1h", confirmTf: "5m" }
+  { rangeTf: "1M", confirmTf: "1d" }
+  // 1H→5m removed 2026-10-10: not in the CRT Secrets pairing, never READY (tracking only) and
+  // it doubled every replay scan.
 ];
 
 type AnchorRaid = { direction: TradeDirection; level: number; time: number; closed: boolean };
@@ -1111,7 +1110,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     candle3Expired ? `Candle 3 (${anchor.spec.rangeTf.toUpperCase()}) kapandı, içinde giriş gelmedi — sadece Candle 3 işlenir; C4 ve sonrası trade edilmez.` : undefined,
     eqConsumed ? `CRT %50/EQ ${formatPrice(anchor.range.midpoint)} raid sonrası görüldü; setup tüketildi, yeni giriş yok.` : undefined,
     settings.avoidNews === true && context.eventRisk.noTrade ? `Haber filtresi açık: ${context.eventRisk.summary}` : undefined,
-    context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined
+    context.dataConfidence.score < 35 ? context.dataConfidence.summary : undefined,
+    // Live data older than the confirmation needs (exec >60 min / HTF >6 h behind the clock): no
+    // READY or alert off a frozen feed. Replay measures against its own moment, so never stale.
+    context.dataConfidence.stale ? "Veri eski: son mumlar saatin gerisinde — canlı fiyat değil, READY/alert yok." : undefined
   ].filter((item): item is string => Boolean(item));
   const warnings = [
     turtleSoup ? turtleSoup.summary : undefined,
@@ -1163,15 +1165,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // starved the live system to zero signals. Real invalidators still veto.
   const modelFormed = Boolean(manipulation) && Boolean(choch);
   const modelReady = modelFormed && plan.entryStatus === "confirmed";
-  // 1H anchor'ı yeni bir aile: Master §14 (audit-first) gereği önce kendi replay kanıtını
-  // biriktirir. tracking modunda (varsayılan) READY olamaz — canlıda watch olarak görünür,
-  // Telegram'a çıkmaz; yalnız intradayAnchorMode="live" bunu açar (30+ işlem kanıtı sonrası).
-  const intradayTracking = anchor.spec.rangeTf === "1h" && settings.intradayAnchorMode !== "live";
-  if (intradayTracking && modelReady) {
-    warnings.push("1H anchor tracking modunda: model hazır ama READY üretmez; replay kanıt biriktiriyor.");
-  }
-  const readyEligible = !intradayTracking
-    && plan.entryStatus === "confirmed"
+  const readyEligible = plan.entryStatus === "confirmed"
     && plan.rr >= minimumRR
     && blockers.length === 0
     && pdAligned
@@ -1622,12 +1616,7 @@ export const crtStrategy: StrategyModule = {
     useExecutionCosts: true,
     slippageStress: "normal",
     noAutoExecution: true,
-    useHtfAlignmentFilter: true,
-    exitModel: "dol-be",
-    // 1H→5M anchor is in TRACKING: it shows as WATCH, never READY/alert, while replay collects
-    // its own evidence (Master §14). A 2026-07-22 note promoted it to LIVE, but the value was
-    // later set back to "tracking"; set "live" only as a deliberate owner decision.
-    intradayAnchorMode: "tracking"
+    exitModel: "dol-be"
   },
   scan(input: StrategyInput): StrategyResult {
     const signals = signalsFromContext(input.context, input.settings);

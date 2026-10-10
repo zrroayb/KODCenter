@@ -13,8 +13,30 @@ export function readyHoldSignature(signal: TradingSignal): string {
   return signalSetupIdentity(signal);
 }
 
+// The hold only smooths a READY that flickers to WATCH between scans. When the engine names a
+// concrete structural reason the setup is gone, the hold must let go at once — it used to keep
+// showing "ALINABİLİR" for 30 minutes after e.g. the HTF turned against the trade.
+const RELEASING_BLOCKERS = [
+  "HTF yönü ters",
+  "Key level yok",
+  "Candle 2",
+  "Candle 3",
+  "%50/EQ",
+  "kovalanmaz",
+  "Veri eski",
+  "Manipulation yok",
+  "reclaim yok",
+  "Stop entry'nin yanlış tarafında",
+  "Gerçek distribution/DOL hedefi yok",
+  "CRT range P/D yanlış"
+];
+
+export function holdMustRelease(signal: TradingSignal): boolean {
+  return signal.governance.blockers.some((blocker) => RELEASING_BLOCKERS.some((part) => blocker.includes(part)));
+}
+
 function heldReadySignal(record: ReadyHoldRecord, current: TradingSignal): TradingSignal {
-  const holdWarning = "READY sinyal kilidi aktif: plan stop/TP görülene kadar WATCH'a düşürülmedi.";
+  const holdWarning = "READY sinyal kilidi aktif: motor bu taramada READY demedi ama somut bir bozulma da yok; kilit en fazla 30 dk sürer.";
   return {
     ...record.signal,
     context: current.context,
@@ -39,7 +61,7 @@ export function mergeReadyHoldSignals(
 
   const signals = currentSignals.map((signal) => {
     const signature = readyHoldSignature(signal);
-    if (signal.stage === "invalidated" || signal.stage === "missed") {
+    if (signal.stage === "invalidated" || signal.stage === "missed" || holdMustRelease(signal)) {
       delete nextRecords[signature];
       return signal;
     }

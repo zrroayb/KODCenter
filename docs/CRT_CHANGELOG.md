@@ -1,3 +1,6 @@
+> **Tarihçe.** Bu dosya eski değişikliklerin kaydıdır; içindeki kurallar güncel olmayabilir.
+> Güncel kurallar: `CLAUDE.md` §6 ve `knowledge/strategies/crt_secrets_rules.md`.
+
 # CRT Changelog
 
 Newest first. Each entry: date · area · what changed · why.

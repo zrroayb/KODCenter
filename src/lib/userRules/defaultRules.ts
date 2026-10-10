@@ -8,17 +8,11 @@ export const defaultRules: UserRules = {
   minimumRR: 1.5,
   crtExitMinimumRR: 1,
   minimumScore: MIN_VISIBLE_SIGNAL_SCORE,
-  partialTpEnabled: true,
-  moveToBreakevenAtR: 1,
   maxDailyRiskPct: 3,
   accountSize: 10_000,
   riskPerTradePct: 1,
   maxTradesPerDay: 3,
   avoidNews: false,
   allowedSymbols: ["XAUUSD", "NAS100", "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCHF", "BTCUSD", "ETHUSD", "XRPUSD", "BNBUSD", "SOLUSD"],
-  allowedKillzones: ["Asia", "London", "New York AM", "London Close", "Outside"],
-  usePremiumDiscountFilter: false,
-  useJudasSwingFilter: false,
-  useHtfAlignmentFilter: true,
   maxSignalsPerScan: 18
 };
