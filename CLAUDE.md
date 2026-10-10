@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 261 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 265 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -101,8 +101,7 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
-- **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m; 1H→5m izleme modunda,
-  READY üretmez). Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
+- **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m). 1H→5m 2026-10-10'da silindi. Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
 - **Tek yön kaynağı = motor** (`context.crt.selectedBias.direction` veya seçili
   `signal.direction`). UI/grafik yardımcıları buna TABİ olmalı, asla ters yön
@@ -208,6 +207,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Denetim 9: hiçbir etkisi olmayan ayarlar `UserRules`'tan silindi: `partialTpEnabled`, `moveToBreakevenAtR` (yalnız replay'in EQ%50 karşı-olgu varyantı kullanıyor, kendi varsayılanıyla), `useHtfAlignmentFilter` (HTF kapısı her zaman açık), `allowedKillzones` (hepsi açıktı), `usePremiumDiscountFilter`, `useJudasSwingFilter` (hep kapalıydı). App/scanRuntime artık bunları geçirmiyor; killzone/PD/Judas filtre kodu applyRules'tan gitti. Davranış değişmedi.
 
 - 2026-10-10 — Denetim 10: ölü kod silindi — `runtime/cloudSnapshot.ts` (worker kalıntısı), `session/types.ts`'teki silinmiş Session sekmesi tipleri, artık hiç gönderilmeyen raid/context Telegram alarm yolu (dedupe anahtarları, sunucu mesaj dalları, kabul kuralı; sunucu artık yalnız READY + exit kabul eder).
+
+- 2026-10-10 — Denetim 11: 1H→5m anchor ve replay'deki "1H tracking" gölge hattı silindi (kaynağın TF eşleşmesinde yok, hiç READY üretmiyordu, listeye WATCH gürültüsü ekliyordu; tracking her replay penceresinde motoru ikinci kez çalıştırıp replay'i ~2× yavaşlatıyordu). `intradayAnchorMode` ayarı, `trackingScenarios/trackingTrades`, Backtest ekranındaki satır ve 2 test gitti. Bayat-veri blocker'ı + 1H kaldırma motoru değiştirdiği için `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-10-audit`. 265 test.
 
 ## graphify
 

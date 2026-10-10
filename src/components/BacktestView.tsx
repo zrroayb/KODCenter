@@ -209,13 +209,6 @@ export function BacktestView({ result, onRun, loading = false, strategyId = "crt
                     <small>{replay.reviewMeasurements.unfilled.withCounterfactual} ölçülebilir · ort. {replay.reviewMeasurements.unfilled.cfAvgR.toFixed(2)}R · {replay.reviewMeasurements.unfilled.cfWins} kazanan — retest beklerken kaçan işlemler kapanıştan girilseydi.</small>
                   </div>
                 )}
-                {(replay.trackingScenarios ?? []).map((item) => (
-                  <div key={item.id}>
-                    <span>{item.label}</span>
-                    <b>{item.triggered}/{item.sample} tetik · {item.expectancyR.toFixed(2)}R/işlem · PF {item.profitFactor.toFixed(2)}</b>
-                    <small>toplam {item.totalR.toFixed(2)}R · WR {item.winRate.toFixed(1)}% — {item.description}</small>
-                  </div>
-                ))}
                 {replay.reviewMeasurements.clusterDays.slice(0, 5).map((group) => (
                   <div key={`${group.day}-${group.cluster}-${group.exposure}`}>
                     <span>Küme günü · {group.day} · {group.cluster} ({group.exposure})</span>

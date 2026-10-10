@@ -135,43 +135,16 @@ describe("monthly runtime replay", () => {
     expect(review!.unfilled.cfWins).toBeLessThanOrEqual(review!.unfilled.withCounterfactual);
     // EQ-RR tabanı bir senaryo olarak ölçülür; işlem seçimine karışmaz.
     expect(result.replay?.filterScenarios.map((item) => item.id)).toContain("eq-rr-floor");
-    // anchor:1h tag'i yalnız tracking gölge hattına aittir; headline işlemleri (live default'ta
-    // 1H dahil) bu tag'i asla taşımaz. Tracking scenario satırı her zaman raporlanır.
-    expect(result.replay?.trackingScenarios?.[0]?.id).toBe("anchor-1h-tracking");
+    // 1H→5m anchor removed (2026-10-10): no replay trade can come from a 1H range.
     expect(result.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
-    expect((result.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
   }, 30_000);
 
-  it("keeps the 1H anchor watch-only when intradayAnchorMode is explicitly tracking", () => {
+  it("never produces a 1H-range CRT (the 1H→5m anchor was removed)", () => {
     const contexts = attachSmtDivergences(createDemoMarkets().map((market) => buildMarketContext(market.symbol, market.timeframes)));
-    for (const context of contexts.slice(0, 6)) {
-      const signals = crtStrategy.scan({
-        context,
-        settings: { ...crtStrategy.defaultSettings, intradayAnchorMode: "tracking", minimumRR: 0.1, useExecutionCosts: false }
-      }).signals;
-      for (const signal of signals.filter((item) => item.crtAnchor?.rangeTf === "1h")) {
-        expect(signal.stage).not.toBe("ready");
-      }
+    for (const context of contexts) {
+      const signals = crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, minimumRR: 0.1 } }).signals;
+      expect(signals.some((signal) => signal.crtAnchor?.rangeTf === "1h")).toBe(false);
     }
-  });
-
-  it("keeps the 1H anchor in tracking by default after real data contradicted the demo result", () => {
-    // 2026-07-22: 1H canlıya alındı, sonra GERÇEK veriyle ölçüldü — aynı replay penceresinde
-    // çekirdek +2.89R / PF 2.44 iken 1H -2.77R / PF 0.31 / WR %20 verdi (demo'da +3.87R idi).
-    // Kanıt terfiyi çürüttüğü için varsayılan tracking'e döndürüldü.
-    expect(crtStrategy.defaultSettings.intradayAnchorMode).toBe("tracking");
-
-    const tracking = runMonthlyRuntimeReplay({
-      markets: createDemoMarkets(),
-      strategy: crtStrategy,
-      settings: { ...crtStrategy.defaultSettings, intradayAnchorMode: "tracking", minimumRR: 0.1, useExecutionCosts: false },
-      windowDays: 3,
-      maxHoldCandles: 24,
-      scanEveryCandles: 12
-    });
-    // Tracking mode keeps 1H off the headline and on the shadow line.
-    expect(tracking.replay?.trades.every((trade) => !trade.tags.includes("anchor:1h"))).toBe(true);
-    expect((tracking.replay?.trackingTrades ?? []).every((trade) => trade.tags.includes("anchor:1h"))).toBe(true);
   });
 
   it("groups same-day same-USD-side correlated trades into cluster days for the review", () => {
