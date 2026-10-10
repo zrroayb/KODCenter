@@ -17,7 +17,7 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - [x] 3. KOD → CRT: `journal.test.ts`, `selectedSignal.test.ts`, `chartUi.test.tsx`
 - [x] 4. KOD → CRT: `geminiCommentary.test.ts`, `structureAudit.test.ts`, `scannerRequirements.test.ts`
 - [x] 5. KOD → CRT: `userRules.test.ts`, `dataFeedAndObjectives.test.ts`, `fullFlow.test.ts`
-- [ ] 6. KOD → CRT: `runtimeReplay.test.ts`
+- [x] 6. KOD → CRT: `runtimeReplay.test.ts`
 - [ ] 7. `kodStrategy.test.ts` + `src/test/fixtures/kod/` sil; CLAUDE.md güncelle
 - [ ] 8. Haber takvimi: ekonomik takvim JSON ayrıştırıcı + `eventCalendar`'a bağla (fikstürle test); sunucuda önbellekli `/api/calendar`
 - [ ] 9. `vite.config.ts` bölme: Telegram/alert handler'ları `server/telegram.ts`'e
@@ -40,3 +40,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - Adım 3 bitti: journal, selectedSignal, chartUi testleri `createCrtSignal()` ile (journal satırı, grafik odak/anotasyon ve detay paneli artık gerçek CRT sinyaliyle sınanıyor). Tüm testler yeşil.
 - Adım 4 bitti: Gemini yorum payload'u, yapı denetimi ve tarama gereksinimleri gerçek CRT sinyaliyle. KOD'a özgü beklentiler CRT gerçeğine çekildi (payload'da "FVG BOX" yerine "POI BOX" + CRT HIGH/MID/LOW; boşluksuz/ChoCH'suz senaryolar aynı CRT planından türetildi). Yeşil.
 - Adım 5 bitti: userRules + fullFlow gerçek CRT ile (READY eşiği planın kendi exit-RR'ı, 1.0). dataFeedAndObjectives'teki 2 test doğrudan KOD'un hedef/izleme mantığını sınıyordu (CRT'de karşılığı crt* testlerinde) → silindi. 262 test yeşil.
+- Adım 6 bitti: runtimeReplay'deki 4 test (stop geometri, DOL+BE skorlama, süresi dolan açık işlem, partial/BE ayarları) sinyal kabuğu olarak gerçek CRT sinyali kullanıyor. 262 test yeşil.
