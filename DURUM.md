@@ -19,7 +19,7 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - [x] 5. KOD → CRT: `userRules.test.ts`, `dataFeedAndObjectives.test.ts`, `fullFlow.test.ts`
 - [x] 6. KOD → CRT: `runtimeReplay.test.ts`
 - [x] 7. `kodStrategy.test.ts` + `src/test/fixtures/kod/` sil; CLAUDE.md güncelle
-- [ ] 8. Haber takvimi: ekonomik takvim JSON ayrıştırıcı + `eventCalendar`'a bağla (fikstürle test); sunucuda önbellekli `/api/calendar`
+- [x] 8. Haber takvimi: ekonomik takvim JSON ayrıştırıcı + `eventCalendar`'a bağla (fikstürle test); sunucuda önbellekli `/api/calendar`
 - [ ] 9. `vite.config.ts` bölme: Telegram/alert handler'ları `server/telegram.ts`'e
 - [ ] 10. `vite.config.ts` bölme: Gemini handler'ları + prompt'lar `server/gemini.ts`'e
 - [ ] 11. Son doğrulama: typecheck + test + build + lokal sunucu duman testi; CLAUDE.md; push
@@ -42,3 +42,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - Adım 5 bitti: userRules + fullFlow gerçek CRT ile (READY eşiği planın kendi exit-RR'ı, 1.0). dataFeedAndObjectives'teki 2 test doğrudan KOD'un hedef/izleme mantığını sınıyordu (CRT'de karşılığı crt* testlerinde) → silindi. 262 test yeşil.
 - Adım 6 bitti: runtimeReplay'deki 4 test (stop geometri, DOL+BE skorlama, süresi dolan açık işlem, partial/BE ayarları) sinyal kabuğu olarak gerçek CRT sinyali kullanıyor. 262 test yeşil.
 - Adım 7 bitti: KOD fikstürü + kodStrategy.test silindi; registry + likidite testleri `registryAndLiquidity.test.ts`'e taşındı. Knip: yalnız KOD'un kullandığı 4 `brain/` dosyası da ölüydü → silindi. CLAUDE.md güncellendi. 251 test, typecheck yeşil.
+- Adım 8 bitti: ForexFactory haftalık JSON ayrıştırıcı + canlı takvim listesi + `/api/calendar` (1 sa önbellek, aynı-site) + tarayıcı/tarama bağlantısı; takvim varken tahmini şablonlar susar. Lokal duman testi: site içi `{status:"empty"}` (bu ortamda kaynak engelli), dışarıdan 403. Canlı veriyle doğrulanamadı → Render'da ilk deploy sonrası `/api/calendar` kontrol edilmeli (soru listesinde). 254 test, build yeşil.

@@ -11,6 +11,7 @@ import { signalAlertChartSvg } from "../src/lib/telegram/alertChartSvg";
 import { Resvg } from "@resvg/resvg-js";
 import type { TradingSignal } from "../src/lib/ict/types";
 import { defaultRules } from "../src/lib/userRules/defaultRules";
+import { FF_CALENDAR_URL, refreshLiveCalendar } from "../src/lib/data/economicCalendar";
 import { alertWasDelivered, parseSentAlertState } from "../src/lib/telegram/sentAlertState";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -81,6 +82,8 @@ async function run() {
     throw new Error(errors.join(" | ") || "Yahoo returned no markets");
   }
 
+  // This week's real high/medium-impact releases (warnings; never sends anything anywhere).
+  const calendarEvents = await refreshLiveCalendar(fetch, FF_CALENDAR_URL);
   const contexts = attachSmtDivergences(
     markets.map((market) => buildMarketContext(market.symbol, market.timeframes, Date.now()))
   );
@@ -105,6 +108,7 @@ async function run() {
     scannedAt,
     markets: markets.length,
     ready: readySignals.length,
+    calendarEvents,
     exitWarnings: exitPayloads.length,
     watch: result.signals.filter((signal) => signal.stage === "watch").length,
     errors,

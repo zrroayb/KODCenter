@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 251 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -211,6 +211,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Denetim 11: 1H→5m anchor ve replay'deki "1H tracking" gölge hattı silindi (kaynağın TF eşleşmesinde yok, hiç READY üretmiyordu, listeye WATCH gürültüsü ekliyordu; tracking her replay penceresinde motoru ikinci kez çalıştırıp replay'i ~2× yavaşlatıyordu). `intradayAnchorMode` ayarı, `trackingScenarios/trackingTrades`, Backtest ekranındaki satır ve 2 test gitti. Bayat-veri blocker'ı + 1H kaldırma motoru değiştirdiği için `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-10-audit`. 265 test.
 
 - 2026-10-10 — Eski KOD modeli tamamen kalktı: 12 pipeline testi (lifecycle, readyHold, journal, grafik odağı, detay paneli, Gemini payload, yapı denetimi, tarama gereksinimleri, kurallar, full flow, replay sonuç testleri) artık gerçek CRT motorunun sinyalini kullanıyor (`createCrtSignal`, 4H short READY / exitMinimumRR 10 → WATCH). `src/test/fixtures/kod/`, `kodStrategy.test.ts` (KOD'un kendi 14 testi), yalnız KOD'un kullandığı `brain/{confidence,financialBrain,reasoning,warnings}.ts` ve canlıda hiç çağrılmayan `signalLifecycleState` silindi. Registry + likidite haritası testleri `registryAndLiquidity.test.ts`'e taşındı. 251 test.
+
+- 2026-10-10 — Haber takvimi gerçek veriye bağlandı: `src/lib/data/economicCalendar.ts` ForexFactory'nin herkese açık haftalık JSON'unu (`nfs.faireconomy.media`) ayrıştırır (High/Medium, zamanı olan satırlar, UTC). Sunucu `/api/calendar` (1 saat önbellek, aynı-site korumalı) → tarayıcı her veri yenilemede `refreshLiveCalendar`; GitHub taraması doğrudan çeker. `eventCalendar.ts` canlı listesi (`setLiveCalendar`/`calendarEvents`); gerçek takvim yüklüyse tahmini haftalık şablonlar ("her Cuma NFP") kullanılmaz. Davranış: yalnız UYARI (`avoidNews` kapalı); READY engellemek kullanıcı kararı. Bu ortamdan kaynağa erişim yok → canlıda doğrulanmadı, fikstürle test edildi; kaynak yoksa uç nokta `empty` döner, hiçbir şey kırılmaz. 254 test.
 
 ## graphify
 
