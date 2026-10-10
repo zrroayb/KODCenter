@@ -12,3 +12,20 @@ export type CalendarEvent = {
 };
 
 export const EVENT_CALENDAR: CalendarEvent[] = [];
+
+// Live calendar (2026-10-10): the week's high/medium-impact releases loaded at runtime from a public
+// economic calendar (see lib/data/economicCalendar.ts) — by the server for the browser
+// (/api/calendar) and by the GitHub scanner directly. Empty when the feed is unreachable.
+let liveEvents: CalendarEvent[] = [];
+
+export function setLiveCalendar(events: CalendarEvent[]): void {
+  liveEvents = events;
+}
+
+export function hasLiveCalendar(): boolean {
+  return liveEvents.length > 0;
+}
+
+export function calendarEvents(): CalendarEvent[] {
+  return [...EVENT_CALENDAR, ...liveEvents];
+}

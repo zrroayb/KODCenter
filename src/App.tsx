@@ -40,6 +40,7 @@ import { type TelegramAlertRecord } from "./lib/telegram/alertPayload";
 import { dailyBrakeMessage } from "./lib/risk/portfolioRisk";
 import { ruleAllowsSignal } from "./lib/userRules/applyRules";
 import { loadUserRules, saveUserRules } from "./lib/userRules/localRules";
+import { refreshLiveCalendar } from "./lib/data/economicCalendar";
 import { loadReplayArchive, saveReplayArchive, type ReplayArchive } from "./lib/backtest/replayArchive";
 import { MIN_VISIBLE_SIGNAL_SCORE } from "./lib/userRules/scorePolicy";
 import type { UserRules } from "./lib/userRules/userRules";
@@ -502,6 +503,8 @@ export default function App() {
       setDataLoading(true);
     }
     try {
+      // Calendar first so the contexts built from the new markets see this week's releases.
+      await refreshLiveCalendar();
       const result = await loadYahooMarkets();
       setMarkets(result.markets);
       setDataState({

@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createDemoContexts } from "../data/demoData";
 import { confirmationCandles, focusChartOnSignal, selectedSignalAnnotations, signalAnchorTime, signalConfirmTimeframe } from "../lib/charts/selectedSignal";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
-import { createStructureContext } from "./strategyFixtures";
+import { createCrtSignal, createStructureContext } from "./strategyFixtures";
 
 describe("selected signal chart focus", () => {
-  it("builds annotations and a focus range that includes the signal anchor", () => {
-    const context = createDemoContexts()[0];
-    const signal = kodStrategy.scan({ context, settings: kodStrategy.defaultSettings }).signals[0];
+  it("builds annotations and a focus range that includes the signal anchor", async () => {
+    const signal = await createCrtSignal();
 
     const annotations = selectedSignalAnnotations(signal);
     const range = focusChartOnSignal(signal);

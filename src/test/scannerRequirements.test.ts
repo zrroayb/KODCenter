@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createDemoContexts } from "../data/demoData";
 import { waitingRequirements } from "../components/ScannerView";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
+import { createCrtSignal } from "./strategyFixtures";
 
 describe("scanner waiting requirements", () => {
-  it("explains what a watch signal needs before it is tradeable", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("explains what a watch signal needs before it is tradeable", async () => {
+    const signal = await createCrtSignal();
     const watchSignal = {
       ...signal,
       stage: "watch" as const,
@@ -14,6 +13,13 @@ describe("scanner waiting requirements", () => {
         entryStatus: "pending" as const,
         entryModel: { ...signal.plan.entryModel, cisdConfirmed: false, retested: false }
       },
+      // The same CRT before its raid: manipulation not seen yet, C2 not closed.
+      crtAnchor: { ...signal.crtAnchor!, raidActive: false, raidClosed: false },
+      decisionSummary: {
+        ...signal.decisionSummary,
+        checklist: signal.decisionSummary.checklist.map((item) => item.label === "Manipulation" ? { ...item, status: "fail" as const } : item)
+      },
+      evidence: signal.evidence.map((item) => item.id === "choch" ? { ...item, status: "fail" as const, metadata: {} } : item),
       context: {
         ...signal.context,
         sweeps: [],
@@ -35,8 +41,8 @@ describe("scanner waiting requirements", () => {
     expect(requirements.join(" ")).not.toContain("retest");
   });
 
-  it("does not describe invalidated signals as waiting trade candidates", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("does not describe invalidated signals as waiting trade candidates", async () => {
+    const signal = await createCrtSignal();
     const invalidatedSignal = {
       ...signal,
       stage: "invalidated" as const
@@ -45,8 +51,8 @@ describe("scanner waiting requirements", () => {
     expect(waitingRequirements(invalidatedSignal).join(" ")).toContain("Kovalamadan");
   });
 
-  it("does not ask crypto signals to wait for a session", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("does not ask crypto signals to wait for a session", async () => {
+    const signal = await createCrtSignal();
     const cryptoWatch = {
       ...signal,
       symbol: "BTCUSD" as const,
@@ -61,8 +67,8 @@ describe("scanner waiting requirements", () => {
     expect(waitingRequirements(cryptoWatch).join(" ")).not.toContain("Doğru saat");
   });
 
-  it("asks for the confirmation close before an entry retest", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("asks for the confirmation close before an entry retest", async () => {
+    const signal = await createCrtSignal();
     const watchSignal = {
       ...signal,
       stage: "watch" as const,

@@ -1,6 +1,6 @@
 import type { EventRiskContext, MarketSymbol } from "../ict/types";
 import { isCryptoSymbol } from "../ict/symbols";
-import { EVENT_CALENDAR, type CalendarEvent } from "../../data/eventCalendar";
+import { calendarEvents, type CalendarEvent } from "../../data/eventCalendar";
 
 type EventTemplate = {
   name: string;
@@ -112,14 +112,17 @@ function nextOccurrence(now: Date, template: EventTemplate): number | undefined 
   return undefined;
 }
 
-export function buildEventRisk(symbol: MarketSymbol, nowMs: number, calendar: CalendarEvent[] = EVENT_CALENDAR): EventRiskContext {
+export function buildEventRisk(symbol: MarketSymbol, nowMs: number, calendar: CalendarEvent[] = calendarEvents()): EventRiskContext {
   const now = new Date(nowMs);
   const activeEvents: string[] = [];
   const activeWatchEvents: string[] = [];
   const upcomingEvents: string[] = [];
   const minutesToEvents: number[] = [];
 
-  for (const template of EVENT_TEMPLATES) {
+  // With a real dated calendar the weekday ESTIMATES only add noise ("every Friday NFP"), so
+  // they are used only when no calendar is loaded.
+  const templates = calendar.length ? [] : EVENT_TEMPLATES;
+  for (const template of templates) {
     if (template.symbols !== "all" && !template.symbols.includes(symbol)) continue;
     const next = nextOccurrence(now, template);
     if (typeof next !== "number") continue;

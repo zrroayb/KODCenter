@@ -6,8 +6,7 @@ import type { RuntimeReplayTrade } from "../lib/analytics/performance";
 import { __runtimeReplayInternals, runMonthlyRuntimeReplay } from "../lib/backtest/runtimeReplay";
 import type { TradingSignal } from "../lib/ict/types";
 import { crtStrategy } from "../lib/strategies/crt/crt.strategy";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
-import { createStructureContext } from "./strategyFixtures";
+import { createCrtSignal } from "./strategyFixtures";
 
 describe("monthly runtime replay", () => {
   it("does not expose a higher-timeframe candle before that candle closes", () => {
@@ -48,11 +47,8 @@ describe("monthly runtime replay", () => {
     }
   });
 
-  it("rejects a READY plan whose stop is on the profit side", () => {
-    const baseSignal = kodStrategy.scan({
-      context: createStructureContext(),
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
-    }).signals[0];
+  it("rejects a READY plan whose stop is on the profit side", async () => {
+    const baseSignal = await createCrtSignal();
     const invalid = {
       ...baseSignal,
       direction: "long" as const,
@@ -178,12 +174,8 @@ describe("monthly runtime replay", () => {
     expect(review.gradeBuckets).toEqual([{ grade: "A", trades: 3, totalR: 1.2, expectancyR: 0.4 }]);
   });
 
-  it("scores CRT as DOL target with break-even at EQ (EQ touch then pullback = 0R scratch)", () => {
-    const baseContext = createStructureContext();
-    const baseSignal = kodStrategy.scan({
-      context: baseContext,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
-    }).signals[0];
+  it("scores CRT as DOL target with break-even at EQ (EQ touch then pullback = 0R scratch)", async () => {
+    const baseSignal = await createCrtSignal();
     const signal = {
       ...baseSignal,
       strategyId: "crt",
@@ -245,12 +237,8 @@ describe("monthly runtime replay", () => {
     expect(stopped.rMultiple).toBe(-1);
   });
 
-  it("marks an expired open trade at the final close instead of its MFE", () => {
-    const baseContext = createStructureContext();
-    const baseSignal = kodStrategy.scan({
-      context: baseContext,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
-    }).signals[0];
+  it("marks an expired open trade at the final close instead of its MFE", async () => {
+    const baseSignal = await createCrtSignal();
     const signal = {
       ...baseSignal,
       strategyId: "crt",
@@ -277,12 +265,8 @@ describe("monthly runtime replay", () => {
     expect(outcome.rMultiple).toBeCloseTo(-0.5, 2);
   });
 
-  it("honors partial-profit and break-even replay settings", () => {
-    const baseContext = createStructureContext();
-    const baseSignal = kodStrategy.scan({
-      context: baseContext,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
-    }).signals[0];
+  it("honors partial-profit and break-even replay settings", async () => {
+    const baseSignal = await createCrtSignal();
     const signal = {
       ...baseSignal,
       strategyId: "crt",

@@ -1,5 +1,5 @@
 // Trade yorumu kontratı (Gemini + lokal fallback ortak). Gemini metni motorun stage'i ve çıkış
-// modeliyle çelişirse gösterilmez; lokal fallback döner. vite.config.ts (canlı) ve
+// modeliyle çelişirse gösterilmez; lokal fallback döner. server/gemini.ts (canlı) ve
 // tradeCommentary.ts (istemci) aynı kuralı buradan okur.
 
 // Çıkış modeli: pozisyonun tamamı DOL'da (karşı likidite) kapanır; fiyat EQ'ya gelince stop

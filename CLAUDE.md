@@ -20,9 +20,10 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 - **React + TypeScript + Vite** (SPA). Grafikler: `lightweight-charts` (TradingView).
 - İkonlar: `lucide-react`. Ekstra ağır bağımlılık yok — sade tut.
 - `vite preview` hem SPA'yı **hem de** `/api/gemini/*` ve Telegram endpoint'lerini
-  serve eder (middleware `vite.config.ts` içindeki `configurePreviewServer`/
-  `configureServer`). **Ayrı bir Node server süreci yoktur**; `server/alertGate.ts` yalnızca
-  vite.config'in kullandığı yardımcı modüldür (alert auth + sunucu tarafı dedupe).
+  serve eder (Vite plugin'i `server/app.ts` → `configurePreviewServer`/`configureServer`; Gemini
+  `server/gemini.ts`, Telegram `server/telegram.ts`;
+  `vite.config.ts` yalnız build ayarı). **Ayrı bir Node server süreci yoktur**; `server/alertGate.ts`
+  (alert auth + dedupe) ve `server/publicGuard.ts` (aynı-site + istek sınırı) yardımcı modüller.
 - **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
   motor) → Render `/api/telegram/ready-alert` (`SCAN_TOKEN` Bearer, fail-closed) → Telegram.
   Dedupe iki katmanlı: tarayıcı-dışı tarama kendi gönderilen-anahtar kaydını `actions/cache` ile
@@ -42,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 265 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -69,10 +70,11 @@ src/
     intelligence/    marketContext, structuralBias, smtEngine, structureEngine...
     gemini/          Gemini istemci modülleri + prompt/şema kontratları (crtInterpretation.ts, tradeCommentary.ts, crtKnowledge.ts).
     backtest/        runtimeReplay (geçmiş veriyle replay/doğrulama).
-    risk/, session/, journal/ ...
+    brain/ (decisionSummary checklist), risk/, session/, journal/ ...
   data/              demoData (fixture pariteleri).
-  test/              vitest (*.test.ts). `test/fixtures/kod/` = eski KOD modeli, YALNIZ test fikstürü.
-vite.config.ts       CANLI sunucu mantığı: /api/gemini/* handler'ları + sistem talimatları burada.
+  test/              vitest (*.test.ts). Pipeline testleri gerçek CRT sinyaliyle: `createCrtSignal` / `createCrtShortContext` (strategyFixtures.ts).
+server/              CANLI sunucu: app.ts (route tablosu, Yahoo proxy, takvim, koruma), gemini.ts (/api/gemini/*
+                     handler'ları + prompt'lar + mentor), telegram.ts (alert mesajı/gönderim/dedupe), http.ts.
 knowledge/           CRT kuralları (crt_secrets_rules.md = kaynak, power_of_3.md) — insan-okunur.
 docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + knowledge/strategies/)
 ```
@@ -110,12 +112,12 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
 ## 7. Gemini AI katmanı
 
 - İstemci `src/lib/gemini/*` payload'u kurar → `/api/gemini/*`'a POST eder.
-- Sunucu (vite.config.ts) deterministik kanıtı yorumlatır; **Gemini olay/mum/seviye
+- Sunucu (`server/gemini.ts`) deterministik kanıtı yorumlatır; **Gemini olay/mum/seviye
   UYDURAMAZ**, yalnızca verilen `event id`'leri referans alır (`validate*` ile denetlenir).
 - Anahtar yoksa lokal fallback döner ("Gemini kapalı — ... lokal analiz").
 - **KALICI KURAL — AI'a öğret:** CRT kuralı, çıkış modeli, kapı (gate) veya terminoloji her
   değiştiğinde, AYNI commit'te Gemini de güncellenir: `src/lib/gemini/crtKnowledge.ts` (bilgi
-  tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `vite.config.ts`
+  tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `server/gemini.ts`
   trade mentoru prompt'u ve `commentaryGuard.ts`. Sahibi bunu her seferinde söylememeli.
   Aynı commit'te `REPLAY_ARCHIVE_VERSION` (`src/lib/backtest/replayArchive.ts`) de artırılır:
   farklı motorun işlemleri tek örnekte karışmaz.
@@ -123,7 +125,7 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
   Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
-  `src/lib/gemini/systemInstructions.ts`; `vite.config.ts` ve
+  `src/lib/gemini/systemInstructions.ts`; `server/gemini.ts` ve
   `crtInterpretation.ts` oradan import eder.
 - Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
   watch → "Bekle…", open-trade (missed + outcome open) → "İşlem açık…", kısmi TP dili yok (tek çıkış: tamamı DOL'da, EQ'da stop BE). Uymayan Gemini
@@ -209,6 +211,14 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Denetim 10: ölü kod silindi — `runtime/cloudSnapshot.ts` (worker kalıntısı), `session/types.ts`'teki silinmiş Session sekmesi tipleri, artık hiç gönderilmeyen raid/context Telegram alarm yolu (dedupe anahtarları, sunucu mesaj dalları, kabul kuralı; sunucu artık yalnız READY + exit kabul eder).
 
 - 2026-10-10 — Denetim 11: 1H→5m anchor ve replay'deki "1H tracking" gölge hattı silindi (kaynağın TF eşleşmesinde yok, hiç READY üretmiyordu, listeye WATCH gürültüsü ekliyordu; tracking her replay penceresinde motoru ikinci kez çalıştırıp replay'i ~2× yavaşlatıyordu). `intradayAnchorMode` ayarı, `trackingScenarios/trackingTrades`, Backtest ekranındaki satır ve 2 test gitti. Bayat-veri blocker'ı + 1H kaldırma motoru değiştirdiği için `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-10-audit`. 265 test.
+
+- 2026-10-10 — Eski KOD modeli tamamen kalktı: 12 pipeline testi (lifecycle, readyHold, journal, grafik odağı, detay paneli, Gemini payload, yapı denetimi, tarama gereksinimleri, kurallar, full flow, replay sonuç testleri) artık gerçek CRT motorunun sinyalini kullanıyor (`createCrtSignal`, 4H short READY / exitMinimumRR 10 → WATCH). `src/test/fixtures/kod/`, `kodStrategy.test.ts` (KOD'un kendi 14 testi), yalnız KOD'un kullandığı `brain/{confidence,financialBrain,reasoning,warnings}.ts` ve canlıda hiç çağrılmayan `signalLifecycleState` silindi. Registry + likidite haritası testleri `registryAndLiquidity.test.ts`'e taşındı. 251 test.
+
+- 2026-10-10 — Haber takvimi gerçek veriye bağlandı: `src/lib/data/economicCalendar.ts` ForexFactory'nin herkese açık haftalık JSON'unu (`nfs.faireconomy.media`) ayrıştırır (High/Medium, zamanı olan satırlar, UTC). Sunucu `/api/calendar` (1 saat önbellek, aynı-site korumalı) → tarayıcı her veri yenilemede `refreshLiveCalendar`; GitHub taraması doğrudan çeker. `eventCalendar.ts` canlı listesi (`setLiveCalendar`/`calendarEvents`); gerçek takvim yüklüyse tahmini haftalık şablonlar ("her Cuma NFP") kullanılmaz. Davranış: yalnız UYARI (`avoidNews` kapalı); READY engellemek kullanıcı kararı. Bu ortamdan kaynağa erişim yok → canlıda doğrulanmadı, fikstürle test edildi; kaynak yoksa uç nokta `empty` döner, hiçbir şey kırılmaz. 254 test.
+
+- 2026-10-10 — Sunucu mantığı `vite.config.ts`'ten (1279 satır) `server/app.ts`'e taşındı; config artık 44 satır, yalnız build ayarı. Mantık değişmedi (mekanik taşıma): lokal duman testi — sayfa 200, health ok, Gemini site 200 / dış 403, token'sız alert 503 (fail-closed), live-alerts 200, takvim empty. CLAUDE.md ve yorumlar güncellendi.
+
+- 2026-10-10 — `server/app.ts` (1240 satır) dörde bölündü: `http.ts` (ortak tip/yardımcı), `gemini.ts` (prompt'lar, fallback'ler, /api/gemini/* handler'ları), `telegram.ts` (READY/exit mesajı, gönderim, foto, dedupe, geçmiş), `app.ts` (route tablosu, Yahoo proxy, takvim, koruma; 123 satır). İçerik aynen taşındı; lokal duman testi aynı sonuçları verdi.
 
 ## graphify
 

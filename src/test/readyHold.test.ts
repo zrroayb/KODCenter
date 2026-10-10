@@ -1,33 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { mergeReadyHoldSignals, readyHoldSignature } from "../lib/signals/readyHold";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
-import { createStructureContext } from "./strategyFixtures";
-
-function structureContext() {
-  return createStructureContext({
-    dealingRange: { high: 105, low: 97, midpoint: 101, source: "Ready hold fixture" },
-    liquidityPools: [
-      { id: "buy-side", side: "buy-side", level: 105, label: "Buy-side", strength: "strong" },
-      { id: "sell-side", side: "sell-side", level: 97, label: "Sell-side", strength: "strong" }
-    ],
-    sweeps: [{ side: "buy-side", level: 101.3, candleIndex: 23, reclaimed: true }],
-    displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
-    marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
-    fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]
-  });
-}
+import { createCrtSignal } from "./strategyFixtures";
 
 describe("ready signal hold", () => {
-  it("keeps a previously READY setup ready when the next scan downgrades the same setup to WATCH", () => {
-    const context = structureContext();
-    const ready = kodStrategy.scan({
-      context,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
-    }).signals[0];
-    const watch = kodStrategy.scan({
-      context,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 10, useExecutionCosts: false }
-    }).signals[0];
+  it("keeps a previously READY setup ready when the next scan downgrades the same setup to WATCH", async () => {
+    // Same CRT setup; the second scan's exit-RR floor (10) is above its DOL RR -> WATCH (RR is not
+    // a structural blocker, so the hold applies).
+    const ready = await createCrtSignal();
+    const watch = await createCrtSignal({ exitMinimumRR: 10 });
 
     const first = mergeReadyHoldSignals([ready], {}, 1_000);
     const second = mergeReadyHoldSignals([watch], first.records, 2_000);
@@ -43,12 +23,8 @@ describe("ready signal hold", () => {
     expect(first.signals[0].readyHoldExpiresAt).toBeUndefined();
   });
 
-  it("clears the hold when the same setup becomes invalidated", () => {
-    const context = structureContext();
-    const ready = kodStrategy.scan({
-      context,
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
-    }).signals[0];
+  it("clears the hold when the same setup becomes invalidated", async () => {
+    const ready = await createCrtSignal();
     const invalidated = { ...ready, stage: "invalidated" as const };
 
     const first = mergeReadyHoldSignals([ready], {}, 1_000);
@@ -58,28 +34,8 @@ describe("ready signal hold", () => {
     expect(Object.keys(second.records)).toHaveLength(0);
   });
 
-  it("uses the CRT range and raid as the stable identity when confirmation details refresh", () => {
-    const ready = kodStrategy.scan({
-      context: structureContext(),
-      settings: { ...kodStrategy.defaultSettings, minimumRR: 1.5, useExecutionCosts: false }
-    }).signals[0];
-    const crtReady = {
-      ...ready,
-      strategyId: "crt",
-      crtAnchor: {
-        rangeTf: "4h" as const,
-        confirmTf: "15m" as const,
-        raidActive: true,
-        raidClosed: true,
-        rangeHigh: 101.3,
-        rangeLow: 97,
-        origin: "standard" as const
-      },
-      evidence: [
-        ...ready.evidence,
-        { id: "manipulation", label: "Raid", detail: "Range high alındı", status: "pass" as const, time: 10_000, price: 101.3 }
-      ]
-    };
+  it("uses the CRT range and raid as the stable identity when confirmation details refresh", async () => {
+    const crtReady = await createCrtSignal();
     const refreshed = {
       ...crtReady,
       id: `${crtReady.id}-refresh`,
