@@ -93,3 +93,13 @@ describe("ready signal hold", () => {
     expect(readyHoldSignature(refreshed)).toBe(readyHoldSignature(crtReady));
   });
 });
+
+describe("ready hold lets go when the engine names a real reason", () => {
+  it("releases immediately on a structural blocker (e.g. HTF turned opposite)", async () => {
+    const { holdMustRelease } = await import("../lib/signals/readyHold");
+    const base = { governance: { blockers: [] as string[] } } as unknown as Parameters<typeof holdMustRelease>[0];
+    expect(holdMustRelease(base)).toBe(false);
+    expect(holdMustRelease({ ...base, governance: { ...base.governance, blockers: ["HTF yönü ters: 1d bearish — trend tersine CRT işlenmez."] } })).toBe(true);
+    expect(holdMustRelease({ ...base, governance: { ...base.governance, blockers: ["DOL/TP çıkış net RR yetersiz (0.8 < 1)."] } })).toBe(false);
+  });
+});

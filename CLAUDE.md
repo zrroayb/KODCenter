@@ -201,6 +201,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-10 — Denetim 4: tarayıcıda Yahoo'dan gelmeyen sembolün yerine konan demo mumlar (30 Haziran tarihli) gerçek Yahoo verisinin "synthetic-bid-ask" etiketini taşıyordu → sahte setup canlı gibi görünebiliyordu. Artık `feed: "demo"` (`asDemoMarket`): veri güveni "Demo/fallback" der, bayat-veri blocker'ı READY'yi engeller. Telegram etkilenmiyordu (tarama başarısız sembolü atlıyor).
 
+- 2026-10-10 — Denetim 5: kilitli READY (`readyHold`) motor somut bir yapısal engel bildirince (HTF ters, key level yok, C2/C3, EQ tüketildi, kovalanmaz, veri eski, manipulation/reclaim yok, stop/hedef/PD bozuk) hemen bırakılıyor (`holdMustRelease`); önce 30 dk boyunca "ALINABİLİR" gösteriyordu. Kilit artık yalnız READY↔WATCH dalgalanmasını yumuşatıyor; metin "en fazla 30 dk" (eskiden yanlış olarak "stop/TP görülene kadar").
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
