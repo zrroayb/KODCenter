@@ -4,6 +4,7 @@ import { loadEnv, type Plugin } from "vite";
 import process from "node:process";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createAlertStore, isAuthorizedScan, type AlertStore } from "./server/alertGate";
+import { clientIp, createRateLimiter, isSameSite } from "./server/publicGuard";
 import { dolBeManagementLine, TRADE_COMMENTARY_STAGE_RULE, tradeCommentaryViolation } from "./src/lib/gemini/commentaryGuard";
 import { CRT_ANALYSIS_SYSTEM_INSTRUCTION } from "./src/lib/gemini/systemInstructions";
 
@@ -1154,6 +1155,11 @@ function handleLiveAlerts(request: JsonRequest, response: YahooProxyResponse, en
 
 async function handleYahooProxy(request: YahooProxyRequest, response: YahooProxyResponse) {
   const requestPath = `/${(request.url ?? "").replace(/^\/+/, "").replace(/^yahoo\/?/, "")}`;
+  // Only the chart endpoint the app uses; the proxy must not relay arbitrary Yahoo paths.
+  if (!requestPath.startsWith("/v8/finance/chart/")) {
+    jsonResponse(response, 404, { status: "error", error: "Not found" });
+    return;
+  }
   const upstreamUrl = `https://query2.finance.yahoo.com${requestPath}`;
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(new Error("Yahoo upstream timeout")), 8_000);
@@ -1179,62 +1185,56 @@ async function handleYahooProxy(request: YahooProxyRequest, response: YahooProxy
   }
 }
 
+// Gemini spends the owner's quota: same-site pages only, 20 calls / 10 min per IP, 300 / hour total.
+const geminiPerIp = createRateLimiter(20, 10 * 60 * 1000);
+const geminiGlobal = createRateLimiter(300, 60 * 60 * 1000);
+// Yahoo proxy: a page load is ~48 requests (12 symbols x 4 intervals) and it refreshes every minute.
+const yahooPerIp = createRateLimiter(1200, 10 * 60 * 1000);
+
+function guarded(kind: "gemini" | "yahoo", handler: (request: JsonRequest, response: YahooProxyResponse) => void | Promise<void>) {
+  return (request: JsonRequest, response: YahooProxyResponse) => {
+    if (!isSameSite(request)) {
+      jsonResponse(response, 403, { status: "error", error: "Forbidden: same-site requests only" });
+      return;
+    }
+    const ip = clientIp(request);
+    const allowed = kind === "gemini" ? geminiPerIp(ip) && geminiGlobal("all") : yahooPerIp(ip);
+    if (!allowed) {
+      jsonResponse(response, 429, { status: "error", error: "Too many requests" });
+      return;
+    }
+    void handler(request, response);
+  };
+}
+
+// One route table for `vite` (dev) and `vite preview` (Render).
+function registerRoutes(server: { middlewares: { use: (path: string, handler: (request: JsonRequest, response: YahooProxyResponse) => void) => void } }, env: TelegramEnv) {
+  server.middlewares.use("/yahoo", guarded("yahoo", (request, response) => handleYahooProxy(request, response)));
+  // Bearer SCAN_TOKEN auth inside the handler (the GitHub scanner is not a browser page).
+  server.middlewares.use("/api/telegram/ready-alert", (request, response) => {
+    void handleTelegramReadyAlert(request, response, env);
+  });
+  // Cheap liveness probe: Render health check + keep-alive pings (free plan sleeps after 15 idle min).
+  server.middlewares.use("/api/health", (_request, response) => {
+    jsonResponse(response, 200, { status: "ok", startedAt: SERVER_STARTED_AT, uptimeSec: Math.round(process.uptime()) });
+  });
+  server.middlewares.use("/api/live-alerts", (request, response) => {
+    handleLiveAlerts(request, response, env);
+  });
+  server.middlewares.use("/api/gemini/trade-commentary", guarded("gemini", (request, response) => handleGeminiTradeCommentary(request, response, env)));
+  server.middlewares.use("/api/gemini/replay-review", guarded("gemini", (request, response) => handleGeminiReplayReview(request, response, env)));
+  server.middlewares.use("/api/gemini/market-pick", guarded("gemini", (request, response) => handleGeminiMarketPick(request, response, env)));
+  server.middlewares.use("/api/gemini/crt-analysis", guarded("gemini", (request, response) => handleGeminiCrtAnalysis(request, response, env)));
+}
+
 function yahooFinanceProxy(env: TelegramEnv): Plugin {
   return {
     name: "local-yahoo-finance-proxy",
     configureServer(server) {
-      server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
-        void handleYahooProxy(request, response);
-      });
-      server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleTelegramReadyAlert(request, response, env);
-      });
-      // Cheap liveness probe: Render health check + keep-alive pings (free plan sleeps after 15 idle min).
-      server.middlewares.use("/api/health", (_request: JsonRequest, response: YahooProxyResponse) => {
-        jsonResponse(response, 200, { status: "ok", startedAt: SERVER_STARTED_AT, uptimeSec: Math.round(process.uptime()) });
-      });
-      server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
-        handleLiveAlerts(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiTradeCommentary(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiReplayReview(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiMarketPick(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiCrtAnalysis(request, response, env);
-      });
+      registerRoutes(server, env);
     },
     configurePreviewServer(server) {
-      server.middlewares.use("/yahoo", (request: YahooProxyRequest, response: YahooProxyResponse) => {
-        void handleYahooProxy(request, response);
-      });
-      server.middlewares.use("/api/telegram/ready-alert", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleTelegramReadyAlert(request, response, env);
-      });
-      // Cheap liveness probe: Render health check + keep-alive pings (free plan sleeps after 15 idle min).
-      server.middlewares.use("/api/health", (_request: JsonRequest, response: YahooProxyResponse) => {
-        jsonResponse(response, 200, { status: "ok", startedAt: SERVER_STARTED_AT, uptimeSec: Math.round(process.uptime()) });
-      });
-      server.middlewares.use("/api/live-alerts", (request: JsonRequest, response: YahooProxyResponse) => {
-        handleLiveAlerts(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/trade-commentary", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiTradeCommentary(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/replay-review", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiReplayReview(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/market-pick", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiMarketPick(request, response, env);
-      });
-      server.middlewares.use("/api/gemini/crt-analysis", (request: JsonRequest, response: YahooProxyResponse) => {
-        void handleGeminiCrtAnalysis(request, response, env);
-      });
+      registerRoutes(server, env);
     }
   };
 }

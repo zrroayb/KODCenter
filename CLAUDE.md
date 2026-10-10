@@ -195,6 +195,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-06 — Site uyuması/çökmesine karşı: `/api/health` (hafif JSON, `startedAt` + `uptimeSec`), `render.yaml` `healthCheckPath: /api/health` (Render cevap vermeyen instance'ı yeniden başlatır), `.github/workflows/keep-alive.yml` her 10 dk `CLOUD_SCAN_URL/api/health`'e ping (free plan 15 dk boşta uyuyordu → ilk açılış 30-60 sn "down"). GitHub cron gecikebildiği için güvenilir ek: cron-job.org'dan aynı adrese 10 dk'da bir GET (token gerekmez). 750 saat/ay free kotası tek servis için 7/24'e yeter.
 
+- 2026-10-10 — Denetim düzeltmeleri 1: herkese açık uç noktalar korundu (`server/publicGuard.ts`). Gemini (`/api/gemini/*`): yalnız sitenin kendi sayfalarından (Origin/Referer host == Host), IP başına 20 çağrı/10 dk + toplam 300/saat → URL'i bilen başkası Gemini kotasını yakamaz. `/yahoo` proxy: aynı site + IP başına 1200/10 dk + yalnız `/v8/finance/chart/` yolu. dev/preview iki kopya route tablosu tek `registerRoutes`'a indi. Lokal sunucuda doğrulandı (dış 403, site 200, limit 429). `publicGuard.test.ts`.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
