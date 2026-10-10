@@ -1,12 +1,11 @@
+import { createCrtSignal } from "./strategyFixtures";
 import { describe, expect, it } from "vitest";
-import { createDemoContexts } from "../data/demoData";
 import { journalInsights } from "../lib/journal/journalAnalyzer";
 import { upsertJournalEntry } from "../lib/journal/localJournal";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
 
 describe("local journal helpers", () => {
-  it("upserts signal notes and derives strategy insights", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("upserts signal notes and derives strategy insights", async () => {
+    const signal = await createCrtSignal();
     const entries = upsertJournalEntry([], signal, {
       notes: "Stop fazla dardı, HTF ters kaldı.",
       tradeAction: "taken",
@@ -37,8 +36,8 @@ describe("local journal helpers", () => {
     expect(insights.map((item) => item.value)).toContain("1.00R");
   });
 
-  it("keeps one open journal row across refreshed signal ids and records action history", () => {
-    const signal = kodStrategy.scan({ context: createDemoContexts()[0], settings: kodStrategy.defaultSettings }).signals[0];
+  it("keeps one open journal row across refreshed signal ids and records action history", async () => {
+    const signal = await createCrtSignal();
     const watched = upsertJournalEntry([], signal, { tradeAction: "watch", result: "open", notes: "İzliyorum" });
     const refreshed = { ...signal, id: `${signal.id}-next-candle`, score: signal.score + 1 };
     const stopped = upsertJournalEntry(watched, refreshed, {
