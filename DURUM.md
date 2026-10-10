@@ -15,7 +15,7 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - [x] 1. CRT test fikstürü: `strategyFixtures.ts`'e gerçek bir CRT sinyali (WATCH + READY) üreten yardımcı ekle (crtDealingPd kurgusundan)
 - [x] 2. KOD → CRT: `signalLifecycle.test.ts`, `readyHold.test.ts`
 - [x] 3. KOD → CRT: `journal.test.ts`, `selectedSignal.test.ts`, `chartUi.test.tsx`
-- [ ] 4. KOD → CRT: `geminiCommentary.test.ts`, `structureAudit.test.ts`, `scannerRequirements.test.ts`
+- [x] 4. KOD → CRT: `geminiCommentary.test.ts`, `structureAudit.test.ts`, `scannerRequirements.test.ts`
 - [ ] 5. KOD → CRT: `userRules.test.ts`, `dataFeedAndObjectives.test.ts`, `fullFlow.test.ts`
 - [ ] 6. KOD → CRT: `runtimeReplay.test.ts`
 - [ ] 7. `kodStrategy.test.ts` + `src/test/fixtures/kod/` sil; CLAUDE.md güncelle
@@ -38,3 +38,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - Adım 1 bitti: `createCrtShortContext` / `createCrtSignal` (strategyFixtures.ts). Gerçek motor 4H short READY (DOL RR 2.23) üretiyor; exitMinimumRR 10 → aynı setup WATCH. `crtFixture.test.ts` yeşil.
 - Adım 2 bitti: `readyHold` testleri gerçek CRT READY/WATCH ile. `signalLifecycleState` canlı kodda hiç kullanılmıyordu (yalnız testi vardı) → fonksiyon + tipleri silindi; karar-sınıfı testi CRT'ye taşındı. 264 test yeşil.
 - Adım 3 bitti: journal, selectedSignal, chartUi testleri `createCrtSignal()` ile (journal satırı, grafik odak/anotasyon ve detay paneli artık gerçek CRT sinyaliyle sınanıyor). Tüm testler yeşil.
+- Adım 4 bitti: Gemini yorum payload'u, yapı denetimi ve tarama gereksinimleri gerçek CRT sinyaliyle. KOD'a özgü beklentiler CRT gerçeğine çekildi (payload'da "FVG BOX" yerine "POI BOX" + CRT HIGH/MID/LOW; boşluksuz/ChoCH'suz senaryolar aynı CRT planından türetildi). Yeşil.

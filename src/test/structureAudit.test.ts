@@ -1,27 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { MarketContext } from "../lib/ict/types";
 import { buildStructureAudit } from "../lib/signals/structureAudit";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
-import { createStructureContext } from "./strategyFixtures";
-
-function scanSignal(overrides: Partial<MarketContext> = {}) {
-  const context = createStructureContext(overrides);
-  const signal = kodStrategy.scan({
-    context,
-    settings: { ...kodStrategy.defaultSettings, minimumRR: 0.1, useExecutionCosts: false }
-  }).signals[0];
-  expect(signal).toBeDefined();
-  return signal;
-}
+import { createCrtSignal } from "./strategyFixtures";
 
 describe("structure audit", () => {
-  it("does not let UI or AI invent an FVG when the plan has no selected gap", () => {
-    const signal = scanSignal({
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
-      displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
-      marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
-      fairValueGaps: []
-    });
+  it("does not let UI or AI invent an FVG when the plan has no selected gap", async () => {
+    const crt = await createCrtSignal();
+    const signal = {
+      ...crt,
+      evidence: crt.evidence.filter((item) => item.id !== "fvg" && item.id !== "poi"),
+      plan: { ...crt.plan, entryModel: { ...crt.plan.entryModel, fairValueGap: undefined, retested: false } }
+    };
 
     const audit = buildStructureAudit(signal);
     const poi = audit.items.find((item) => item.label === "POI");
@@ -31,13 +19,15 @@ describe("structure audit", () => {
     expect(poi?.detail).toContain("zone varmış gibi konuşma");
   });
 
-  it("explains the exact candle close needed when MSS/CISD is missing", () => {
-    const signal = scanSignal({
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
-      displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
-      marketStructureShifts: [],
-      fairValueGaps: []
-    });
+  it("explains the exact candle close needed when MSS/CISD is missing", async () => {
+    const crt = await createCrtSignal({ exitMinimumRR: 10 });
+    // The same CRT before its ChoCH close: no confirmed shift, entry not confirmed.
+    const signal = {
+      ...crt,
+      stage: "watch" as const,
+      evidence: crt.evidence.map((item) => item.id === "choch" ? { ...item, status: "fail" as const } : item),
+      plan: { ...crt.plan, entryStatus: "pending" as const, entryModel: { ...crt.plan.entryModel, cisdConfirmed: false } }
+    };
 
     const audit = buildStructureAudit(signal);
     const mss = audit.items.find((item) => item.label === "Distribution");
@@ -46,12 +36,8 @@ describe("structure audit", () => {
     expect(mss?.detail).toContain("kapanışı bekleniyor");
   });
 
-  it("marks invalidated ideas as blocked instead of trade candidates", () => {
-    const signal = scanSignal({
-      sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
-      displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
-      marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }]
-    });
+  it("marks invalidated ideas as blocked instead of trade candidates", async () => {
+    const signal = await createCrtSignal();
     const invalidated = {
       ...signal,
       stage: "invalidated" as const,
