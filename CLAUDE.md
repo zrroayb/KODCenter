@@ -20,7 +20,8 @@ katman/soyutlama eklemeden önce mevcut olanı sadeleştirmeyi düşün. Şüphe
 - **React + TypeScript + Vite** (SPA). Grafikler: `lightweight-charts` (TradingView).
 - İkonlar: `lucide-react`. Ekstra ağır bağımlılık yok — sade tut.
 - `vite preview` hem SPA'yı **hem de** `/api/gemini/*` ve Telegram endpoint'lerini
-  serve eder (Vite plugin'i `server/app.ts` → `configurePreviewServer`/`configureServer`;
+  serve eder (Vite plugin'i `server/app.ts` → `configurePreviewServer`/`configureServer`; Gemini
+  `server/gemini.ts`, Telegram `server/telegram.ts`;
   `vite.config.ts` yalnız build ayarı). **Ayrı bir Node server süreci yoktur**; `server/alertGate.ts`
   (alert auth + dedupe) ve `server/publicGuard.ts` (aynı-site + istek sınırı) yardımcı modüller.
 - **Tek alert motoru:** GitHub Actions `background-scan.yml` → `scripts/cloud-scan.ts` (güncel
@@ -72,7 +73,8 @@ src/
     brain/ (decisionSummary checklist), risk/, session/, journal/ ...
   data/              demoData (fixture pariteleri).
   test/              vitest (*.test.ts). Pipeline testleri gerçek CRT sinyaliyle: `createCrtSignal` / `createCrtShortContext` (strategyFixtures.ts).
-server/app.ts        CANLI sunucu mantığı: Yahoo proxy, takvim, Telegram alert, /api/gemini/* handler'ları + prompt'lar.
+server/              CANLI sunucu: app.ts (route tablosu, Yahoo proxy, takvim, koruma), gemini.ts (/api/gemini/*
+                     handler'ları + prompt'lar + mentor), telegram.ts (alert mesajı/gönderim/dedupe), http.ts.
 knowledge/           CRT kuralları (crt_secrets_rules.md = kaynak, power_of_3.md) — insan-okunur.
 docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + knowledge/strategies/)
 ```
@@ -110,12 +112,12 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
 ## 7. Gemini AI katmanı
 
 - İstemci `src/lib/gemini/*` payload'u kurar → `/api/gemini/*`'a POST eder.
-- Sunucu (`server/app.ts`) deterministik kanıtı yorumlatır; **Gemini olay/mum/seviye
+- Sunucu (`server/gemini.ts`) deterministik kanıtı yorumlatır; **Gemini olay/mum/seviye
   UYDURAMAZ**, yalnızca verilen `event id`'leri referans alır (`validate*` ile denetlenir).
 - Anahtar yoksa lokal fallback döner ("Gemini kapalı — ... lokal analiz").
 - **KALICI KURAL — AI'a öğret:** CRT kuralı, çıkış modeli, kapı (gate) veya terminoloji her
   değiştiğinde, AYNI commit'te Gemini de güncellenir: `src/lib/gemini/crtKnowledge.ts` (bilgi
-  tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `server/app.ts`
+  tabanı + retrieval öncelik sırası), `src/lib/gemini/systemInstructions.ts`, `server/gemini.ts`
   trade mentoru prompt'u ve `commentaryGuard.ts`. Sahibi bunu her seferinde söylememeli.
   Aynı commit'te `REPLAY_ARCHIVE_VERSION` (`src/lib/backtest/replayArchive.ts`) de artırılır:
   farklı motorun işlemleri tek örnekte karışmaz.
@@ -123,7 +125,7 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
   Türkçe; **CRT/ICT terimleri İngilizce kalır** (CRT, sweep, liquidity, displacement,
   FVG, order block, premium/discount, MSS, CISD, HTF/LTF, killzone, DOL, POI).
   Yeni prompt eklersen aynı kuralı ekle. Sistem talimatlarının TEK kaynağı
-  `src/lib/gemini/systemInstructions.ts`; `server/app.ts` ve
+  `src/lib/gemini/systemInstructions.ts`; `server/gemini.ts` ve
   `crtInterpretation.ts` oradan import eder.
 - Trade yorumu kontratı `src/lib/gemini/commentaryGuard.ts`: stage=ready → Karar "Plan hazır…",
   watch → "Bekle…", open-trade (missed + outcome open) → "İşlem açık…", kısmi TP dili yok (tek çıkış: tamamı DOL'da, EQ'da stop BE). Uymayan Gemini
@@ -215,6 +217,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Haber takvimi gerçek veriye bağlandı: `src/lib/data/economicCalendar.ts` ForexFactory'nin herkese açık haftalık JSON'unu (`nfs.faireconomy.media`) ayrıştırır (High/Medium, zamanı olan satırlar, UTC). Sunucu `/api/calendar` (1 saat önbellek, aynı-site korumalı) → tarayıcı her veri yenilemede `refreshLiveCalendar`; GitHub taraması doğrudan çeker. `eventCalendar.ts` canlı listesi (`setLiveCalendar`/`calendarEvents`); gerçek takvim yüklüyse tahmini haftalık şablonlar ("her Cuma NFP") kullanılmaz. Davranış: yalnız UYARI (`avoidNews` kapalı); READY engellemek kullanıcı kararı. Bu ortamdan kaynağa erişim yok → canlıda doğrulanmadı, fikstürle test edildi; kaynak yoksa uç nokta `empty` döner, hiçbir şey kırılmaz. 254 test.
 
 - 2026-10-10 — Sunucu mantığı `vite.config.ts`'ten (1279 satır) `server/app.ts`'e taşındı; config artık 44 satır, yalnız build ayarı. Mantık değişmedi (mekanik taşıma): lokal duman testi — sayfa 200, health ok, Gemini site 200 / dış 403, token'sız alert 503 (fail-closed), live-alerts 200, takvim empty. CLAUDE.md ve yorumlar güncellendi.
+
+- 2026-10-10 — `server/app.ts` (1240 satır) dörde bölündü: `http.ts` (ortak tip/yardımcı), `gemini.ts` (prompt'lar, fallback'ler, /api/gemini/* handler'ları), `telegram.ts` (READY/exit mesajı, gönderim, foto, dedupe, geçmiş), `app.ts` (route tablosu, Yahoo proxy, takvim, koruma; 123 satır). İçerik aynen taşındı; lokal duman testi aynı sonuçları verdi.
 
 ## graphify
 
