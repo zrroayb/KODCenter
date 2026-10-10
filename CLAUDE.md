@@ -205,6 +205,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-10 — Denetim 6-8: eski kuralları "kalıcı tek doğru kaynak" diye anlatan `docs/CRT_MASTER_INSTRUCTION.md` ve killzone/key-open puanı anlatan `docs/CRT_RULES.md` silindi (gelecek oturumları eski kurala döndürüyordu). Kodun hiç okumadığı `knowledge/` dosyaları (silinen Session/Silver Bullet şemaları, profilleri, prompt'u, user_rules JSON'ları, ny_am_09 range) silindi. `docs/CRT_CHANGELOG.md` başına "yalnız tarihçe" notu. Bu dosyadaki kapanmış "açık follow-up / bilinen açık" satırları ve dizin haritası düzeltildi.
 
+- 2026-10-10 — Denetim 9: hiçbir etkisi olmayan ayarlar `UserRules`'tan silindi: `partialTpEnabled`, `moveToBreakevenAtR` (yalnız replay'in EQ%50 karşı-olgu varyantı kullanıyor, kendi varsayılanıyla), `useHtfAlignmentFilter` (HTF kapısı her zaman açık), `allowedKillzones` (hepsi açıktı), `usePremiumDiscountFilter`, `useJudasSwingFilter` (hep kapalıydı). App/scanRuntime artık bunları geçirmiyor; killzone/PD/Judas filtre kodu applyRules'tan gitti. Davranış değişmedi.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e

@@ -77,14 +77,11 @@ export function scanContexts(
         stopProfile: rules.stopProfile,
         useExecutionCosts: rules.useExecutionCosts,
         slippageStress: rules.slippageStress,
-        partialTpEnabled: rules.partialTpEnabled,
-        moveToBreakevenAtR: rules.moveToBreakevenAtR,
         maxDailyRiskPct: rules.maxDailyRiskPct,
         accountSize: rules.accountSize,
         riskPerTradePct: rules.riskPerTradePct,
         maxTradesPerDay: rules.maxTradesPerDay,
-        avoidNews: rules.avoidNews,
-        useHtfAlignmentFilter: rules.useHtfAlignmentFilter
+        avoidNews: rules.avoidNews
       }
     }))
   );

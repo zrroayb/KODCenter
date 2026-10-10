@@ -8,8 +8,6 @@ export type UserRules = {
   // CRT runs the whole position to DOL (stop to break-even at EQ); its READY gate is the DOL net RR.
   crtExitMinimumRR: number;
   minimumScore: number;
-  partialTpEnabled: boolean;
-  moveToBreakevenAtR: number;
   maxDailyRiskPct: number;
   // Account model (was a hard-coded constant): sizing and daily-risk warnings read these.
   accountSize: number;
@@ -17,9 +15,5 @@ export type UserRules = {
   maxTradesPerDay: number;
   avoidNews: boolean;
   allowedSymbols: MarketSymbol[];
-  allowedKillzones: string[];
-  usePremiumDiscountFilter: boolean;
-  useJudasSwingFilter: boolean;
-  useHtfAlignmentFilter: boolean;
   maxSignalsPerScan: number;
 };

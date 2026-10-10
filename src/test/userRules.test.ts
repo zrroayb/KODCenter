@@ -61,18 +61,6 @@ describe("user rule visibility policy", () => {
     expect(ruleAllowsSignal({ ...signal, stage: "invalidated" }, defaultRules)).toBe(false);
     expect(ruleAllowsSignal({ ...signal, stage: "missed" }, defaultRules)).toBe(false);
   });
-
-  it("does not apply killzone filtering to crypto symbols", () => {
-    const base = createDemoContexts()[0];
-    const outsideContext = {
-      ...base,
-      symbol: "BTCUSD" as const,
-      killzones: [{ name: "Outside" as const, active: true, startHourUtc: 0, endHourUtc: 0 }]
-    };
-
-    expect(ruleAllowsContext(outsideContext, { ...defaultRules, allowedKillzones: ["London"] })).toBe(true);
-    expect(ruleAllowsContext({ ...outsideContext, symbol: "EURUSD" }, { ...defaultRules, allowedKillzones: ["London"] })).toBe(false);
-  });
 });
 
 describe("stored rule resolution (site + cloud bot parity)", () => {
@@ -85,8 +73,7 @@ describe("stored rule resolution (site + cloud bot parity)", () => {
       // Old hidden settings must not keep acting after the UI dropped them.
       minimumRR: 2,
       minimumScore: 30,
-      useHtfAlignmentFilter: false,
-      allowedKillzones: ["London"]
+      useHtfAlignmentFilter: false
     });
     expect(resolved.accountSize).toBe(50_000);
     expect(resolved.riskPerTradePct).toBe(0.5);
@@ -94,8 +81,7 @@ describe("stored rule resolution (site + cloud bot parity)", () => {
     expect(resolved.allowedSymbols).toEqual(["XAUUSD"]);
     expect(resolved.minimumRR).toBe(defaultRules.minimumRR);
     expect(resolved.minimumScore).toBe(50);
-    expect(resolved.useHtfAlignmentFilter).toBe(defaultRules.useHtfAlignmentFilter);
-    expect(resolved.allowedKillzones).toEqual(defaultRules.allowedKillzones);
+    expect("useHtfAlignmentFilter" in resolved).toBe(false);
     expect(resolved.maxSignalsPerScan).toBe(defaultRules.maxSignalsPerScan);
   });
 

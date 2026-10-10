@@ -1,27 +1,9 @@
 import type { MarketContext, TradingSignal } from "../ict/types";
-import { isCryptoSymbol } from "../ict/symbols";
 import { effectiveMinimumScore } from "./scorePolicy";
 import type { UserRules } from "./userRules";
 
-function hasAllowedActiveKillzone(context: MarketContext, rules: UserRules): boolean {
-  if (isCryptoSymbol(context.symbol)) return true;
-  const active = context.killzones.find((zone) => zone.active)?.name ?? "Outside";
-  return rules.allowedKillzones.includes(active);
-}
-
-function hasValidPremiumDiscount(signal: TradingSignal): boolean {
-  const zone = signal.context.premiumDiscount.zone;
-  if (zone === "equilibrium") return true;
-  if (signal.direction === "long") return zone === "discount";
-  return zone === "premium";
-}
-
-function hasJudasSwing(signal: TradingSignal): boolean {
-  return signal.context.judasSwings.some((candidate) => candidate.direction === signal.direction);
-}
-
 export function ruleAllowsContext(context: MarketContext, rules: UserRules): boolean {
-  return rules.allowedSymbols.includes(context.symbol) && hasAllowedActiveKillzone(context, rules);
+  return rules.allowedSymbols.includes(context.symbol);
 }
 
 export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boolean {
@@ -30,8 +12,6 @@ export function ruleAllowsSignal(signal: TradingSignal, rules: UserRules): boole
   // Each strategy gates READY on its own exit RR (CRT: DOL net RR vs crtExitMinimumRR); the plan
   // carries that threshold. Plans without one fall back to the generic rule.
   if (signal.stage === "ready" && signal.plan.rr < (signal.plan.minimumRR ?? rules.minimumRR)) return false;
-  if (rules.usePremiumDiscountFilter && !hasValidPremiumDiscount(signal)) return false;
-  if (rules.useJudasSwingFilter && !hasJudasSwing(signal)) return false;
   // HTF yön ve key level kapıları stratejide (crt.strategy blockers + readyEligible) — burada
   // tekrar uygulanmaz.
   return true;

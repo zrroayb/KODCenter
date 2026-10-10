@@ -1625,7 +1625,6 @@ export const crtStrategy: StrategyModule = {
     useExecutionCosts: true,
     slippageStress: "normal",
     noAutoExecution: true,
-    useHtfAlignmentFilter: true,
     exitModel: "dol-be",
     // 1H→5M anchor is in TRACKING: it shows as WATCH, never READY/alert, while replay collects
     // its own evidence (Master §14). A 2026-07-22 note promoted it to LIVE, but the value was
