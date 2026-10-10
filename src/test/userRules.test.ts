@@ -1,28 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createDemoContexts } from "../data/demoData";
-import { kodStrategy } from "./fixtures/kod/kod.strategy";
 import { ruleAllowsContext, ruleAllowsSignal } from "../lib/userRules/applyRules";
 import { defaultRules } from "../lib/userRules/defaultRules";
 import { resolveStoredRules } from "../lib/userRules/resolveRules";
-import { createStructureContext } from "./strategyFixtures";
+import { createCrtShortContext, createCrtSignal } from "./strategyFixtures";
 
-function visibleSequenceSignal() {
-  const context = createStructureContext({
-    sweeps: [{ side: "buy-side", level: 101, candleIndex: 23, reclaimed: true }],
-    judasSwings: [{ direction: "short", session: "New York AM", sweepLevel: 101 }],
-    displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1.2 }],
-    marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
-    fairValueGaps: [{ direction: "short", low: 100.2, high: 100.7, midpoint: 100.45, candleIndex: 22, mitigated: false }]
-  });
-  return {
-    context,
-    signal: kodStrategy.scan({ context, settings: { ...kodStrategy.defaultSettings, useExecutionCosts: false } }).signals[0]
-  };
+async function visibleSequenceSignal() {
+  const context = createCrtShortContext();
+  return { context, signal: await createCrtSignal({ context }) };
 }
 
 describe("user rule visibility policy", () => {
-  it("keeps default scanning visible with C as the lowest active grade", () => {
-    const { context, signal } = visibleSequenceSignal();
+  it("keeps default scanning visible with C as the lowest active grade", async () => {
+    const { context, signal } = await visibleSequenceSignal();
 
     expect(ruleAllowsContext(context, defaultRules)).toBe(true);
     expect(ruleAllowsSignal(signal, defaultRules)).toBe(true);
@@ -31,8 +21,8 @@ describe("user rule visibility policy", () => {
     expect(defaultRules.useExecutionCosts).toBe(true);
   });
 
-  it("does not show D quality signals even when a stale rule state is lower", () => {
-    const { signal } = visibleSequenceSignal();
+  it("does not show D quality signals even when a stale rule state is lower", async () => {
+    const { signal } = await visibleSequenceSignal();
     const cSignal = { ...signal, score: 50, grade: "C" as const };
     const dSignal = { ...signal, score: 49, grade: "D" as const };
     const staleRules = { ...defaultRules, minimumScore: 0 };
@@ -41,22 +31,23 @@ describe("user rule visibility policy", () => {
     expect(ruleAllowsSignal(dSignal, staleRules)).toBe(false);
   });
 
-  it("filters signals when the user intentionally raises quality thresholds", () => {
-    const { signal } = visibleSequenceSignal();
+  it("filters signals when the user intentionally raises quality thresholds", async () => {
+    const { signal } = await visibleSequenceSignal();
 
     expect(ruleAllowsSignal(signal, { ...defaultRules, minimumScore: signal.score + 1 })).toBe(false);
   });
 
-  it("keeps WATCH ideas visible even when RR is below the READY threshold", () => {
-    const { signal } = visibleSequenceSignal();
-    const lowRrPlan = { ...signal.plan, rr: defaultRules.minimumRR - 0.25 };
+  it("keeps WATCH ideas visible even when RR is below the READY threshold", async () => {
+    const { signal } = await visibleSequenceSignal();
+    // READY gates on the plan's own exit-RR floor (CRT: DOL net RR vs 1.0).
+    const lowRrPlan = { ...signal.plan, rr: (signal.plan.minimumRR ?? defaultRules.minimumRR) - 0.25 };
 
     expect(ruleAllowsSignal({ ...signal, stage: "watch", plan: lowRrPlan }, defaultRules)).toBe(true);
     expect(ruleAllowsSignal({ ...signal, stage: "ready", plan: lowRrPlan }, defaultRules)).toBe(false);
   });
 
-  it("hides invalidated and missed setups from visible signal candidates", () => {
-    const { signal } = visibleSequenceSignal();
+  it("hides invalidated and missed setups from visible signal candidates", async () => {
+    const { signal } = await visibleSequenceSignal();
 
     expect(ruleAllowsSignal({ ...signal, stage: "invalidated" }, defaultRules)).toBe(false);
     expect(ruleAllowsSignal({ ...signal, stage: "missed" }, defaultRules)).toBe(false);
