@@ -20,8 +20,8 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - [x] 6. KOD → CRT: `runtimeReplay.test.ts`
 - [x] 7. `kodStrategy.test.ts` + `src/test/fixtures/kod/` sil; CLAUDE.md güncelle
 - [x] 8. Haber takvimi: ekonomik takvim JSON ayrıştırıcı + `eventCalendar`'a bağla (fikstürle test); sunucuda önbellekli `/api/calendar`
-- [ ] 9. `vite.config.ts` bölme: Telegram/alert handler'ları `server/telegram.ts`'e
-- [ ] 10. `vite.config.ts` bölme: Gemini handler'ları + prompt'lar `server/gemini.ts`'e
+- [x] 9. `vite.config.ts` → `server/app.ts` (tüm sunucu mantığı, mekanik taşıma)
+- [ ] 10. `server/app.ts` bölme: Gemini handler'ları + prompt'lar `server/gemini.ts`'e, Telegram `server/telegram.ts`'e
 - [ ] 11. Son doğrulama: typecheck + test + build + lokal sunucu duman testi; CLAUDE.md; push
 
 ## Bana sorular
@@ -43,3 +43,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - Adım 6 bitti: runtimeReplay'deki 4 test (stop geometri, DOL+BE skorlama, süresi dolan açık işlem, partial/BE ayarları) sinyal kabuğu olarak gerçek CRT sinyali kullanıyor. 262 test yeşil.
 - Adım 7 bitti: KOD fikstürü + kodStrategy.test silindi; registry + likidite testleri `registryAndLiquidity.test.ts`'e taşındı. Knip: yalnız KOD'un kullandığı 4 `brain/` dosyası da ölüydü → silindi. CLAUDE.md güncellendi. 251 test, typecheck yeşil.
 - Adım 8 bitti: ForexFactory haftalık JSON ayrıştırıcı + canlı takvim listesi + `/api/calendar` (1 sa önbellek, aynı-site) + tarayıcı/tarama bağlantısı; takvim varken tahmini şablonlar susar. Lokal duman testi: site içi `{status:"empty"}` (bu ortamda kaynak engelli), dışarıdan 403. Canlı veriyle doğrulanamadı → Render'da ilk deploy sonrası `/api/calendar` kontrol edilmeli (soru listesinde). 254 test, build yeşil.
+- Adım 9 bitti: sunucu mantığı `server/app.ts`'e (config 1279 → 44 satır). Typecheck, 254 test, build yeşil; lokal duman testinde tüm uç noktalar önceki gibi. Adım 10 tanımı `server/app.ts`'i bölmek olarak güncellendi.
