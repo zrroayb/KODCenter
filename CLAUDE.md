@@ -42,7 +42,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 265 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 251 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -69,9 +69,9 @@ src/
     intelligence/    marketContext, structuralBias, smtEngine, structureEngine...
     gemini/          Gemini istemci modülleri + prompt/şema kontratları (crtInterpretation.ts, tradeCommentary.ts, crtKnowledge.ts).
     backtest/        runtimeReplay (geçmiş veriyle replay/doğrulama).
-    risk/, session/, journal/ ...
+    brain/ (decisionSummary checklist), risk/, session/, journal/ ...
   data/              demoData (fixture pariteleri).
-  test/              vitest (*.test.ts). `test/fixtures/kod/` = eski KOD modeli, YALNIZ test fikstürü.
+  test/              vitest (*.test.ts). Pipeline testleri gerçek CRT sinyaliyle: `createCrtSignal` / `createCrtShortContext` (strategyFixtures.ts).
 vite.config.ts       CANLI sunucu mantığı: /api/gemini/* handler'ları + sistem talimatları burada.
 knowledge/           CRT kuralları (crt_secrets_rules.md = kaynak, power_of_3.md) — insan-okunur.
 docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + knowledge/strategies/)
@@ -209,6 +209,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Denetim 10: ölü kod silindi — `runtime/cloudSnapshot.ts` (worker kalıntısı), `session/types.ts`'teki silinmiş Session sekmesi tipleri, artık hiç gönderilmeyen raid/context Telegram alarm yolu (dedupe anahtarları, sunucu mesaj dalları, kabul kuralı; sunucu artık yalnız READY + exit kabul eder).
 
 - 2026-10-10 — Denetim 11: 1H→5m anchor ve replay'deki "1H tracking" gölge hattı silindi (kaynağın TF eşleşmesinde yok, hiç READY üretmiyordu, listeye WATCH gürültüsü ekliyordu; tracking her replay penceresinde motoru ikinci kez çalıştırıp replay'i ~2× yavaşlatıyordu). `intradayAnchorMode` ayarı, `trackingScenarios/trackingTrades`, Backtest ekranındaki satır ve 2 test gitti. Bayat-veri blocker'ı + 1H kaldırma motoru değiştirdiği için `REPLAY_ARCHIVE_VERSION` → `crt-2026-10-10-audit`. 265 test.
+
+- 2026-10-10 — Eski KOD modeli tamamen kalktı: 12 pipeline testi (lifecycle, readyHold, journal, grafik odağı, detay paneli, Gemini payload, yapı denetimi, tarama gereksinimleri, kurallar, full flow, replay sonuç testleri) artık gerçek CRT motorunun sinyalini kullanıyor (`createCrtSignal`, 4H short READY / exitMinimumRR 10 → WATCH). `src/test/fixtures/kod/`, `kodStrategy.test.ts` (KOD'un kendi 14 testi), yalnız KOD'un kullandığı `brain/{confidence,financialBrain,reasoning,warnings}.ts` ve canlıda hiç çağrılmayan `signalLifecycleState` silindi. Registry + likidite haritası testleri `registryAndLiquidity.test.ts`'e taşındı. 251 test.
 
 ## graphify
 
