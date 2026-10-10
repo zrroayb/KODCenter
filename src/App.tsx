@@ -432,7 +432,7 @@ export default function App() {
   const refreshInFlightRef = useRef(false);
   const hasLoadedDataRef = useRef(false);
   const contexts = useMemo(
-    () => attachSmtDivergences(markets.map((market) => buildMarketContext(market.symbol, market.timeframes))),
+    () => attachSmtDivergences(markets.map((market) => buildMarketContext(market.symbol, market.timeframes, Date.now()))),
     [markets]
   );
   const [activeView, setActiveView] = useState<ViewId>("dashboard");

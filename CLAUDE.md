@@ -197,6 +197,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-10 — Denetim düzeltmeleri 1: herkese açık uç noktalar korundu (`server/publicGuard.ts`). Gemini (`/api/gemini/*`): yalnız sitenin kendi sayfalarından (Origin/Referer host == Host), IP başına 20 çağrı/10 dk + toplam 300/saat → URL'i bilen başkası Gemini kotasını yakamaz. `/yahoo` proxy: aynı site + IP başına 1200/10 dk + yalnız `/v8/finance/chart/` yolu. dev/preview iki kopya route tablosu tek `registerRoutes`'a indi. Lokal sunucuda doğrulandı (dış 403, site 200, limit 429). `publicGuard.test.ts`.
 
+- 2026-10-10 — Denetim 2-3: Masa görüşü (market-pick) artık her 60 sn yenilemede değil, yalnız tahta değişince (setup kimliği + stage) Gemini'ye gidiyor. "Veri eski" kontrolü düzeldi: `buildMarketContext(..., now)` — canlı çağıranlar (App, cloud-scan) `Date.now()` geçiyor; önce son mumun kendi zamanına göre ölçüldüğü için hiç tetiklenmiyordu. Bayat canlı veri artık blocker (READY/alert yok); replay `now` vermez, etkilenmez.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
