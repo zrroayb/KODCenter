@@ -199,6 +199,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-10 — Denetim 2-3: Masa görüşü (market-pick) artık her 60 sn yenilemede değil, yalnız tahta değişince (setup kimliği + stage) Gemini'ye gidiyor. "Veri eski" kontrolü düzeldi: `buildMarketContext(..., now)` — canlı çağıranlar (App, cloud-scan) `Date.now()` geçiyor; önce son mumun kendi zamanına göre ölçüldüğü için hiç tetiklenmiyordu. Bayat canlı veri artık blocker (READY/alert yok); replay `now` vermez, etkilenmez.
 
+- 2026-10-10 — Denetim 4: tarayıcıda Yahoo'dan gelmeyen sembolün yerine konan demo mumlar (30 Haziran tarihli) gerçek Yahoo verisinin "synthetic-bid-ask" etiketini taşıyordu → sahte setup canlı gibi görünebiliyordu. Artık `feed: "demo"` (`asDemoMarket`): veri güveni "Demo/fallback" der, bayat-veri blocker'ı READY'yi engeller. Telegram etkilenmiyordu (tarama başarısız sembolü atlıyor).
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
