@@ -16,7 +16,7 @@ export type TelegramReadyAlertPayload = {
   grade: string;
   score: number;
   stage: "ready" | "watch";
-  alertKind?: "ready" | "raid" | "context" | "exit";
+  alertKind?: "ready" | "exit";
   playbook?: string;
   strategyId?: string;
   createdAt: number;
@@ -56,7 +56,7 @@ export type TelegramAlertRecord = {
   targets: number[];
   rr: number;
   reasons: string[];
-  alertKind: "ready" | "raid" | "context" | "exit";
+  alertKind: "ready" | "exit";
   rangeTf?: string;
   confirmTf?: string;
   currentStage?: SignalStage;
@@ -84,35 +84,6 @@ export function readyTelegramDedupeKey(signal: TradingSignal): string {
     `sl:${priceBucket(signal.plan.stopLoss)}`,
     `eq:${priceBucket(signal.plan.targets[0])}`,
     `dol:${priceBucket(signal.plan.targets[1])}`
-  ].join("|");
-}
-
-export function raidTelegramDedupeKey(signal: TradingSignal): string {
-  const anchor = signal.crtAnchor;
-  return [
-    "raid-alert-v1",
-    signal.strategyId,
-    signal.symbol,
-    signal.direction,
-    anchor?.rangeTf ?? "?",
-    priceBucket(anchor?.rangeHigh),
-    priceBucket(anchor?.rangeLow)
-  ].join("|");
-}
-
-export function crtContextTelegramDedupeKey(signal: TradingSignal): string {
-  const anchor = signal.crtAnchor;
-  const bias = signal.evidence.find((item) => item.id === "crt-bias");
-  return [
-    "crt-context-alert-v1",
-    signal.strategyId,
-    signal.symbol,
-    signal.direction,
-    anchor?.rangeTf ?? "?",
-    priceBucket(anchor?.rangeHigh),
-    priceBucket(anchor?.rangeLow),
-    priceBucket(bias?.price),
-    bias?.time ?? bias?.candleIndex ?? "na"
   ].join("|");
 }
 

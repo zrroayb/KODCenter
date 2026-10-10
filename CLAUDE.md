@@ -207,6 +207,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-10-10 — Denetim 9: hiçbir etkisi olmayan ayarlar `UserRules`'tan silindi: `partialTpEnabled`, `moveToBreakevenAtR` (yalnız replay'in EQ%50 karşı-olgu varyantı kullanıyor, kendi varsayılanıyla), `useHtfAlignmentFilter` (HTF kapısı her zaman açık), `allowedKillzones` (hepsi açıktı), `usePremiumDiscountFilter`, `useJudasSwingFilter` (hep kapalıydı). App/scanRuntime artık bunları geçirmiyor; killzone/PD/Judas filtre kodu applyRules'tan gitti. Davranış değişmedi.
 
+- 2026-10-10 — Denetim 10: ölü kod silindi — `runtime/cloudSnapshot.ts` (worker kalıntısı), `session/types.ts`'teki silinmiş Session sekmesi tipleri, artık hiç gönderilmeyen raid/context Telegram alarm yolu (dedupe anahtarları, sunucu mesaj dalları, kabul kuralı; sunucu artık yalnız READY + exit kabul eder).
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e

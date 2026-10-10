@@ -274,16 +274,6 @@ function formatTelegramR(value: unknown) {
 
 function telegramCaption(payload: ReadyTelegramPayload) {
   const reasons = (payload.reasons ?? []).slice(0, 5).map((reason) => `- ${escapeHtml(reason)}`).join("\n");
-  if (payload.alertKind === "raid") {
-    return [
-      `<b>CRT RAID</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")})`,
-      `Range: <b>${formatTelegramPrice(payload.rangeLow)}</b> - <b>${formatTelegramPrice(payload.rangeHigh)}</b>${payload.raidClosed ? " · raid mumu içeri kapandı" : " · raid canlı"}`,
-      "",
-      `${escapeHtml(payload.confirmTf ?? "LTF")} ChoCH/Just kapanışı + retest bekleniyor. Bu bir entry sinyali DEĞİL, hazırlık uyarısıdır.`,
-      "",
-      reasons || "- Raid + reclaim aktif"
-    ].join("\n");
-  }
   if (payload.alertKind === "exit") {
     return [
       `<b>ÇIKIŞ UYARISI</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")} CRT, açık işlem)`,
@@ -292,16 +282,6 @@ function telegramCaption(payload: ReadyTelegramPayload) {
       reasons || "- Ters SMT + ters MSS",
       "",
       "Otomatik işlem yok: çıkış / stop sıkılaştırma kararı senin."
-    ].join("\n");
-  }
-  if (payload.alertKind === "context") {
-    return [
-      `<b>CRT CONTEXT</b> ${escapeHtml(payload.symbol ?? "-")} ${escapeHtml((payload.direction ?? "").toUpperCase())} (${escapeHtml(payload.rangeTf ?? "?")})`,
-      `Range: <b>${formatTelegramPrice(payload.rangeLow)}</b> - <b>${formatTelegramPrice(payload.rangeHigh)}</b>`,
-      "",
-      `${escapeHtml(payload.confirmTf ?? "LTF")} ChoCH/Just + POI/retest bekleniyor. Bu bir entry sinyali DEĞİL, takip uyarısıdır.`,
-      "",
-      reasons || "- HTF CRT yön verdi"
     ].join("\n");
   }
   const eqTarget = payload.targets?.[0];
@@ -1007,7 +987,7 @@ async function sendTelegramReadyAlert(payload: ReadyTelegramPayload, env: Telegr
     return { status: "disabled" as const, reason: "TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing" };
   }
 
-  const shouldUseAiCommentary = payload.alertKind !== "raid" && payload.alertKind !== "context" && payload.alertKind !== "exit";
+  const shouldUseAiCommentary = payload.alertKind !== "exit";
   const aiResult = payload.aiCommentary || !shouldUseAiCommentary
     ? undefined
     : await generateGeminiTradeCommentary(payload.tradeContext ?? payload, env);
@@ -1123,9 +1103,8 @@ async function handleTelegramReadyAlert(request: JsonRequest, response: YahooPro
   let dedupeKey: string | undefined;
   try {
     const payload = await readJsonBody(request) as ReadyTelegramPayload & { dedupeKey?: string; record?: unknown };
-    const acceptedWatchAlert = payload.stage === "watch" && (payload.alertKind === "raid" || payload.alertKind === "context");
-    if (payload.stage !== "ready" && !acceptedWatchAlert && payload.alertKind !== "exit") {
-      jsonResponse(response, 400, { status: "error", error: "Only READY, CRT raid or CRT context alerts are accepted" });
+    if (payload.stage !== "ready" && payload.alertKind !== "exit") {
+      jsonResponse(response, 400, { status: "error", error: "Only READY and exit-warning alerts are accepted" });
       return;
     }
     dedupeKey = payload.dedupeKey || `payload|${payload.id ?? ""}`;
