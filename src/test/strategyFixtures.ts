@@ -182,7 +182,7 @@ export function createCrtShortContext(): MarketContext {
     { ...last, time: last.time + 15 * 60 * 1000, open: 99.3, high: 99.8, low: 99.1, close: 99.4 },
     { ...last, time: last.time + 30 * 60 * 1000, open: 99.5, high: 100, low: 99.3, close: 99.7 }
   ];
-  return createStructureContext({
+  return withHtfCrts(createStructureContext({
     timeframes: { ...base.timeframes, m15, m5: m15, h4 },
     dealingRange: { high: 105, low: 90, midpoint: 97.5, source: "fixture" },
     premiumDiscount: { zone: "premium", positionPct: 0.72, midpoint: 97.5 },
@@ -198,7 +198,50 @@ export function createCrtShortContext(): MarketContext {
     displacements: [{ direction: "short", candleIndex: 23, bodyRatio: 0.8, rangeAtr: 1 }],
     marketStructureShifts: [{ direction: "short", level: 99.8, candleIndex: 23 }],
     fairValueGaps: [{ direction: "short", low: 99.8, high: 100.2, midpoint: 100, candleIndex: 22, mitigated: false }]
-  });
+  }), { daily: "short" });
+}
+
+// Daily / Weekly / Monthly CRT for the HTF gate (htfCrt.ts). Each series ends with a forming
+// candle at the 4H Candle 1's open; before it C1 (high 101 / low 94) and C2:
+// "short" = C2 sweeps C1's high (101.4) and closes inside, "long" = sweeps C1's low, "none" =
+// C2 inside C1 (no active CRT). C1/C2 highs are the old D/W/M key levels near the 4H sweep.
+export type HtfCrtFixture = "short" | "long" | "none";
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function htfCrtSeries(direction: HtfCrtFixture, stepMs: number, formingTime: number, shift = 0) {
+  const flat = { open: 98, high: 99, low: 97, close: 98 };
+  const c1 = { open: 96, high: 101, low: 94, close: 100 };
+  const c2 = direction === "short"
+    ? { open: 100, high: 101.4, low: 97, close: 99 }
+    : direction === "long"
+      ? { open: 96, high: 100, low: 93.5, close: 96 }
+      : { open: 98, high: 100, low: 96, close: 98 };
+  const bars = [flat, flat, flat, flat, c1, c2];
+  return [
+    ...bars.map((bar, index) => ({
+      open: bar.open + shift, high: bar.high + shift, low: bar.low + shift, close: bar.close + shift,
+      time: formingTime - (bars.length - index) * stepMs, volume: 1000, closed: true
+    })),
+    { open: 99 + shift, high: 99.5 + shift, low: 98.5 + shift, close: 99 + shift, time: formingTime, volume: 1000, closed: false }
+  ];
+}
+
+export function withHtfCrts(
+  context: MarketContext,
+  reads: { daily?: HtfCrtFixture; weekly?: HtfCrtFixture; monthly?: HtfCrtFixture },
+  // Moves every D/W/M price (and so every key level) away from the 4H sweep.
+  shift = 0
+): MarketContext {
+  const formingTime = context.timeframes.h4[21]?.time ?? context.timeframes.h4.at(-1)!.time;
+  return {
+    ...context,
+    timeframes: {
+      ...context.timeframes,
+      daily: htfCrtSeries(reads.daily ?? "none", DAY_MS, formingTime, shift),
+      weekly: htfCrtSeries(reads.weekly ?? "none", 7 * DAY_MS, formingTime, shift),
+      monthly: htfCrtSeries(reads.monthly ?? "none", 30 * DAY_MS, formingTime, shift)
+    }
+  };
 }
 
 // The CRT signal from createCrtShortContext. exitMinimumRR above ~2.2 turns the same setup WATCH.

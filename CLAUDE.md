@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 254 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 255 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -101,7 +101,10 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
   `eq-partial-be`) yalnız `settings.exitModel` ile opt-in ve karşı-olgu varyantı olarak ölçülür.
   Boyutlandırma (sizing) DOL'a göre.
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
-  (eski HTF high/low, HTF FVG) ve HTF trend yönü **zorunlu blocker**; karşı-HTF istisnası yok.
+  ve HTF yönü **zorunlu blocker**; karşı-HTF istisnası yok. **HTF yönü = D/W/M CRT**
+  (`htfCrt.ts`): setup'ın üstündeki günlük/haftalık/aylık'tan (4H → D/W/M, 1D → W/M, 1W → M, 1M en
+  üst) en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok (READY yok).
+  **Key level** = üst TF'deki eski D/W/M high/low (C1'in kendisi, DRH/DRL sayılmaz) veya HTF FVG.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
 - **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m). 1H→5m 2026-10-10'da silindi. Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
   tepe sweep'i otomatik short yapmaz — HTF draw (DOL) ve context belirler.
@@ -219,6 +222,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — Sunucu mantığı `vite.config.ts`'ten (1279 satır) `server/app.ts`'e taşındı; config artık 44 satır, yalnız build ayarı. Mantık değişmedi (mekanik taşıma): lokal duman testi — sayfa 200, health ok, Gemini site 200 / dış 403, token'sız alert 503 (fail-closed), live-alerts 200, takvim empty. CLAUDE.md ve yorumlar güncellendi.
 
 - 2026-10-10 — `server/app.ts` (1240 satır) dörde bölündü: `http.ts` (ortak tip/yardımcı), `gemini.ts` (prompt'lar, fallback'ler, /api/gemini/* handler'ları), `telegram.ts` (READY/exit mesajı, gönderim, foto, dedupe, geçmiş), `app.ts` (route tablosu, Yahoo proxy, takvim, koruma; 123 satır). İçerik aynen taşındı; lokal duman testi aynı sonuçları verdi.
+
+- 2026-11-14 — HTF yönü ve key level artık günlük/haftalık/aylık CRT'den (sahibi: "weekly daily monthly CRT bakacaksın"). Denetim bulguları 1-2 kapandı: (1) key level C1'in kendi high/low'uyla kendini doğruluyordu (1D C1'in high'ı = PDH) ve DRH/DRL sayılıyordu; (2) "HTF zorunlu" aslında "ters değilse geç"ti, nötr HTF'de dip sweep'i otomatik long oluyordu. Yeni `src/lib/strategies/crt/htfCrt.ts`: her D/W/M için son iki kapanmış mum (C2 tek tarafı süpürüp içeride kapandı → C3, yön); `evaluateCrtHtfAlignment` artık eski trend bias'ı değil üstteki D/W/M CRT'leri okuyor — en az biri aynı yönde + hiçbiri ters değil; hiç aktif CRT yoksa blocker. Key level = C1'i içeren üst mumdan önceki 3 kapanmış D/W/M mumunun high/low'u (1M anchor: C1'den önceki 10 ay) veya HTF FVG. Kaynakta olup motorda olmayan "mum açılış fiyatı" Gemini metninden çıkarıldı. Gemini: crtKnowledge (key-level-required, htf-bias-required), CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-dwm-crt`. Test fikstürüne gerçek D/W/M CRT serisi (`withHtfCrts`); 255 test. Beklenen etki: daha az READY.
 
 ## graphify
 

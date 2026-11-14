@@ -15,6 +15,7 @@ import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../..
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
+import { crtKeyLevels, readHigherCrts, type HtfCrtRead, type HtfCrtTimeframe } from "./htfCrt";
 
 const CRT_STRATEGY_ID = "crt";
 // Exit model is DOL-target with break-even at EQ: the whole position runs to DOL/TP2, and when
@@ -115,7 +116,7 @@ type CrtSetup = {
   readyEligible: boolean;
 };
 
-type CrtHtfAlignmentTimeframe = Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+type CrtHtfAlignmentTimeframe = HtfCrtTimeframe;
 
 export type CrtHtfAlignment = {
   aligned: boolean;
@@ -127,41 +128,41 @@ export type CrtHtfAlignment = {
   summary: string;
 };
 
-const HTF_ALIGNMENT_CHAIN: Record<AnchorSpec["rangeTf"], CrtHtfAlignmentTimeframe[]> = {
-  "1h": ["4h", "1d"],
-  "4h": ["1d", "1w"],
-  "1d": ["1w"],
-  "1w": ["1M"],
-  // Nothing above monthly: the monthly trend itself must agree.
-  "1M": ["1M"]
-};
+const HTF_LABEL: Record<CrtHtfAlignmentTimeframe, string> = { "1d": "Günlük", "1w": "Haftalık", "1M": "Aylık" };
 
-function contextBiasForTimeframe(context: MarketContext, timeframe: CrtHtfAlignmentTimeframe) {
-  if (timeframe === "1M") return context.bias.monthly;
-  if (timeframe === "1w") return context.bias.weekly;
-  if (timeframe === "4h") return context.bias.h4;
-  return context.bias.daily;
+function htfReadText(read: HtfCrtRead): string {
+  if (!read.direction) return `${HTF_LABEL[read.timeframe]} CRT yok`;
+  return `${HTF_LABEL[read.timeframe]} CRT ${read.direction === "short" ? "high süpürüldü → short" : "low süpürüldü → long"}`;
 }
 
+// HTF direction = the Daily / Weekly / Monthly CRT above the anchor (htfCrt.ts). READY needs at
+// least one of them in Candle 3 pointing the trade's way and none pointing against it; no active
+// CRT above (all neutral) is NOT enough — a sweep alone never makes the direction. The monthly
+// anchor is the top of the chain: its own monthly CRT is the direction.
 export function evaluateCrtHtfAlignment(
   context: MarketContext,
   rangeTf: AnchorSpec["rangeTf"],
   direction: TradeDirection
 ): CrtHtfAlignment {
-  const required = HTF_ALIGNMENT_CHAIN[rangeTf];
-  const expected = direction === "long" ? "bullish" : "bearish";
-  const opposite = direction === "long" ? "bearish" : "bullish";
-  const matching = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === expected);
-  const opposing = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === opposite);
-  const neutral = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === "neutral");
-  // Loose gate: only an actively OPPOSING higher timeframe vetoes READY (never trade against
-  // the HTF narrative). A neutral/unclear higher TF is tolerated — it costs score via the
-  // fullyAligned bonus, not eligibility.
-  const aligned = opposing.length === 0;
-  const fullyAligned = matching.length === required.length;
-  const reads = required
-    .map((timeframe) => `${timeframe} ${contextBiasForTimeframe(context, timeframe)}`)
-    .join(" + ");
+  const reads = readHigherCrts(context, rangeTf);
+  const required = reads.map((read) => read.timeframe);
+  if (reads.length === 0) {
+    return {
+      aligned: true,
+      fullyAligned: true,
+      required,
+      matching: [],
+      opposing: [],
+      neutral: [],
+      summary: "Aylık CRT en üst zaman dilimi; yön aylık CRT'nin kendisi."
+    };
+  }
+  const matching = reads.filter((read) => read.direction === direction).map((read) => read.timeframe);
+  const opposing = reads.filter((read) => read.direction && read.direction !== direction).map((read) => read.timeframe);
+  const neutral = reads.filter((read) => !read.direction).map((read) => read.timeframe);
+  const aligned = matching.length > 0 && opposing.length === 0;
+  const fullyAligned = aligned && matching.length === required.length;
+  const text = reads.map(htfReadText).join(" · ");
   return {
     aligned,
     fullyAligned,
@@ -169,11 +170,13 @@ export function evaluateCrtHtfAlignment(
     matching,
     opposing,
     neutral,
-    summary: fullyAligned
-      ? `${reads}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} yönüyle tam uyumlu.`
-      : aligned
-      ? `${reads}; üst yön ${expected} değil ama karşı da değil — nötr tolere edildi, skor düşük.`
-      : `${reads}; üst timeframe ${direction.toUpperCase()} yönüne karşı — READY vetosu.`
+    summary: opposing.length > 0
+      ? `${text}; üst CRT ${direction.toUpperCase()} yönüne ters — READY yok.`
+      : matching.length === 0
+      ? `${text}; üstte ${direction.toUpperCase()} yönünü veren aktif D/W/M CRT yok — yön yok, READY yok.`
+      : fullyAligned
+      ? `${text}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} tüm üst CRT'lerle uyumlu.`
+      : `${text}; ${direction.toUpperCase()} yönünü ${matching.map((timeframe) => HTF_LABEL[timeframe]).join("/")} CRT veriyor.`
   };
 }
 
@@ -1040,10 +1043,22 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
   const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
   const sweptExtreme = turtleSoup?.sweepLevel ?? (direction === "short" ? anchor.range.high : anchor.range.low);
-  // STEP 3+6: liquidity/location ranking — weekly/monthly beats daily beats HTF-FVG.
+  // Candle 1 of this CRT among the range candles (latest exact high/low match).
+  let referenceIndex = -1;
+  for (let index = anchor.rangeCandles.length - 1; index >= 0; index -= 1) {
+    if (Math.abs(anchor.rangeCandles[index].high - anchor.range.high) < 1e-9 && Math.abs(anchor.rangeCandles[index].low - anchor.range.low) < 1e-9) {
+      referenceIndex = index;
+      break;
+    }
+  }
+  const c1Time = anchor.rangeCandles[referenceIndex]?.time ?? anchor.rangeCandles.at(-1)?.time ?? 0;
+  // STEP 3+6: key level = an OLD Daily/Weekly/Monthly high/low above the anchor timeframe
+  // (htfCrt.ts: never C1's own high/low, never a computed dealing-range edge) or an HTF FVG.
+  // Weekly/monthly beats daily beats HTF-FVG.
   const nearSwept = (level: number) => Math.abs(level - sweptExtreme) <= buffer * 3;
-  const weeklyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PWH" || objective.kind === "PWL" || objective.kind === "PMH" || objective.kind === "PML") && nearSwept(objective.level));
-  const dailyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PDH" || objective.kind === "PDL" || objective.kind === "DRH" || objective.kind === "DRL") && nearSwept(objective.level));
+  const keyLevels = crtKeyLevels(context, anchor.spec.rangeTf, c1Time).filter((item) => nearSwept(item.level));
+  const weeklyLocation = keyLevels.some((item) => item.timeframe === "1w" || item.timeframe === "1M");
+  const dailyLocation = keyLevels.some((item) => item.timeframe === "1d");
   const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
   const locationTier: CrtSetup["locationTier"] = weeklyLocation ? "weekly" : dailyLocation ? "daily" : fvgConfluence ? "fvg" : "none";
   const anchorAtKeyLevel = weeklyLocation || dailyLocation;
@@ -1060,13 +1075,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // narrative (Asia raided by London, London raided by NY) — applied to every anchor.
   // Master §5: grade the CRT reference candle so an arbitrary doji cannot pose as a real range.
   // Hybrid, not a hard filter: every closed candle is a candidate, but a weak candle scores low.
-  let referenceIndex = -1;
-  for (let index = anchor.rangeCandles.length - 1; index >= 0; index -= 1) {
-    if (Math.abs(anchor.rangeCandles[index].high - anchor.range.high) < 1e-9 && Math.abs(anchor.rangeCandles[index].low - anchor.range.low) < 1e-9) {
-      referenceIndex = index;
-      break;
-    }
-  }
   const referenceCandle = referenceIndex >= 0
     ? evaluateReferenceCandle({
         candle: anchor.rangeCandles[referenceIndex],
@@ -1095,9 +1103,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
           : `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.`)
       : undefined,
     // CRT Secrets: HTF yönüne ters CRT kesinlikle işlenmez (istisna yok, 2026-10-02).
-    !htfAlignment.aligned ? `HTF yönü ters: ${htfAlignment.summary} — trend tersine CRT işlenmez.` : undefined,
-    // CRT Secrets: key level'a (eski HTF high/low, HTF FVG) denk gelmeyen CRT işlenmez.
-    !anchorAtKeyLevel && !fvgConfluence ? "Key level yok: sweep eski HTF high/low (PDH/PDL/PWH/PWL/PMH/PML) veya HTF FVG'ye denk gelmiyor — key level'sız CRT işlenmez." : undefined,
+    // HTF yönü = üstteki D/W/M CRT (en az biri bu yönde, hiçbiri ters). Nötr yetmez.
+    !htfAlignment.aligned ? `HTF yönü yok/ters: ${htfAlignment.summary}` : undefined,
+    // CRT Secrets: key level'a (eski D/W/M high/low, HTF FVG) denk gelmeyen CRT işlenmez.
+    !anchorAtKeyLevel && !fvgConfluence ? "Key level yok: sweep üst zaman dilimindeki eski günlük/haftalık/aylık high/low'a (C1'in kendisi sayılmaz) veya HTF FVG'ye denk gelmiyor — key level'sız CRT işlenmez." : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !pdAligned ? "CRT range P/D yanlış: long discounttan, short premiumdan gelmeli." : undefined,
@@ -1117,7 +1126,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   ].filter((item): item is string => Boolean(item));
   const warnings = [
     turtleSoup ? turtleSoup.summary : undefined,
-    htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üst yön nötr (${htfAlignment.neutral.join(", ")}); karşı değil ama tam onay yok, boyutu küçük tut.` : undefined,
+    htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üstte aktif CRT'si olmayan zaman dilimi var (${htfAlignment.neutral.join(", ")}); yön tek kaynaktan, boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
