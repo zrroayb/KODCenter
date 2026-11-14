@@ -13,6 +13,11 @@ Kanıt dosyaları:
   `src/test/crtAuditScenario.ts`.
 - Huni scripti: `scripts/crt-funnel.ts` (kapı sınıflandırması `scripts/crtFunnelGates.ts`).
 
+> **Gerçek veri sonucu (2026-11-14, `docs/CRT_HUNI_2026-11-14.md`):** 45.5 gün, 12 sembol, aynı
+> mumlarda: eski motor 10 READY (+7.97R), True MSS'li motor 1 READY (−1R). ChoCH'u geçen setup
+> 350 → 86. Örnek her iki durumda da karar için yetersiz (< 30). D/W/M kapısının elediği 78 dolmuş
+> işlemin beklentisi ≈ 0R.
+
 ## Kısa cevap
 
 - **Tespit (range, sweep, C2 kapanışı) büyük ölçüde kaynakla uyumlu.**
@@ -132,6 +137,8 @@ Kanıt dosyaları:
 - **Düzeltme:** Önce ölç (huni scripti READY'leri grade'e göre kırabilir), sonra karar ver. Yorum düzeltilmeli.
 
 ### B10 — Hedef yedeği (çürütüldü)
+
+> **TEMİZLENDİ 2026-11-14:** yedek silindi; READY hedefi değişmedi (audit testleri).
 - **Ne:** `targetDol` (`:725`) karşı uç girişin gerisindeyse `bias.drawLevel`'a düşüyor. Ama ChoCH varken giriş her zaman range içinde: POI kenarı `insideRange` ile, ChoCH seviyesi iç pivot filtresiyle sınırlı.
   - READY'de hedef her zaman C1'in karşı ucu.
   - Yedek yalnız ChoCH'suz WATCH planının gösterilen hedefini ve "gerçek hedef yok" blocker'ını etkiliyor.

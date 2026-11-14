@@ -245,6 +245,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-11-14 — Elle etiketli CRT formatı (karar 3): `src/test/fixtures/labeledCrt.json` (boş — sahibi doldurur, örnek uydurulmaz), format notu `src/test/fixtures/LABELED_CRT.md`, test `src/test/labeledCrt.test.ts`: dosya boşsa atlanır; doluysa her etiketi motorun CRT tespitiyle (`detectAnchorRaid`: C1/C2 sweep + C2 içeride kapanış, READY kapıları değil) karşılaştırır, mumları `labeledCrtMarkets.json`'dan (huni workflow'unun `markets.json` çıktısı) okur ve her uyuşmazlığı listeler. 280 test + 1 atlanan.
 
+- 2026-11-14 — Gerçek veri ölçümü sonuçları: `docs/CRT_HUNI_2026-11-14.md` (workflow koşu #2, 45.5 gün, 12 sembol, üç motor aynı mumlarda). ChoCH'u geçen setup eski motorda 350, True MSS'te 86, güncel HEAD'de 117; READY 10 → 1 → 1. Eski motor READY'leri +7.97R (9 dolan; 7 dk önceki koşuda +10.65R — pencere tek mum kayınca ~2.7R oynuyor), True MSS'in tek READY'si −1R. Örnekler karar için yetersiz (< 30). ChoCH'ta takılanların 260/356'sında fiyat sweep öncesi swing'i hiç kırmamış (eşik değil). D/W/M kapısının elediği 78 dolmuş işlem ≈ 0R. ChoCH eşiklerine dokunulmadı; seçenekler sahibine sunuldu. Merge edilmedi.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e
