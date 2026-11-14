@@ -1,0 +1,72 @@
+name: CRT funnel measurement
+
+# Measurement only (audit 2026-11): runs scripts/crt-funnel.ts on real Yahoo/Binance data for
+# the CURRENT engine and, on the very same candles, for the engine before the True MSS change
+# (611b6dc). Sends nothing anywhere, uses no secrets.
+# workflow_dispatch only works once this file is on the default branch; until then, push a new
+# line to .github/funnel-trigger on the development branch to run it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/eur-usd-trading-hpxmxn]
+    paths: [.github/funnel-trigger]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crt-funnel
+  cancel-in-progress: true
+
+jobs:
+  funnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Funnel — current engine (fetches the data)
+        run: npx tsx scripts/crt-funnel.ts --yahoo --days 55 --save markets.json --out funnel-new.md --json funnel-new.json
+
+      - name: Funnel — engine before True MSS (611b6dc), same candles
+        run: |
+          git worktree add ../kod-old 611b6dc
+          ln -s "$GITHUB_WORKSPACE/node_modules" ../kod-old/node_modules
+          cd ../kod-old
+          npx tsx scripts/crt-funnel.ts --input "$GITHUB_WORKSPACE/markets.json" --days 55 --out "$GITHUB_WORKSPACE/funnel-old.md" --json "$GITHUB_WORKSPACE/funnel-old.json"
+
+      - name: Summary
+        if: always()
+        run: |
+          for file in funnel-new.md funnel-old.md; do
+            if [ -f "$file" ]; then
+              echo "===== $file ====="
+              cat "$file"
+              { echo "## $file"; echo; cat "$file"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crt-funnel
+          path: |
+            markets.json
+            funnel-new.md
+            funnel-new.json
+            funnel-old.md
+            funnel-old.json
+          if-no-files-found: warn

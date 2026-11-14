@@ -6,7 +6,7 @@ import { crtStrategy, detectAnchorRaid, evaluateCrtHtfAlignment, scoreCrtSetup }
 import { readHtfCrt } from "../lib/strategies/crt/htfCrt";
 import { auditShortScenario, type AuditScenarioOptions } from "./crtAuditScenario";
 import { createCrtSignal, createStructureContext, withHtfCrts } from "./strategyFixtures";
-import { DEPTH_GATES, depth, gateFlags } from "../../scripts/crtFunnelGates";
+import { chochFailureReason, DEPTH_GATES, depth, gateFlags } from "../../scripts/crtFunnelGates";
 
 // CRT DENETİMİ 2026-11 (docs/CRT_DENETIM_2026-11.md). Bu testler motorun BUGÜNKÜ davranışını
 // sabitler. Her test bir şüphenin karşı-örneğidir. "DÜZELTİLDİ" yazanlar düzeltmeden sonra
@@ -216,6 +216,12 @@ describe("CRT denetimi — B3: geçmiş yeniden yazılmıyor (düzeltildi)", () 
 });
 
 describe("huni scripti kapı sınıflandırması (scripts/crtFunnelGates.ts)", () => {
+  it("ChoCH teşhisi: yalnız sweep sonrası pivotu kıran displacement → 'referans var, kırılmadı'", () => {
+    const signal = scanShort({ breakSwing: false }).signal;
+    expect(gateFlags(signal).choch).toBe(false);
+    expect(chochFailureReason(signal)).toBe("not-broken");
+  });
+
   it("READY setup tüm kapılardan geçer", () => {
     const flags = gateFlags(scanShort().signal);
     expect(depth(flags)).toBe(DEPTH_GATES.length);

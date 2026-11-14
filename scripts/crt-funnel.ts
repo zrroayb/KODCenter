@@ -22,7 +22,7 @@ import type { Candle, MarketContext, TradingSignal } from "../src/lib/ict/types"
 import { buildMarketContext } from "../src/lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../src/lib/intelligence/smtEngine";
 import { crtStrategy } from "../src/lib/strategies/crt/crt.strategy";
-import { DEPTH_GATES, depth, GATE_LABEL, gateFlags, type Gate } from "./crtFunnelGates";
+import { CHOCH_FAILURE_LABEL, chochFailureReason, DEPTH_GATES, depth, GATE_LABEL, gateFlags, type ChochFailure, type Gate } from "./crtFunnelGates";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
@@ -84,6 +84,8 @@ type SetupRecord = {
   rangeTf: string;
   direction: string;
   bestDepth: number;
+  // Why the ChoCH gate stopped it (only when its deepest reach stopped at the ChoCH gate).
+  chochReason?: ChochFailure;
   stoppedAt?: Gate;
   firstReady?: { time: number; signal: TradingSignal; context: MarketContext; flags: Record<Gate, boolean> };
   counterfactual?: { signal: TradingSignal; gates: string };
@@ -93,12 +95,21 @@ async function loadMarkets(): Promise<DemoMarket[]> {
   const input = option("input");
   if (input) return JSON.parse(readFileSync(input, "utf8")) as DemoMarket[];
   if (flag("yahoo")) {
-    const batch = await loadYahooMarketBatch(YAHOO_SYMBOLS.map((item) => item.symbol), {
-      baseUrl: "https://query2.finance.yahoo.com", fetcher: fetch, retryAttempts: 3
-    });
-    if (batch.errors.length) console.error(`Veri hataları: ${batch.errors.join(" | ")}`);
-    if (option("save")) writeFileSync(option("save")!, JSON.stringify(batch.markets));
-    return batch.markets;
+    // Small sequential batches, like cloud-scan: Yahoo is more stable that way.
+    const symbols = YAHOO_SYMBOLS.map((item) => item.symbol);
+    const markets: DemoMarket[] = [];
+    const errors: string[] = [];
+    for (let index = 0; index < symbols.length; index += 4) {
+      const batch = await loadYahooMarketBatch(symbols.slice(index, index + 4), {
+        baseUrl: "https://query2.finance.yahoo.com", fetcher: fetch, retryAttempts: 3
+      });
+      markets.push(...batch.markets);
+      errors.push(...batch.errors);
+    }
+    if (errors.length) console.error(`Veri hataları: ${errors.join(" | ")}`);
+    if (!markets.length) throw new Error("Yahoo/Binance hiç veri döndürmedi.");
+    if (option("save")) writeFileSync(option("save")!, JSON.stringify(markets));
+    return markets;
   }
   return createDemoMarkets();
 }
@@ -137,6 +148,7 @@ async function main() {
         if (reached > record.bestDepth) {
           record.bestDepth = reached;
           record.stoppedAt = DEPTH_GATES[reached];
+          record.chochReason = record.stoppedAt === "choch" ? chochFailureReason(signal) : undefined;
         }
         if (flags.ready && !record.firstReady) record.firstReady = { time, signal, context, flags };
         // Counterfactual: entry filled and the ONLY blockers are D/W/M direction and/or key level.
@@ -174,6 +186,14 @@ async function main() {
     if (record.firstReady) item.ready += 1;
     byTf.set(record.rangeTf, item);
   }
+  const chochStopped = all.filter((record) => record.stoppedAt === "choch");
+  if (chochStopped.length) {
+    lines.push("", "## ChoCH kapısında takılanlar — neden (yaklaşık teşhis)", "", "| Neden | Setup |", "|---|---|");
+    for (const reason of Object.keys(CHOCH_FAILURE_LABEL) as ChochFailure[]) {
+      const count = chochStopped.filter((record) => record.chochReason === reason).length;
+      if (count) lines.push(`| ${CHOCH_FAILURE_LABEL[reason]} | ${count} |`);
+    }
+  }
   lines.push("", "## Anchor bazında", "", "| Range TF | Setup | READY |", "|---|---|---|");
   for (const [tf, item] of byTf) lines.push(`| ${tf} | ${item.total} | ${item.ready} |`);
 
@@ -201,7 +221,9 @@ async function main() {
         "ChoCH gücü": strong ? "güçlü kapanış" : "FVG ile terfi",
         "Giriş fiyatı işlem gördü mü": priceTraded ? "evet" : "hayır (yalnız bölgeye dokunuş)",
         "Dolum mumu tepkisi": reaction ? "kapanış giriş lehine" : "kapanış giriş aleyhine",
-        "D/W/M": signal.evidence.find((item) => item.id === "htf-alignment")?.status === "pass" ? "tam uyum" : "kısmi"
+        "D/W/M": signal.evidence.find((item) => item.id === "htf-alignment")?.status === "pass" ? "tam uyum" : "kısmi",
+        "Grade": signal.grade,
+        "Anchor (range TF)": signal.crtAnchor?.rangeTf ?? "bilinmiyor"
       }
     });
   }
