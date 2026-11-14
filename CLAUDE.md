@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 276 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 278 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -238,6 +238,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-11-14 — Denetim B7 (ilk yarı) düzeltildi: üst D/W/M CRT okuması (`htfCrt.ts` `readHtfCrt`) artık oluşan C3'e de bakıyor; C3 C1'in karşı ucuna ulaştıysa (`spent: "target"`) ya da C2'nin süpürdüğü ucu aştıysa (`spent: "invalidated"`) o zaman dilimi yön vermez, özet nedeni söyler ("hedefi aldı" / "C2 ucu aşıldı"). 1W'ye haftalık yön kaynağı EKLENMEDİ (sahibinin varsayılan kararı). Gemini: crtKnowledge htf-bias-required, CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-htf-spent`. 276 test.
 
 - 2026-11-14 — Denetim B8 düzeltildi: KAPANMIŞ C2 range dışında kapandıysa (acceptance) o C1'den raid yok (`detectAnchorRaid`), sonraki mum içeri dönse de. Önce "mitigation raid" diye canlı tutuluyor, ekranda yanlışlıkla "C2 henüz range içinde kapanmadı" yazıyordu (READY olamıyordu). Oluşan C2 yolu değişmedi. `crtRaidPersistence.test.ts`'teki eski "mitigation" testleri yeni kurala çevrildi. Gemini: crtKnowledge, CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-c2-acceptance`. 276 test.
+
+- 2026-11-14 — Denetim B6 (yalnız tek tanım): grafik (`charts/crtRange.ts` `activeCrtRange`) ve D/W/M yön okuması artık aynı fonksiyonu kullanıyor (`htfCrt.ts` `readCrtCycle`: son iki kapanmış mum + oluşan C3'ün tükenme kontrolü). Grafikte tükenmiş CRT (C3 hedefi almış / C2 ucunu aşmış) artık "C3" gösterilmiyor; son kapanmış mum yeni C1. Motorun kendi C1 seçimi (6 mum geriye, bitişik olmayan C2) sahibinin kararıyla DEĞİŞMEDİ → iç mum varken grafik ile motor hâlâ farklı C1 seçebilir (audit testinde sabit). Motor kuralı değişmedi → Gemini/arşiv aynı. 278 test.
 
 ## graphify
 

@@ -1,4 +1,5 @@
 import { completedCandles } from "../ict/candles";
+import { closedHtfCandles, readCrtCycle } from "../strategies/crt/htfCrt";
 import type { Candle, TradingSignal } from "../ict/types";
 import { closeConfirmationRequirement } from "../signals/waitingGuidance";
 
@@ -23,19 +24,20 @@ function rangeOf(candle: Candle) {
 }
 
 export function activeCrtRange(candles: Candle[]): ChartCrtRange | undefined {
-  const closed = completedCandles(candles).filter((candle) => candle.high > candle.low);
-  const last = closed.at(-1);
-  const prior = closed.at(-2);
+  // One CRT definition for chart and D/W/M direction (readCrtCycle). A spent CRT (C3 already
+  // took the target or broke past C2's sweep) is over: the last closed candle starts a new C1.
+  const last = closedHtfCandles(candles).filter((candle) => candle.high > candle.low).at(-1);
   if (!last) return undefined;
-  if (prior) {
-    const sweptHigh = last.high > prior.high;
-    const sweptLow = last.low < prior.low;
-    const closedInside = last.close <= prior.high && last.close >= prior.low;
-    // One-sided wick sweep + close back inside = textbook Candle 2. An outside bar (both sides)
-    // or a close beyond the range (acceptance) is not a CRT.
-    if (sweptHigh !== sweptLow && closedInside) {
-      return { ...rangeOf(prior), phase: "c3", sweptSide: sweptHigh ? "high" : "low" };
-    }
+  const cycle = readCrtCycle(candles);
+  if (cycle.direction && cycle.c1) {
+    return {
+      high: cycle.c1.high,
+      low: cycle.c1.low,
+      eq: (cycle.c1.high + cycle.c1.low) / 2,
+      time: cycle.c1.time,
+      phase: "c3",
+      sweptSide: cycle.direction === "short" ? "high" : "low"
+    };
   }
   return { ...rangeOf(last), phase: "c2" };
 }

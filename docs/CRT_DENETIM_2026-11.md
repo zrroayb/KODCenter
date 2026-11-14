@@ -89,6 +89,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** Azalır; ölçülmedi.
 
 ### B6 — Üç ayrı CRT tanımı
+
+> **KISMEN DÜZELTİLDİ 2026-11-14:** grafik ve D/W/M okuması tek fonksiyonda (`readCrtCycle`). Motorun C1 seçimi (6 mum geriye, bitişik olmayan C2) sahibinin kararıyla değişmedi; bitişiklik şartı gerçek veri ölçümüne bağlı.
 - **Ne:** Aynı mumlarda üç fonksiyon üç farklı C1/C2 tanımı kullanıyor:
   - **Motor** (`detectAnchorRaid`, `:281`): C1, 6 mum geriye kadar herhangi bir mum olabilir (`RAID_PERSISTENCE_LOOKBACK`, `:42`). C2 = C1'i süpüren **ilk** sonraki mum; bitişik olması gerekmiyor.
   - **D/W/M yön** (`readHtfCrt`, `htfCrt.ts:34`): yalnız son iki kapanmış mum.

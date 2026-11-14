@@ -25,27 +25,35 @@ function scanShort(options: AuditScenarioOptions = {}) {
   return { ...scenario, signal };
 }
 
-describe("CRT denetimi — şüphe 1: üç ayrı CRT tanımı", () => {
-  it("DOĞRULANDI: C1 ile C2 arasında iç mum varken motor ve grafik/HTF okuması farklı C1 seçer", () => {
+describe("CRT denetimi — şüphe 1 (B6): CRT tanımları", () => {
+  it("DÜZELTİLDİ (kısmen): grafik ve D/W/M okuması tek fonksiyon (readCrtCycle) — aynı C1'i verir", () => {
+    const candles = [
+      k(0, 98, 99, 97, 98),
+      k(1, 96, 101, 95, 100),
+      k(2, 99, 100, 97, 98.5), // iç mum
+      k(3, 98.5, 101.6, 98, 99), // ikisini de süpürüp içeride kapanan mum
+      k(4, 99, 99.2, 98.8, 99, false)
+    ];
+    const htf = readHtfCrt(candles, "1d");
+    const chart = activeCrtRange(candles);
+    expect(htf.direction).toBe("short");
+    expect(chart?.phase).toBe("c3");
+    expect(chart?.high).toBe(htf.c1?.high);
+    expect(chart?.low).toBe(htf.c1?.low);
+  });
+
+  it("DOĞRULANDI (açık, sahibinin kararı): motor C1'i 6 mum geriye arar; iç mum varken grafikten farklı C1 seçebilir", () => {
     const candles = [
       k(0, 98, 99, 97, 98),
       k(1, 96, 101, 95, 100), // motorun C1'i
-      k(2, 99, 100, 97, 98.5), // iç mum (inside bar)
-      k(3, 98.5, 101.6, 98, 99), // ikisini de süpürüp içeride kapanan mum
+      k(2, 99, 100, 97, 98.5),
+      k(3, 98.5, 101.6, 98, 99),
       k(4, 99, 99.2, 98.8, 99, false)
     ];
     const engine = detectAnchorRaid(candles, SPEC_4H);
     expect(engine.raid?.direction).toBe("short");
-    expect(engine.range.high).toBe(101); // C1 = iki mum önceki
-    expect(engine.range.low).toBe(95);
-
-    const htf = readHtfCrt(candles, "1d");
-    expect(htf.direction).toBe("short");
-    expect(htf.c1?.high).toBe(100); // C1 = iç mum
-    const chart = activeCrtRange(candles.slice(0, -1));
-    expect(chart?.high).toBe(100);
-    // Aynı veride: motor EQ 98 / hedef 95; grafik ve D/W/M okuması EQ 98.5 / hedef 97.
-    expect(engine.range.midpoint).not.toBe(chart?.eq);
+    expect(engine.range.high).toBe(101);
+    expect(activeCrtRange(candles)?.high).toBe(100);
   });
 });
 

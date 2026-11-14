@@ -40,27 +40,34 @@ function formingHtfCandle(candles: Candle[]): Candle | undefined {
   return hasExplicitState ? candles.filter((candle) => candle.closed === false).at(-1) : candles.at(-1);
 }
 
-export function readHtfCrt(candles: Candle[], timeframe: HtfCrtTimeframe): HtfCrtRead {
+export type CrtCycleRead = Omit<HtfCrtRead, "timeframe">;
+
+// THE single 3-candle CRT definition shared by the D/W/M direction read and the chart (audit B6,
+// 2026-11-14): C1 and C2 = the last two CLOSED candles; C2 swept exactly one side of C1 and
+// closed back inside → Candle 3 is live, with the forming candle checked for a spent CRT.
+// (The engine's own anchor raid detection keeps its wider C1 search — owner decision.)
+export function readCrtCycle(candles: Candle[]): CrtCycleRead {
   const closed = closedHtfCandles(candles).filter((candle) => candle.high > candle.low);
   const c1 = closed.at(-2);
   const c2 = closed.at(-1);
-  if (!c1 || !c2) return { timeframe };
+  if (!c1 || !c2) return {};
   const sweptHigh = c2.high > c1.high;
   const sweptLow = c2.low < c1.low;
   const closedInside = c2.close <= c1.high && c2.close >= c1.low;
-  if (sweptHigh === sweptLow || !closedInside) return { timeframe };
+  if (sweptHigh === sweptLow || !closedInside) return {};
+  const range = { high: c1.high, low: c1.low, time: c1.time };
   const c3 = formingHtfCandle(candles);
   if (c3 && c3.time > c2.time) {
     const targetHit = sweptHigh ? c3.low <= c1.low : c3.high >= c1.high;
     const beyondSweep = sweptHigh ? c3.high > c2.high : c3.low < c2.low;
-    if (beyondSweep) return { timeframe, spent: "invalidated", c1: { high: c1.high, low: c1.low, time: c1.time } };
-    if (targetHit) return { timeframe, spent: "target", c1: { high: c1.high, low: c1.low, time: c1.time } };
+    if (beyondSweep) return { spent: "invalidated", c1: range };
+    if (targetHit) return { spent: "target", c1: range };
   }
-  return {
-    timeframe,
-    direction: sweptHigh ? "short" : "long",
-    c1: { high: c1.high, low: c1.low, time: c1.time }
-  };
+  return { direction: sweptHigh ? "short" : "long", c1: range };
+}
+
+export function readHtfCrt(candles: Candle[], timeframe: HtfCrtTimeframe): HtfCrtRead {
+  return { timeframe, ...readCrtCycle(candles) };
 }
 
 // The D/W/M timeframes strictly above an anchor's range timeframe (4H → D/W/M, 1D → W/M,
