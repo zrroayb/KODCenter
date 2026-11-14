@@ -9,8 +9,8 @@ import { createCrtSignal, createStructureContext, withHtfCrts } from "./strategy
 import { DEPTH_GATES, depth, gateFlags } from "../../scripts/crtFunnelGates";
 
 // CRT DENETİMİ 2026-11 (docs/CRT_DENETIM_2026-11.md). Bu testler motorun BUGÜNKÜ davranışını
-// sabitler — düzeltme DEĞİLDİR. Her test bir şüphenin karşı-örneğidir; düzeltme sahibi
-// onaylayınca yapılır ve o zaman ilgili test bilerek ters çevrilir.
+// sabitler. Her test bir şüphenin karşı-örneğidir. "DÜZELTİLDİ" yazanlar düzeltmeden sonra
+// ters çevrildi (B1 replay, B2 dolum, B3/B4 True MSS); "DOĞRULANDI" yazanlar henüz açık.
 
 const H4 = 4 * 60 * 60 * 1000;
 const T0 = Date.UTC(2026, 5, 1, 21);
@@ -66,25 +66,40 @@ describe("CRT denetimi — şüphe 2: C2 dışarıda kapanırsa", () => {
   });
 });
 
-describe("CRT denetimi — şüphe 3: ChoCH = True MSS mi?", () => {
-  it("DOĞRULANDI: sweep sonrası mikro pivot kırılımı ChoCH sayılır; sweep öncesi swing low (True MSS) kırılmadan READY", () => {
-    const { signal, context } = scanShort();
+describe("CRT denetimi — şüphe 3/4: ChoCH = True MSS (düzeltildi)", () => {
+  it("DÜZELTİLDİ: onay sweep ÖNCESİ swing low'un (99.3) kırılmasıdır", () => {
+    const { signal } = scanShort();
     expect(signal.stage).toBe("ready");
     const choch = signal.evidence.find((item) => item.id === "choch");
-    // Kırılan seviye 1.003 = sweep'ten SONRA oluşan 1 mumluk pivot low.
-    expect(choch?.price).toBeCloseTo(1.003, 6);
-    // Sweep öncesi son 15m swing low 0.993 (C1'in son mumu); hiçbir kapanış 0.995'in bile altına inmedi.
-    const closes = context.timeframes.m15.filter((candle) => candle.time >= Date.UTC(2026, 5, 10, 17)).map((candle) => candle.close);
-    expect(Math.min(...closes)).toBeGreaterThanOrEqual(0.995);
+    expect(choch?.price).toBeCloseTo(0.993, 6);
+  });
+
+  it("DÜZELTİLDİ: yalnız sweep sonrası mikro pivotu (100.3) kıran displacement artık onay değil", () => {
+    const { signal } = scanShort({ breakSwing: false });
+    expect(signal.stage).not.toBe("ready");
+    expect(signal.evidence.find((item) => item.id === "choch")?.status).toBe("fail");
+    expect(signal.governance.blockers.join(" ")).toContain("0.99300");
+  });
+
+  it("DÜZELTİLDİ: referans sabit — işlem sürerken yeni mikro pivotlar girişi kaydırmaz", () => {
+    const grind: Array<[number, number, number, number]> = [
+      [99.8, 99.85, 99.3, 99.4], [99.4, 99.6, 99.35, 99.5], [99.5, 99.55, 99.0, 99.1]
+    ];
+    const entries = [0, 1, 2, 3].map((n) => scanShort({ retestHigh: 100.0, after: grind.slice(0, n) }).signal);
+    for (const signal of entries.slice(1)) {
+      expect(signal.plan.entry).toBeCloseTo(entries[1].plan.entry, 9);
+      expect(signal.plan.entryStatus).toBe("confirmed");
+      expect(signal.stage).toBe("ready");
+      expect(signal.outcome.status).toBe("open");
+    }
   });
 });
 
-describe("CRT denetimi — şüphe 4: sıra (C2 kapanır → C3'te MSS → retest)", () => {
-  it("DOĞRULANDI: ChoCH Candle 2'nin İÇİNDE oluşmuşken READY", () => {
+describe("CRT denetimi — şüphe 5 (B5): sıra", () => {
+  it("DOĞRULANDI (açık): ChoCH Candle 2'nin İÇİNDE oluşmuşken READY", () => {
     const { signal, c3Open } = scanShort();
     expect(signal.stage).toBe("ready");
-    const choch = signal.evidence.find((item) => item.id === "choch");
-    expect(choch?.time).toBeLessThan(c3Open); // C3 açılmadan önce
+    expect(signal.evidence.find((item) => item.id === "choch")?.time).toBeLessThan(c3Open);
   });
 
   it("karşılaştırma: ChoCH C3 içinde olunca da READY (motor iki sırayı ayırmıyor)", () => {
@@ -94,21 +109,24 @@ describe("CRT denetimi — şüphe 4: sıra (C2 kapanır → C3'te MSS → retes
   });
 });
 
-describe("CRT denetimi — şüphe 5: giriş / dolum", () => {
-  it("DOĞRULANDI (yeni bulgu): FVG bölgesine dokunuş 'dolum' sayılır ama giriş fiyatı ChoCH seviyesidir — fiyat girişe hiç ulaşmadan READY", () => {
-    const { signal, context } = scanShort(); // C3 retest mumu yalnız 0.9995'e çıktı
-    expect(signal.stage).toBe("ready");
-    expect(signal.plan.entryStatus).toBe("confirmed");
-    expect(signal.plan.entry).toBeCloseTo(1.003, 6);
-    const c3High = Math.max(...context.timeframes.m15.filter((candle) => candle.time >= Date.UTC(2026, 5, 10, 21)).map((candle) => candle.high));
-    expect(c3High).toBeLessThan(signal.plan.entry); // giriş fiyatı hiç işlem görmedi
-    expect(signal.outcome.status).toBe("not-triggered"); // canlı sonuç motoru da dolum görmüyor
+describe("CRT denetimi — şüphe 5 (B2): giriş / dolum (düzeltildi)", () => {
+  it("DÜZELTİLDİ: FVG bölgesine dokunuş yetmez; dolum için fiyat GİRİŞ seviyesine (MSS 99.3) ulaşmalı", () => {
+    // FVG 99.2-100.45, near edge below the MSS level → entry = 99.3. A retest high of 99.25
+    // touches the zone but never the entry.
+    const touchOnly = scanShort({ fvgLow: 99.2, retestHigh: 99.25, retestClose: 99.0 }).signal;
+    expect(touchOnly.plan.entry).toBeCloseTo(0.993, 6);
+    expect(touchOnly.plan.entryStatus).toBe("pending");
+    expect(touchOnly.stage).not.toBe("ready");
+    const reached = scanShort({ fvgLow: 99.2, retestHigh: 99.35, retestClose: 99.0 }).signal;
+    expect(reached.plan.entryStatus).toBe("confirmed");
+    expect(reached.stage).toBe("ready");
   });
 
-  it("ÇÜRÜTÜLDÜ (kısmen): giriş seviyesine gerçekten dokunulduğunda limit emir mantığıyla dokunuş = dolum doğrudur", () => {
-    const { signal } = scanShort({ retestHigh: 100.35, retestClose: 99.8 });
+  it("READY'nin girişi gerçekten işlem görmüştür (canlı sonuç motoru dolumu görür)", () => {
+    const { signal } = scanShort();
     expect(signal.stage).toBe("ready");
     expect(signal.outcome.status).toBe("open");
+    expect(signal.outcome.entryTouched).toBe(true);
   });
 });
 
@@ -169,50 +187,31 @@ describe("CRT denetimi — şüphe 8: skor/grade", () => {
 });
 
 const RUN_TO_DOL: Array<[number, number, number, number]> = [
-  [99.8, 99.9, 99.0, 99.1], [99.1, 99.2, 97.5, 97.6], [97.6, 97.7, 96.0, 96.1], [96.1, 96.2, 94.8, 95.0]
+  [99.7, 99.8, 99.0, 99.1], [99.1, 99.2, 97.5, 97.6], [97.6, 97.7, 96.0, 96.1], [96.1, 96.2, 94.8, 95.0]
 ];
 
-describe("CRT denetimi — yeni bulgu: replay ölçümü canlıdan farklı", () => {
-  it("DÜZELTİLDİ (B1): READY'nin dolumu sinyalin kendi retest mumundan gelir; girişe dönmeden DOL'a giden işlem replay'de de tp2 ve canlı ile aynı R", () => {
-    // Dolumdan hemen sonraki tarama: giriş 1.003'te doldu, READY.
-    const atFill = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: [] }).signal;
+describe("CRT denetimi — B1: replay ölçümü (düzeltildi)", () => {
+  it("DÜZELTİLDİ: READY'nin dolumu sinyalin kendi retest mumundan gelir; girişe dönmeden DOL'a giden işlem replay'de de tp2", () => {
+    const atFill = scanShort({ after: [] }).signal;
     expect(atFill.stage).toBe("ready");
     expect(atFill.outcome.status).toBe("open");
-    // Sonra fiyat girişe dönmeden doğrudan DOL'a (0.95) iner: gerçek işlem +R ile kapanırdı.
-    const future = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: RUN_TO_DOL }).context.timeframes.m15.slice(-RUN_TO_DOL.length);
+    const future = scanShort({ after: RUN_TO_DOL }).context.timeframes.m15.slice(-RUN_TO_DOL.length);
     expect(Math.min(...future.map((candle) => candle.low))).toBeLessThanOrEqual(atFill.plan.targets[1]);
     expect(future.every((candle) => candle.high < atFill.plan.entry)).toBe(true);
     const replay = __runtimeReplayInternals.evaluateForwardOutcome(atFill, future);
     expect(replay.status).toBe("tp2");
-    // Aynı işlem sonradan taranınca canlı sonuç motoru da tp2 der → canlı == replay.
     expect(replay.rMultiple).toBeGreaterThan(0);
   });
 });
 
-describe("CRT denetimi — yeni bulgu: geçmiş yeniden yazılıyor", () => {
-  it("DOĞRULANDI: dolmuş ve DOL'a gitmiş işlem, sonraki taramada ChoCH daha yeni bir pivota kaydığı için 'missed / EQ tüketildi' görünür", () => {
-    const later = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: RUN_TO_DOL }).signal;
-    expect(later.stage).toBe("missed");
-    expect(later.plan.entry).not.toBeCloseTo(1.003, 6); // giriş seviyesi değişti (0.994)
-    expect(later.plan.entryStatus).toBe("pending");
-    expect(later.governance.blockers.join(" ")).toContain("tüketildi");
-    expect(later.outcome.status).not.toBe("tp2");
-  });
-});
-
-describe("CRT denetimi — yeni bulgu: açık işlem de kayboluyor", () => {
-  it("DOĞRULANDI: işlem açıkken (EQ görülmeden, stop olmadan) ChoCH yeni pivota kayınca sinyal READY/open'dan WATCH/pending'e döner", () => {
-    const grind: Array<[number, number, number, number]> = [
-      [99.8, 99.85, 99.3, 99.4], [99.4, 99.6, 99.35, 99.5], [99.5, 99.55, 99.0, 99.1]
-    ];
-    const open = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: grind.slice(0, 2) }).signal;
-    expect(open.stage).toBe("ready");
-    expect(open.outcome.status).toBe("open");
-    const later = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: grind }).signal;
-    expect(later.stage).toBe("watch");
-    expect(later.plan.entryStatus).toBe("pending");
-    expect(later.plan.entry).toBeCloseTo(0.999, 6); // giriş 1.003'ten kaydı
-    expect(later.outcome.status).toBe("not-triggered"); // açık işlem artık izlenmiyor
+describe("CRT denetimi — B3: geçmiş yeniden yazılmıyor (düzeltildi)", () => {
+  it("DÜZELTİLDİ: dolmuş ve DOL'a gitmiş işlem sonraki taramada aynı giriş ve tp2 ile kalır, 'tüketildi' olmaz", () => {
+    const early = scanShort({ after: [] }).signal;
+    const later = scanShort({ after: RUN_TO_DOL }).signal;
+    expect(later.plan.entry).toBeCloseTo(early.plan.entry, 9);
+    expect(later.plan.entryStatus).toBe("confirmed");
+    expect(later.outcome.status).toBe("tp2");
+    expect(later.governance.blockers.join(" ")).not.toContain("tüketildi");
   });
 });
 

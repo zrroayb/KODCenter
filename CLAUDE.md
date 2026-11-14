@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 273 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 274 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -230,6 +230,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-11-14 — Denetimin bağımsız kontrolü: bulgular B1-B7 kod ve testle yeniden doğrulandı. B3 güçlendi: işlem AÇIKKEN de ChoCH kayması sinyali READY/open'dan WATCH/pending'e çeviriyor (yeni test). Rapordaki sweep-öncesi swing low değeri düzeltildi (0.993). Doğrulanamayan tek not: `retestFar`'ın açık işlemi düşürmesi (raporda not olarak duruyor). 273 test.
 
 - 2026-11-14 — Denetim B1 düzeltildi (replay ölçümü): CRT READY'nin dolumu sinyalin kendi retest mumundan geliyor, replay artık girişe GELECEKTE ikinci dokunuş beklemiyor (`runtimeReplay.ts` `filledBeforeScan`). Önce girişe dönmeden DOL'a giden kazananlar "tetiklenmedi" sayılıp istatistikten düşüyordu, dönenler daha kötü girişle ölçülüyordu → 30 işlem kararı ve çıkış karşılaştırması iyimser/yanlıştı. Sinyal sayısı ve motor kuralı değişmedi, yalnız ölçüm; Gemini'ye öğretilecek kural yok. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-replay-fill` (eski işlemler yanlış ölçülmüştü, karışmaz). `crtAudit.test.ts` B1 testi tersine çevrildi (tp2). 273 test.
+
+- 2026-11-14 — Denetim B2-B4 düzeltildi (motor kuralı değişti): (1) ChoCH artık True MSS — kırılan referans sweep ÖNCESİ son iç swing (short için swing low); sweep sonrası mikro pivot (`postSweepShiftReference`) silindi. Referans sweep mumuna bağlı olduğundan taramalar arasında kaymıyor: dolmuş/açık işlemin girişi değişmiyor, sinyal READY/open'dan WATCH/pending'e ya da "tüketildi"ye düşmüyor (B3). (2) Dolum yalnız GİRİŞ seviyesine dokunuşla: FVG bölgesine dokunmak yetmez (B2) — giriş fiyatı hiç işlem görmeden READY/alarm çıkmıyor. Sinyal sayısı azalır (gerçek veride ÖLÇÜLMEDİ; demo ChoCH üretmiyor). Gemini: `crtKnowledge` mss-choch + confirmation-models, CRT sistem talimatı, mentor SOP'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-true-mss`. Test senaryosu (`crtAuditScenario.ts`) gerçek bir True MSS üretecek şekilde yeniden kuruldu; `crtChoch.test.ts` post-sweep testleri tersine çevrildi. Açık kalan: B5 (ChoCH C2 içinde olabilir), B6 (üç CRT tanımı), B7 (D/W/M kapısı oluşan C3'e bakmıyor), B8-B9. 274 test.
 
 ## graphify
 

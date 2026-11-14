@@ -42,6 +42,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** Yok; yalnız ölçüm değişir. Arşiv sıfırlanmalı (`REPLAY_ARCHIVE_VERSION`).
 
 ### B2 — Fiyat girişe hiç ulaşmadan READY
+
+> **DÜZELTİLDİ 2026-11-14:** retest artık yalnız GİRİŞ seviyesine dokunuşla aranıyor (FVG bölgesi kullanılmıyor, `crt.strategy.ts` retest araması). Testler: `crtAudit.test.ts` › "B2".
 - **Ne:** Retest, POI bir FVG ise **bölgeye** dokunuşla aranıyor (`crt.strategy.ts:985-990`). Giriş fiyatı ise `entryLevelForAnchor` (`:744`) ile seçiliyor ve short için FVG alt kenarı ChoCH seviyesinin üstünde değilse **ChoCH seviyesi** oluyor.
   - Fiyat FVG'nin alt kenarına değip dönünce giriş "confirmed" sayılıyor, oysa giriş fiyatı (daha yukarıdaki ChoCH seviyesi) hiç işlem görmedi.
   - Canlı sonuç motoru dolumu görmüyor (`not-triggered`), ama sinyal READY ve Telegram READY alarmı gidiyor.
@@ -51,6 +53,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** READY biraz azalır (yalnız bu uyumsuzluk durumları).
 
 ### B3 — Onay geçmişi yeniden yazılıyor: dolmuş ve kazanan işlem "missed / tüketildi" görünüyor
+
+> **DÜZELTİLDİ 2026-11-14:** ChoCH referansı sweep öncesi swing; sweep mumuna bağlı olduğu için taramalar arasında kaymıyor. Testler: "B3" ve `crtChoch.test.ts` › "no drift".
 - **Ne:** `postSweepShiftReference` (`:500`) sweep'ten sonraki, sonradan kapanışla kırılmış **en son** mikro pivotu seçiyor ve bu seçim post-sweep pivota öncelik veriyor (`:561`).
   - Fiyat hedefe giderken her yeni kırılan pivot "ChoCH" oluyor; giriş seviyesi o pivota kayıyor, retest kayboluyor.
   - EQ bu yeni girişten önce görülmüş sayılıyor ve setup "EQ tüketildi, missed" oluyor.
@@ -64,6 +68,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** Belirsiz; ölçülmedi.
 
 ### B4 — "ChoCH" True MSS değil, kendi kendini onaylıyor
+
+> **DÜZELTİLDİ 2026-11-14:** `postSweepShiftReference` silindi; onay yalnız sweep öncesi iç swing'in kapanışla kırılmasıdır (True MSS). Eşikler (gövde ≥ 0.5, range ≥ 0.8 × ortalama, FVG ile terfi) ve sweep→kırılım ≤ 12 mum kuralı aynen duruyor. Sinyal sayısına etkisi gerçek veride ÖLÇÜLMEDİ (demo ChoCH üretmiyor); beklenen: azalır. Testler: "şüphe 3/4".
 - **Kaynak:** True MSS = Low → High → Lower Low → **High'ın** kırılması (short için tersi). Yani sweep **öncesindeki** swing kırılmalı.
 - **Kod:**
   - Önce sweep **sonrası** 1 mumluk pivot aranıyor (`:559-561`). Bu pivot yalnızca "sonradan kapanışla kırılmışsa" kabul ediliyor (`:524-526`), yani kırılım tanım gereği zaten var.

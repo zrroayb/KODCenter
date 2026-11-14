@@ -58,6 +58,8 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
 | Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
+| Alt TF onayı = True MSS (sweep ÖNCESİ iç swing'in kırılması; referans sabit) | ✅ 2026-11-14 (`detectCrtChoch`); sweep sonrası mikro pivot artık referans değil |
+| Giriş dolumu = fiyat giriş seviyesine ulaşmalı (FVG bölgesine dokunuş yetmez) | ✅ 2026-11-14 |
 | Hedefe giderken ters SMT + ters MSS → hedef iptal | ✅ uyarı (`targetInvalidation.ts`, Telegram ÇIKIŞ UYARISI; otomatik kapatma yok) |
 | Power of 3: C3 girişi erken olmalı | ✅ kalite uyarısı (C3'ün ikinci yarısında giriş), ayrıntı `power_of_3.md` |
 | Gemini bilgi tabanı + talimatlar | ✅ `src/lib/gemini/crtKnowledge.ts`, `systemInstructions.ts`, trade mentoru prompt'u |
