@@ -229,6 +229,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-11-14 — Denetimin bağımsız kontrolü: bulgular B1-B7 kod ve testle yeniden doğrulandı. B3 güçlendi: işlem AÇIKKEN de ChoCH kayması sinyali READY/open'dan WATCH/pending'e çeviriyor (yeni test). Rapordaki sweep-öncesi swing low değeri düzeltildi (0.993). Doğrulanamayan tek not: `retestFar`'ın açık işlemi düşürmesi (raporda not olarak duruyor). 273 test.
 
+- 2026-11-14 — Denetim B1 düzeltildi (replay ölçümü): CRT READY'nin dolumu sinyalin kendi retest mumundan geliyor, replay artık girişe GELECEKTE ikinci dokunuş beklemiyor (`runtimeReplay.ts` `filledBeforeScan`). Önce girişe dönmeden DOL'a giden kazananlar "tetiklenmedi" sayılıp istatistikten düşüyordu, dönenler daha kötü girişle ölçülüyordu → 30 işlem kararı ve çıkış karşılaştırması iyimser/yanlıştı. Sinyal sayısı ve motor kuralı değişmedi, yalnız ölçüm; Gemini'ye öğretilecek kural yok. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-replay-fill` (eski işlemler yanlış ölçülmüştü, karışmaz). `crtAudit.test.ts` B1 testi tersine çevrildi (tp2). 273 test.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e

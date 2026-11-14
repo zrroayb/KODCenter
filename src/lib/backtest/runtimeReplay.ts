@@ -811,7 +811,13 @@ function evaluateForwardOutcome(signal: TradingSignal, futureCandles: Candle[], 
     }
     signal = { ...signal, plan: { ...signal.plan, entry: fill, riskDistance: risk } };
   }
-  const entryIndex = immediateEntry ? 0 : futureCandles.findIndex((candle) => priceTouched(candle, signal.plan.entry));
+  // A CRT READY already has its fill: the retest candle closed BEFORE the scan (entryStatus
+  // "confirmed"), exactly what the live outcome engine tracks from. Waiting for a SECOND touch in
+  // the future dropped trades that ran straight to DOL (and measured the others from a later,
+  // worse entry) — audit B1, 2026-11-14. The limit order filled at the plan level, so R stays
+  // measured from plan.entry.
+  const filledBeforeScan = isRetestEntry && signal.plan.entryStatus === "confirmed";
+  const entryIndex = immediateEntry || filledBeforeScan ? 0 : futureCandles.findIndex((candle) => priceTouched(candle, signal.plan.entry));
   if (entryIndex < 0) {
     return {
       status: "not-triggered",

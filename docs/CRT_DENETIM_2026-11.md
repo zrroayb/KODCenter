@@ -29,6 +29,8 @@ Kanıt dosyaları:
 ## Bulgular (önem sırasıyla)
 
 ### B1 — Replay canlıyı ölçmüyor: dolmuş girişe ikinci dokunuş bekleniyor
+
+> **DÜZELTİLDİ 2026-11-14:** CRT READY'nin dolumu artık sinyalin kendi retest mumundan alınıyor (`runtimeReplay.ts` `filledBeforeScan`); replay girişe ikinci dokunuş beklemiyor. Arşiv `crt-2026-11-14-replay-fill`. Aşağıdaki metin düzeltme öncesi durumu anlatır.
 - **Ne:** Bir CRT READY olduğunda girişi zaten geçmişte dolmuştur (retest mumu kapalı, `entryStatus: "confirmed"`). Replay bu sinyali tarama anında alıyor ve ileri mumlarda girişe **yeniden** dokunulmasını bekliyor (`runtimeReplay.ts:814`, dolum zaman aşımı `:828`).
   - Dolumdan sonra girişe dönmeden doğrudan hedefe giden işlem `not-triggered` sayılıyor ve istatistikten düşüyor.
   - Girişe geri dönen işlem ise ikinci dokunuştan itibaren ölçülüyor, yani daha kötü bir yoldan.

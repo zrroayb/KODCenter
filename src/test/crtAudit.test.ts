@@ -173,7 +173,7 @@ const RUN_TO_DOL: Array<[number, number, number, number]> = [
 ];
 
 describe("CRT denetimi — yeni bulgu: replay ölçümü canlıdan farklı", () => {
-  it("DOĞRULANDI: READY'nin girişi geçmişte dolmuş olsa da replay GELECEKTE ikinci bir dokunuş ister; doğrudan hedefe giden işlem 'not-triggered' sayılır", () => {
+  it("DÜZELTİLDİ (B1): READY'nin dolumu sinyalin kendi retest mumundan gelir; girişe dönmeden DOL'a giden işlem replay'de de tp2 ve canlı ile aynı R", () => {
     // Dolumdan hemen sonraki tarama: giriş 1.003'te doldu, READY.
     const atFill = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: [] }).signal;
     expect(atFill.stage).toBe("ready");
@@ -183,7 +183,9 @@ describe("CRT denetimi — yeni bulgu: replay ölçümü canlıdan farklı", () 
     expect(Math.min(...future.map((candle) => candle.low))).toBeLessThanOrEqual(atFill.plan.targets[1]);
     expect(future.every((candle) => candle.high < atFill.plan.entry)).toBe(true);
     const replay = __runtimeReplayInternals.evaluateForwardOutcome(atFill, future);
-    expect(replay.status).toBe("not-triggered"); // kazanç ölçümden düşüyor
+    expect(replay.status).toBe("tp2");
+    // Aynı işlem sonradan taranınca canlı sonuç motoru da tp2 der → canlı == replay.
+    expect(replay.rMultiple).toBeGreaterThan(0);
   });
 });
 
