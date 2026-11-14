@@ -14,7 +14,9 @@
 //   npx tsx scripts/crt-funnel.ts --yahoo                (Yahoo/Binance; ağ gerekir — GitHub Actions)
 //   npx tsx scripts/crt-funnel.ts --input markets.json   (DemoMarket[] JSON)
 //   seçenekler: --days 30  --every 4  --out funnel.md  --json funnel.json
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { REPLAY_ARCHIVE_VERSION } from "../src/lib/backtest/replayArchive";
 import { createDemoMarkets, type DemoMarket } from "../src/data/demoData";
 import { __runtimeReplayInternals } from "../src/lib/backtest/runtimeReplay";
 import { loadYahooMarketBatch, YAHOO_SYMBOLS } from "../src/lib/data/yahooProvider";
@@ -22,7 +24,7 @@ import type { Candle, MarketContext, TradingSignal } from "../src/lib/ict/types"
 import { buildMarketContext } from "../src/lib/intelligence/marketContext";
 import { attachSmtDivergences } from "../src/lib/intelligence/smtEngine";
 import { crtStrategy } from "../src/lib/strategies/crt/crt.strategy";
-import { CHOCH_FAILURE_LABEL, chochFailureReason, DEPTH_GATES, depth, GATE_LABEL, gateFlags, type ChochFailure, type Gate } from "./crtFunnelGates";
+import { CHOCH_FAILURE_LABEL, chochFailureReason, mergeReadyArchive, type ArchivedReady, DEPTH_GATES, depth, GATE_LABEL, gateFlags, type ChochFailure, type Gate } from "./crtFunnelGates";
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
@@ -34,7 +36,19 @@ const DAY = 24 * 60 * 60 * 1000;
 const M15 = 15 * 60 * 1000;
 const windowDays = Number(option("days") ?? 30);
 const scanEvery = Math.max(1, Number(option("every") ?? 4));
-const settings = { ...crtStrategy.defaultSettings };
+// Variant flags (measurement only): ChoCH reference and window, plus the scan-grid phase. --shift N
+// scans the candles N 15m bars later in the --every grid — that phase alone moved the result ~2.7R
+// in the 2026-11-14 run, so every variant is measured at several phases.
+const settings: Record<string, string | number | boolean> = {
+  ...crtStrategy.defaultSettings,
+  ...(option("choch-reference") ? { chochReference: option("choch-reference")! } : {}),
+  ...(option("choch-window") ? { chochWindow: option("choch-window")! } : {})
+};
+const variant = option("variant") ?? "HEAD";
+const shift = Math.max(0, Number(option("shift") ?? 0));
+// Same numbers as crtChochOptions in the engine, computed here so this script also runs inside an
+// older engine checkout (the V0 baseline) that does not export it.
+const chochWindow = settings.chochWindow === "wide" ? { maxDelay: 24, freshness: 32 } : { maxDelay: 12, freshness: 16 };
 
 function rangeCandles(context: MarketContext, rangeTf: string): Candle[] {
   if (rangeTf === "4h") return context.timeframes.h4;
@@ -125,7 +139,7 @@ async function main() {
   const start = Math.max(first, end - windowDays * DAY);
   const times = Array.from(new Set(markets.flatMap((market) => market.timeframes.m15.filter((candle) => candle.time >= start).map((candle) => candle.time + M15))))
     .sort((a, b) => a - b)
-    .filter((_, index, all) => index % scanEvery === 0 || index === all.length - 1);
+    .filter((_, index, all) => index % scanEvery === shift % scanEvery || index === all.length - 1);
 
   const setups = new Map<string, SetupRecord>();
   const perScan = Object.fromEntries(DEPTH_GATES.map((gate) => [gate, 0])) as Record<Gate, number>;
@@ -148,7 +162,7 @@ async function main() {
         if (reached > record.bestDepth) {
           record.bestDepth = reached;
           record.stoppedAt = DEPTH_GATES[reached];
-          record.chochReason = record.stoppedAt === "choch" ? chochFailureReason(signal) : undefined;
+          record.chochReason = record.stoppedAt === "choch" ? chochFailureReason(signal, chochWindow) : undefined;
         }
         if (flags.ready && !record.firstReady) record.firstReady = { time, signal, context, flags };
         // Counterfactual: entry filled and the ONLY blockers are D/W/M direction and/or key level.
@@ -165,7 +179,8 @@ async function main() {
 
   const all = [...setups.values()];
   const lines: string[] = [];
-  lines.push(`# CRT huni ölçümü`, "");
+  lines.push(`# CRT huni ölçümü — ${variant} (shift ${shift})`, "");
+  lines.push(`Ayarlar: chochReference=${String(settings.chochReference ?? "motor varsayılanı")} · chochWindow=${String(settings.chochWindow ?? "motor varsayılanı")} (pencere ${chochWindow.maxDelay} mum, tazelik ${chochWindow.freshness} mum) · motor sürümü ${REPLAY_ARCHIVE_VERSION}.`, "");
   lines.push(`Veri: ${option("input") ? option("input") : flag("yahoo") ? "Yahoo/Binance (canlı)" : "demo (sentetik)"} · ${markets.length} sembol · pencere ${((end - start) / DAY).toFixed(1)} gün · ${times.length} tarama (her ${scanEvery} m15) · ${scanSignals} sinyal okuması · ${all.length} benzersiz setup.`, "");
   lines.push("## Huni (benzersiz setup'ın ulaştığı en derin kapı)", "", "| Kapı | Geçen setup | Önceki kapıya göre | Tarama okuması |", "|---|---|---|---|");
   let previous = all.length;
@@ -265,8 +280,57 @@ async function main() {
   const report = lines.join("\n");
   console.log(report);
   if (option("out")) writeFileSync(option("out")!, report);
+  const filled = readyRows.filter((row) => row.fill.status !== "not-filled");
+  const summary = {
+    variant,
+    shift,
+    setups: all.length,
+    choch: all.filter((record) => record.bestDepth > DEPTH_GATES.indexOf("choch")).length,
+    ready: readyRows.length,
+    filled: filled.length,
+    totalR: Number(filled.reduce((sum, row) => sum + row.fill.r, 0).toFixed(2))
+  };
+  const archiveDir = option("archive-dir");
+  if (archiveDir) {
+    // One file per engine version: a rule change starts a new sample (never mixed).
+    mkdirSync(archiveDir, { recursive: true });
+    const path = join(archiveDir, `ready-${REPLAY_ARCHIVE_VERSION}-${variant}.json`);
+    const existing = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as ArchivedReady[] : [];
+    const incoming: ArchivedReady[] = readyRows.map((row) => ({
+      key: `${row.record.key}|${variant}`,
+      variant,
+      symbol: row.record.symbol,
+      rangeTf: row.record.rangeTf,
+      direction: row.record.direction,
+      firstSeen: row.record.firstReady!.time,
+      status: row.fill.status,
+      r: Number(row.fill.r.toFixed(2)),
+      tags: row.tags
+    }));
+    const merged = mergeReadyArchive(existing, incoming);
+    writeFileSync(path, JSON.stringify(merged, null, 2));
+    const resolved = merged.filter((record) => record.status === "tp2" || record.status === "breakeven" || record.status === "stopped");
+    const archiveR = resolved.reduce((sum, record) => sum + record.r, 0);
+    const lines2 = ["", `## Birikimli arşiv (${variant}, ${REPLAY_ARCHIVE_VERSION})`, "",
+      `- Arşivde ${merged.length} READY; sonuçlanan ${resolved.length}, toplam ${archiveR.toFixed(2)}R, ortalama ${resolved.length ? (archiveR / resolved.length).toFixed(2) : "—"}R.`,
+      `- 30 sonuçlanmış işleme ${Math.max(0, 30 - resolved.length)} kaldı.`];
+    if (resolved.length) {
+      for (const tag of ["ChoCH zamanı", "C1-C2", "Grade", "Anchor (range TF)"]) {
+        lines2.push("", `### Arşiv — ${tag} (kural değil, yalnız ölçüm)`, "");
+        for (const value of Array.from(new Set(resolved.map((record) => record.tags[tag] ?? "bilinmiyor")))) {
+          const group = resolved.filter((record) => (record.tags[tag] ?? "bilinmiyor") === value);
+          const total = group.reduce((sum, record) => sum + record.r, 0);
+          lines2.push(`- ${value}: ${group.length} işlem · toplam ${total.toFixed(2)}R · ortalama ${(total / group.length).toFixed(2)}R`);
+        }
+      }
+    }
+    console.log(lines2.join("\n"));
+    if (option("out")) writeFileSync(option("out")!, report + "\n" + lines2.join("\n"));
+  }
+  if (option("summary")) writeFileSync(option("summary")!, JSON.stringify(summary));
   if (option("json")) {
     writeFileSync(option("json")!, JSON.stringify({
+      summary,
       setups: all.map(({ firstReady, counterfactual: cf, ...rest }) => ({ ...rest, ready: Boolean(firstReady), counterfactualGates: cf?.gates })),
       ready: readyRows.map((row) => ({ key: row.record.key, fill: row.fill, replay: row.replay, replayR: row.replayR, tags: row.tags }))
     }, null, 2));

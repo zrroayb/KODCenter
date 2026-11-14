@@ -79,7 +79,7 @@ function confirmCandles(signal: TradingSignal) {
   return candles.filter((candle) => candle.closed !== false);
 }
 
-export function chochFailureReason(signal: TradingSignal): ChochFailure {
+export function chochFailureReason(signal: TradingSignal, window: { maxDelay: number; freshness: number } = { maxDelay: CHOCH_MAX_DELAY, freshness: CHOCH_FRESHNESS }): ChochFailure {
   const choch = signal.evidence.find((item) => item.id === "choch");
   const manipulation = signal.evidence.find((item) => item.id === "manipulation");
   if (typeof choch?.price !== "number" || typeof choch.candleIndex !== "number") return "no-reference";
@@ -101,10 +101,78 @@ export function chochFailureReason(signal: TradingSignal): ChochFailure {
   }
   if (!breaks.length) return "not-broken";
   const first = breaks[0];
-  if (first > manipulationIndex + CHOCH_MAX_DELAY) return "outside-window";
-  if (first < candles.length - CHOCH_FRESHNESS) return "stale-break";
+  if (first > manipulationIndex + window.maxDelay) return "outside-window";
+  if (first < candles.length - window.freshness) return "stale-break";
   const candle = candles[first];
   const range = Math.max(candle.high - candle.low, 0.000001);
   const strong = Math.abs(candle.close - candle.open) / range >= 0.5 && range / Math.max(averageRange, 0.000001) >= 0.8;
   return strong ? "other" : "weak-break";
+}
+
+// Cumulative READY archive (owner decision: grow the sample beyond Yahoo's ~60-day 15m window).
+// One record per setup per variant; an unresolved record ("open" / "not-filled") is updated when a
+// later run sees it resolve, a resolved one is never rewritten.
+export type ArchivedReady = {
+  key: string;
+  variant: string;
+  symbol: string;
+  rangeTf: string;
+  direction: string;
+  firstSeen: number;
+  status: "tp2" | "breakeven" | "stopped" | "open" | "not-filled";
+  r: number;
+  tags: Record<string, string>;
+};
+
+export function mergeReadyArchive(existing: ArchivedReady[], incoming: ArchivedReady[]): ArchivedReady[] {
+  const byKey = new Map(existing.map((record) => [record.key, record]));
+  for (const record of incoming) {
+    const previous = byKey.get(record.key);
+    if (!previous) {
+      byKey.set(record.key, record);
+    } else if (previous.status === "open" || previous.status === "not-filled") {
+      byKey.set(record.key, { ...previous, status: record.status, r: record.r });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.firstSeen - b.firstSeen);
+}
+
+// Pre-registered decision rule (owner decision, written BEFORE the measurement, 2026-11-14).
+// Measure = live rule from the fill, averaged over scan-grid shifts 0..3.
+export type FunnelSummary = { variant: string; shift: number; setups: number; choch: number; ready: number; filled: number; totalR: number };
+export type VariantStats = { variant: string; runs: number; readyMean: number; readyMin: number; readyMax: number; rMean: number; rMin: number; rMax: number; chochMean: number };
+
+export function variantStats(rows: FunnelSummary[]): VariantStats[] {
+  const variants = Array.from(new Set(rows.map((row) => row.variant)));
+  return variants.map((variant) => {
+    const runs = rows.filter((row) => row.variant === variant);
+    const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+    return {
+      variant,
+      runs: runs.length,
+      readyMean: mean(runs.map((row) => row.ready)),
+      readyMin: Math.min(...runs.map((row) => row.ready)),
+      readyMax: Math.max(...runs.map((row) => row.ready)),
+      rMean: mean(runs.map((row) => row.totalR)),
+      rMin: Math.min(...runs.map((row) => row.totalR)),
+      rMax: Math.max(...runs.map((row) => row.totalR)),
+      chochMean: mean(runs.map((row) => row.choch))
+    };
+  });
+}
+
+export type ChochDecision = { branch: "V1" | "V2" | "none"; reason: string };
+
+export function decideChochDefault(stats: VariantStats[]): ChochDecision {
+  const passes = (name: string) => {
+    const item = stats.find((row) => row.variant === name);
+    return Boolean(item && item.readyMean >= 5 && item.rMean >= 0);
+  };
+  const describe = (name: string) => {
+    const item = stats.find((row) => row.variant === name);
+    return item ? `${name}: ortalama READY ${item.readyMean.toFixed(2)}, ortalama toplam ${item.rMean.toFixed(2)}R` : `${name}: ölçülmedi`;
+  };
+  if (passes("V1")) return { branch: "V1", reason: `${describe("V1")} (≥ 5 READY ve ≥ 0R) → varsayılan chochReference = post-sweep-first-break.` };
+  if (passes("V2")) return { branch: "V2", reason: `${describe("V1")} eşiği geçmedi; ${describe("V2")} (≥ 5 READY ve ≥ 0R) → varsayılan chochWindow = wide.` };
+  return { branch: "none", reason: `Hiçbir varyant eşiği geçmedi (≥ 5 READY ve ≥ 0R). ${describe("V1")}; ${describe("V2")}. Varsayılanlar değişmez.` };
 }

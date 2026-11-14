@@ -6,7 +6,7 @@ import { crtStrategy, detectAnchorRaid, evaluateCrtHtfAlignment, scoreCrtSetup }
 import { readHtfCrt } from "../lib/strategies/crt/htfCrt";
 import { auditShortScenario, type AuditScenarioOptions } from "./crtAuditScenario";
 import { createCrtSignal, createStructureContext, withHtfCrts } from "./strategyFixtures";
-import { chochFailureReason, DEPTH_GATES, depth, gateFlags } from "../../scripts/crtFunnelGates";
+import { chochFailureReason, decideChochDefault, DEPTH_GATES, depth, gateFlags, mergeReadyArchive, variantStats, type ArchivedReady, type FunnelSummary } from "../../scripts/crtFunnelGates";
 
 // CRT DENETİMİ 2026-11 (docs/CRT_DENETIM_2026-11.md). Bu testler motorun BUGÜNKÜ davranışını
 // sabitler. Her test bir şüphenin karşı-örneğidir. "DÜZELTİLDİ" yazanlar düzeltmeden sonra
@@ -254,5 +254,34 @@ describe("huni scripti kapı sınıflandırması (scripts/crtFunnelGates.ts)", (
     expect(flags.entry).toBe(true);
     expect(flags.htf).toBe(false);
     expect(DEPTH_GATES[depth(flags)]).toBe("htf"); // günlük C1 high (1.01) hâlâ key level
+  });
+});
+
+describe("önceden yazılmış ChoCH karar kuralı ve birikimli arşiv (scripts/crtFunnelGates.ts)", () => {
+  const run = (variant: string, shift: number, ready: number, totalR: number): FunnelSummary => ({ variant, shift, setups: 100, choch: 10, ready, filled: ready, totalR });
+
+  it("V1 ≥ 5 READY ve ≥ 0R ise V1 seçilir; V1 geçmezse V2'ye bakılır; ikisi de geçmezse değişiklik yok", () => {
+    const v1Pass = variantStats([run("V1", 0, 6, 1), run("V1", 1, 5, -0.5), run("V2", 0, 9, 3)]);
+    expect(decideChochDefault(v1Pass).branch).toBe("V1");
+    const v2Pass = variantStats([run("V1", 0, 6, -2), run("V1", 1, 6, -1), run("V2", 0, 5, 0), run("V2", 1, 5, 0)]);
+    expect(decideChochDefault(v2Pass).branch).toBe("V2");
+    const none = variantStats([run("V1", 0, 4, 5), run("V2", 0, 9, -0.1)]);
+    expect(decideChochDefault(none).branch).toBe("none");
+  });
+
+  it("ortalama kayma koşularının ortalamasıdır; min–max korunur", () => {
+    const [stats] = variantStats([run("V1", 0, 4, 2), run("V1", 1, 6, -1), run("V1", 2, 5, 0), run("V1", 3, 5, 3)]);
+    expect(stats.readyMean).toBe(5);
+    expect(stats.readyMin).toBe(4);
+    expect(stats.readyMax).toBe(6);
+    expect(stats.rMean).toBe(1);
+  });
+
+  it("arşiv: aynı setup iki kez sayılmaz; açık kalan sonradan sonuçlanınca güncellenir, sonuçlanmış olan değişmez", () => {
+    const record = (key: string, status: ArchivedReady["status"], r: number): ArchivedReady =>
+      ({ key, variant: "V3", symbol: "EURUSD", rangeTf: "4h", direction: "short", firstSeen: 1, status, r, tags: {} });
+    let archive = mergeReadyArchive([], [record("a", "open", 0.4), record("b", "tp2", 2.1)]);
+    archive = mergeReadyArchive(archive, [record("a", "stopped", -1), record("b", "stopped", -1), record("c", "breakeven", 0)]);
+    expect(archive.map((item) => [item.key, item.status, item.r])).toEqual([["a", "stopped", -1], ["b", "tp2", 2.1], ["c", "breakeven", 0]]);
   });
 });

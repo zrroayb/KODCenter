@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 280 test + 1 atlanan). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 291 test + 1 atlanan). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -246,6 +246,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-11-14 — Elle etiketli CRT formatı (karar 3): `src/test/fixtures/labeledCrt.json` (boş — sahibi doldurur, örnek uydurulmaz), format notu `src/test/fixtures/LABELED_CRT.md`, test `src/test/labeledCrt.test.ts`: dosya boşsa atlanır; doluysa her etiketi motorun CRT tespitiyle (`detectAnchorRaid`: C1/C2 sweep + C2 içeride kapanış, READY kapıları değil) karşılaştırır, mumları `labeledCrtMarkets.json`'dan (huni workflow'unun `markets.json` çıktısı) okur ve her uyuşmazlığı listeler. 280 test + 1 atlanan.
 
 - 2026-11-14 — Gerçek veri ölçümü sonuçları: `docs/CRT_HUNI_2026-11-14.md` (workflow koşu #2, 45.5 gün, 12 sembol, üç motor aynı mumlarda). ChoCH'u geçen setup eski motorda 350, True MSS'te 86, güncel HEAD'de 117; READY 10 → 1 → 1. Eski motor READY'leri +7.97R (9 dolan; 7 dk önceki koşuda +10.65R — pencere tek mum kayınca ~2.7R oynuyor), True MSS'in tek READY'si −1R. Örnekler karar için yetersiz (< 30). ChoCH'ta takılanların 260/356'sında fiyat sweep öncesi swing'i hiç kırmamış (eşik değil). D/W/M kapısının elediği 78 dolmuş işlem ≈ 0R. ChoCH eşiklerine dokunulmadı; seçenekler sahibine sunuldu. Merge edilmedi.
+
+- 2026-11-14 — ChoCH varyantları ölçülebilir (varsayılan davranış DEĞİŞMEDİ): iki strateji ayarı (UI'da yok) — `chochReference`: `"pre-sweep"` (varsayılan, True MSS) | `"post-sweep-first-break"` (V1: sweep sonrası İLK kırılım olayı referansı sabitler — sweep sonrası 1 kanatlı iç pivot ya da sweep öncesi swing, hangisi önce gövde kapanışıyla kırılırsa; sonraki mumlar değiştiremez, B3 geri gelmez) ve `chochWindow`: `"standard"` (12/16 mum) | `"wide"` (24/32). `crtChochOptions` + `detectCrtChoch` (`reference`/`maxDelay`/`freshness`). Testler `crtChochVariants.test.ts` (referans sonraki mumlarla değişmiyor, önce kırılan sweep öncesi swing kalıyor, açık/DOL'a giden işlemde giriş sabit, dolum hâlâ giriş seviyesine dokunuşla). Huni: `--choch-reference/--choch-window/--variant/--shift` (tarama ızgarası fazı)/`--summary`/`--archive-dir`; `scripts/crt-funnel-summary.ts` kayma 0..3 özeti + ÖNCEDEN yazılmış karar kuralı (`decideChochDefault`: V1 ort. ≥ 5 READY ve ≥ 0R → V1; değilse V2 aynı eşik → wide; değilse değişiklik yok). Birikimli READY arşivi (`mergeReadyArchive`, motor sürümü başına dosya, `.funnel-archive` actions/cache). Workflow: veri bir kez, V0 (611b6dc) / V1 / V2 / V3 × kayma 0..3, haftalık cron (Cmt 07:23 UTC — yalnız main'deyken çalışır). 291 test.
 
 ## graphify
 

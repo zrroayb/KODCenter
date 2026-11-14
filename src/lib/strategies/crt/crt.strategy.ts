@@ -497,6 +497,71 @@ function internalShiftReference(
   return undefined;
 }
 
+// Which structure the ChoCH must break (strategy setting `chochReference`, not in the UI):
+// - "pre-sweep": True MSS — the last internal swing that stood BEFORE the sweep (default).
+// - "post-sweep-first-break": the first post-sweep event decides. Walking forward from the sweep,
+//   the FIRST closed candle that body-closes through either a post-sweep 1-wing internal pivot
+//   or the pre-sweep swing fixes the reference (the newest post-sweep pivot it broke, else the
+//   pre-sweep swing). Later candles can never change it — unlike the removed "latest broken
+//   pivot" rule, which re-wrote filled trades (audit B3). No break yet → pre-sweep swing.
+export type CrtChochReferenceMode = "pre-sweep" | "post-sweep-first-break";
+// Sweep→break window and freshness (strategy setting `chochWindow`): standard 12/16, wide 24/32.
+export type CrtChochWindow = "standard" | "wide";
+
+export function crtChochOptions(settings: Record<string, unknown>): { reference: CrtChochReferenceMode; maxDelay: number; freshness: number } {
+  const wide = settings.chochWindow === "wide";
+  return {
+    reference: settings.chochReference === "post-sweep-first-break" ? "post-sweep-first-break" : "pre-sweep",
+    maxDelay: wide ? 24 : CHOCH_MAX_DELAY_CANDLES,
+    freshness: wide ? 32 : CHOCH_FRESHNESS_CANDLES
+  };
+}
+
+function directionalCloseThrough(candle: Candle, direction: TradeDirection, level: number, minimumCloseThrough: number): boolean {
+  if (candle.closed === false) return false;
+  const directionalBody = direction === "short" ? candle.close < candle.open : candle.close > candle.open;
+  const closeThrough = direction === "short" ? level - candle.close : candle.close - level;
+  return directionalBody && closeThrough >= minimumCloseThrough;
+}
+
+// V1 reference: the first post-sweep break event (see CrtChochReferenceMode).
+function firstBreakReference(
+  candles: Candle[],
+  manipulationIndex: number,
+  direction: TradeDirection,
+  preSweep: SwingPoint | undefined,
+  preSweepWing: number,
+  range: DealingRange,
+  internalMargin: number,
+  minimumCloseThrough: number
+): SwingPoint | undefined {
+  const side: SwingPoint["side"] = direction === "short" ? "low" : "high";
+  for (let index = manipulationIndex + 1; index < candles.length; index += 1) {
+    const candle = candles[index];
+    if (candle.closed === false) break;
+    // Post-sweep pivots fully printed before this candle (pivot + its right wing).
+    let newest: SwingPoint | undefined;
+    for (let pivot = manipulationIndex + 1; pivot <= index - 2; pivot += 1) {
+      const previous = candles[pivot - 1];
+      const here = candles[pivot];
+      const next = candles[pivot + 1];
+      const isPivot = side === "high"
+        ? here.high > previous.high && here.high >= next.high
+        : here.low < previous.low && here.low <= next.low;
+      const level = side === "high" ? here.high : here.low;
+      const isInternal = side === "high" ? level < range.high - internalMargin : level > range.low + internalMargin;
+      if (isPivot && isInternal && directionalCloseThrough(candle, direction, level, minimumCloseThrough)) {
+        newest = { side, level, candleIndex: pivot, strength: "minor" };
+      }
+    }
+    if (newest) return newest;
+    if (preSweep && index >= preSweep.candleIndex + preSweepWing + 1 && directionalCloseThrough(candle, direction, preSweep.level, minimumCloseThrough)) {
+      return preSweep;
+    }
+  }
+  return preSweep;
+}
+
 export function detectCrtChoch(input: {
   candles: Candle[];
   swings: SwingPoint[];
@@ -505,8 +570,13 @@ export function detectCrtChoch(input: {
   manipulationIndex: number;
   buffer: number;
   averageRange: number;
+  reference?: CrtChochReferenceMode;
+  maxDelay?: number;
+  freshness?: number;
 }): CrtChochRead {
   const { candles, swings, range, direction, manipulationIndex, buffer, averageRange } = input;
+  const maxDelay = input.maxDelay ?? CHOCH_MAX_DELAY_CANDLES;
+  const freshness = input.freshness ?? CHOCH_FRESHNESS_CANDLES;
   const swingSide = direction === "short" ? "low" : "high";
   const internalMargin = Math.max(buffer * 2, (range.high - range.low) * 0.04);
   const confirmedSwing = [...swings]
@@ -527,16 +597,20 @@ export function detectCrtChoch(input: {
   // the reference is fixed by the sweep candle, it cannot move on later scans: a post-sweep
   // micro-pivot used to take its place every time price made a new one, which re-wrote the entry
   // of filled trades and turned open trades into WATCH (audit B3/B4, 2026-11-14).
-  const swing = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  const preSweep = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  const preSweepWing = confirmedSwing ? CHOCH_SWING_WING : 1;
+  const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
+  const swing = input.reference === "post-sweep-first-break"
+    ? firstBreakReference(candles, manipulationIndex, direction, preSweep, preSweepWing, range, internalMargin, minimumCloseThrough)
+    : preSweep;
   if (!swing) return {};
 
   const reference = { level: swing.level, candleIndex: swing.candleIndex };
-  const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
-  const referenceWing = confirmedSwing ? CHOCH_SWING_WING : 1;
+  const referenceWing = swing === preSweep ? preSweepWing : 1;
   const firstBreakIndex = Math.max(manipulationIndex + 1, swing.candleIndex + referenceWing + 1);
   // Sweep -> shift must be one delivery sequence: the break search ends CHOCH_MAX_DELAY_CANDLES
   // after the manipulation candle.
-  const lastBreakIndex = Math.min(candles.length - 1, manipulationIndex + CHOCH_MAX_DELAY_CANDLES);
+  const lastBreakIndex = Math.min(candles.length - 1, manipulationIndex + maxDelay);
   let structuralBreak: CrtChochRead["structuralBreak"];
   for (let index = firstBreakIndex; index <= lastBreakIndex; index += 1) {
     const candle = candles[index];
@@ -550,7 +624,7 @@ export function detectCrtChoch(input: {
     // Only the FIRST close through the protecting swing can be the character change. If that
     // first break is already stale, the character changed long ago — a fresher re-close of the
     // same level is the new trend's continuation, never this raid's ChoCH. Stop, don't skip.
-    if (index < candles.length - CHOCH_FRESHNESS_CANDLES) break;
+    if (index < candles.length - freshness) break;
     structuralBreak ??= {
       level: swing.level,
       candleIndex: index,
@@ -576,9 +650,12 @@ export function detectCrtChoch(input: {
   return { reference, structuralBreak };
 }
 
-function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], buffer: number): CrtChochRead {
-  const manipulationIndex = manipulation?.candleIndex ?? Math.max(0, anchor.confirmCandles.length - CHOCH_FRESHNESS_CANDLES);
+function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], buffer: number, options: ReturnType<typeof crtChochOptions>): CrtChochRead {
+  const manipulationIndex = manipulation?.candleIndex ?? Math.max(0, anchor.confirmCandles.length - options.freshness);
   return detectCrtChoch({
+    reference: options.reference,
+    maxDelay: options.maxDelay,
+    freshness: options.freshness,
     candles: anchor.confirmCandles,
     swings: anchor.swings,
     range: anchor.range,
@@ -927,7 +1004,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // Live == replay (2026-09-26): every STATE change (sweep, retest, EQ consumed) is read from
   // CLOSED confirm candles. The forming candle only tells where price is now; it used to let
   // live READY appear mid-candle, which replay (closed candles only) could never reproduce.
-  const chochRead = chochForAnchor(anchor, direction, manipulation, buffer);
+  const chochRead = chochForAnchor(anchor, direction, manipulation, buffer, crtChochOptions(settings));
   const structuralShift = chochRead.structuralBreak ?? chochRead.confirmation;
   const poi = poiForAnchor(anchor, direction, manipulation, structuralShift);
   const linkedShiftFvg = isShiftFvg(poi, structuralShift);

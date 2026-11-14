@@ -18,6 +18,7 @@
   },
   "include": [
     "scripts/cloud-scan.ts",
-    "scripts/crt-funnel.ts"
+    "scripts/crt-funnel.ts",
+    "scripts/crt-funnel-summary.ts"
   ]
 }
