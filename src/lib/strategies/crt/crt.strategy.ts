@@ -48,7 +48,7 @@ const RAID_PERSISTENCE_LOOKBACK = 6;
 // The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY). No candle hour
 // is privileged: the CRT source rejects mechanical 1/5/9 timing (2026-10-02). London raids Asia's
 // candle, New York raids London's.
-type AnchorSpec = { rangeTf: Extract<Timeframe, "1h" | "4h" | "1d" | "1w" | "1M">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d"> };
+type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w" | "1M">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
   { rangeTf: "1d", confirmTf: "1h" },
@@ -191,7 +191,6 @@ function expectedSweepSide(direction: TradeDirection) {
 }
 
 function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
-  if (spec.rangeTf === "1h") return context.timeframes.h1;
   if (spec.rangeTf === "4h") return context.timeframes.h4;
   if (spec.rangeTf === "1d") return context.timeframes.daily;
   if (spec.rangeTf === "1M") return context.timeframes.monthly;
@@ -387,7 +386,7 @@ function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number
 }
 
 function anchorBias(anchor: AnchorCtx) {
-  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
+  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
 }
 
 // Direction comes ONLY from the pair's own structure: its anchor-candle bias or raid.
@@ -690,17 +689,12 @@ export function inCandle3(window: Candle3Window, candleTime: number): "before" |
 }
 
 function targetDol(anchor: AnchorCtx, direction: TradeDirection, entry: number): number | undefined {
-  // CRT distribution target: the opposite side of the range candle. Never fabricate a
-  // synthetic entry±2R target — a setup without a real draw has no trade.
+  // CRT distribution target = the opposite side of Candle 1 (CRT Secrets T2). No fallback: a
+  // setup whose entry is already past it has no real draw and no trade. (The old fallback to the
+  // anchor bias draw level never applied to READY — the entry is always inside the range once a
+  // ChoCH exists — and is not in the source; removed 2026-11-14, audit B10.)
   const rangeTarget = direction === "short" ? anchor.range.low : anchor.range.high;
-  const rangeIsUseful = direction === "short" ? rangeTarget < entry : rangeTarget > entry;
-  if (rangeIsUseful) return rangeTarget;
-  const bias = anchorBias(anchor);
-  if (bias.direction !== "neutral") {
-    const dolIsUseful = direction === "short" ? bias.drawLevel < entry : bias.drawLevel > entry;
-    if (dolIsUseful) return bias.drawLevel;
-  }
-  return undefined;
+  return (direction === "short" ? rangeTarget < entry : rangeTarget > entry) ? rangeTarget : undefined;
 }
 
 function executionCostStress(settings: StrategyInput["settings"]): ExecutionCostStress {
@@ -884,9 +878,9 @@ function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromInd
 // Score communicates quality; it never redefines the CRT model. It feeds ONLY the grade
 // (readyEligible has no score threshold). Split so the grade actually varies (2026-09-26):
 //   base 12 + CORE 58 (manipulation 20, ChoCH 18, exit/DOL net RR 20) = 70 → B
-//   QUALITY up to 38 (HTF alignment, SMT, killzone raid, session, location tier, reference
-//   candle, displacement, linked shift FVG/retest, range respect, key open) → A / A+ only with
-//   evidence. Before this split the core alone summed to 100 and every READY setup printed A+.
+//   QUALITY up to 31 (HTF alignment 6, SMT 5, location tier 5, reference candle 6,
+//   displacement 4, linked shift FVG/retest 3, range respect 2) → A / A+ only with evidence.
+//   (Killzone/session/key-open items were removed 2026-10-02: the source rejects clock rules.) Before this split the core alone summed to 100 and every READY setup printed A+.
 export function scoreCrtSetup(input: {
   manipulation: boolean;
   choch: boolean;
@@ -1412,7 +1406,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
         rangeAtr: setup.choch?.rangeAtr
       }
     },
-    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `Kapalı ChoCH mumundan ${formatPrice(setup.plan.entry)} entry aktif; retest şart değil.` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
+    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `ChoCH kapandı; ${formatPrice(setup.plan.entry)} giriş seviyesine retest teması bekleniyor (retest zorunlu, kapanış kovalanmaz).` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
     { id: "eq-management", label: "EQ / BE", status: "neutral", detail: `EQ ${formatPrice(setup.plan.targets[0])} ara adımı: fiyat buraya gelince stop break-even'a çekilir (EQ ara RR ${formatR(setup.plan.extensionRR ?? 0)}).`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
     { id: "dol-target", label: "DOL / TP (çıkış)", status: setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "warning", detail: `Tam çıkış hedefi DOL ${formatPrice(setup.plan.targets[1])}, net RR ${formatR(setup.plan.rr)}; EQ'ya gelince stop BE'ye çekilir.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
@@ -1541,7 +1535,7 @@ function signalPriority(signal: TradingSignal): number {
   return 1;
 }
 
-const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3, "1h": 4 };
+const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
   const signals = ANCHORS.map((spec) => anchorSignal(context, settings, spec))

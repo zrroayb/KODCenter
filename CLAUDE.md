@@ -241,6 +241,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-11-14 — Denetim B6 (yalnız tek tanım): grafik (`charts/crtRange.ts` `activeCrtRange`) ve D/W/M yön okuması artık aynı fonksiyonu kullanıyor (`htfCrt.ts` `readCrtCycle`: son iki kapanmış mum + oluşan C3'ün tükenme kontrolü). Grafikte tükenmiş CRT (C3 hedefi almış / C2 ucunu aşmış) artık "C3" gösterilmiyor; son kapanmış mum yeni C1. Motorun kendi C1 seçimi (6 mum geriye, bitişik olmayan C2) sahibinin kararıyla DEĞİŞMEDİ → iç mum varken grafik ile motor hâlâ farklı C1 seçebilir (audit testinde sabit). Motor kuralı değişmedi → Gemini/arşiv aynı. 278 test.
 
+- 2026-11-14 — Denetim temizliği (READY davranışı değişmedi): `targetDol`'un kaynakta olmayan `bias.drawLevel` yedeği silindi (B10: ChoCH varken giriş hep range içinde olduğu için READY'de hiç devreye girmiyordu; audit testleri READY hedefinin C1'in karşı ucu kaldığını doğruluyor — yalnız ChoCH'suz WATCH planı artık "gerçek hedef yok" gösterebilir). Kanıt satırındaki yanlış "retest şart değil" metni düzeltildi (retest zorunlu). Skor yorumu güncel (kalite payı 31, 38 değil). Ölü 1h anchor kalıntıları (`AnchorSpec` tipi, `rangeCandlesFor`, `anchorBias`, sıralama) silindi. 278 test.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e

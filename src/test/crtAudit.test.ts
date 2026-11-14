@@ -174,7 +174,7 @@ describe("CRT denetimi — şüphe 6: D/W/M yön kapısı", () => {
   });
 });
 
-describe("CRT denetimi — şüphe 7: hedef yedeği", () => {
+describe("CRT denetimi — şüphe 7 (B10): hedef yedeği — yedek silindi, READY hedefi değişmedi", () => {
   it("ÇÜRÜTÜLDÜ (READY için): giriş her zaman range içinde, hedef her zaman C1'in karşı ucu", () => {
     const { signal } = scanShort();
     expect(signal.plan.targets[1]).toBeCloseTo(signal.crtAnchor!.rangeLow, 9);
