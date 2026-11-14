@@ -99,6 +99,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** Bitişiklik şart olursa azalır; ölçülmedi.
 
 ### B7 — D/W/M yön kapısı tükenmiş veya bozulmuş üst CRT'yi de geçerli sayıyor
+
+> **KISMEN DÜZELTİLDİ 2026-11-14:** oluşan C3 hedefi almış ya da C2 ucunu aşmışsa üst CRT artık yön vermiyor (`readHtfCrt` `spent`). Açık kalan: 1W setup'ın yönü hâlâ yalnız aylık CRT'den (sahibinin kararı: değiştirme) ve key level toleransı onay TF'sinin ATR'sine bağlı.
 - **Ne:** `readHtfCrt` oluşan C3'e hiç bakmıyor:
   - Üst CRT'nin C3'ü hedefi (C1'in karşı ucunu) çoktan almış olsa da yön geçerli.
   - C2'nin ucunu aşmış (geçersiz) olsa da yön geçerli.

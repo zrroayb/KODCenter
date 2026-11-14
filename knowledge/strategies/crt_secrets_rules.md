@@ -35,7 +35,7 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 - Range dışında kapanış (acceptance) veya sweep ucunu kırıp o yönde genişleme → geçersiz.
 - Hedefe giderken ters SMT + Model #1 / True MSS → hedef iptal.
 - EQ'ya ulaşıp karşı uca gidemeyip ters yapı → setup tamamlandı sayılır.
-- **HTF yönü: ZORUNLU** — günlük/haftalık/aylık CRT'den okunur (2026-11-14): setup'ın üstündeki D/W/M'den en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok.
+- **HTF yönü: ZORUNLU** — günlük/haftalık/aylık CRT'den okunur (2026-11-14): setup'ın üstündeki D/W/M'den en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok; C3'ü hedefi almış veya C2 ucunu aşmış üst CRT yön vermez (2026-11-14).
 - **Key level: ZORUNLU** (setup'ın üstündeki eski D/W/M high/low veya HTF FVG; C1'in kendisi ve hesaplanmış dealing-range uçları sayılmaz).
 - Killzone / haber için kodlanabilir mekanik kural kaynakta yok.
 

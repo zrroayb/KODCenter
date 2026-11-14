@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 275 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 276 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -103,7 +103,7 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   ve HTF yönü **zorunlu blocker**; karşı-HTF istisnası yok. **HTF yönü = D/W/M CRT**
   (`htfCrt.ts`): setup'ın üstündeki günlük/haftalık/aylık'tan (4H → D/W/M, 1D → W/M, 1W → M, 1M en
-  üst) en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok (READY yok).
+  üst) en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok (READY yok); oluşan C3'ü hedefi almış ya da C2 ucunu aşmış üst CRT yön vermez.
   **Key level** = üst TF'deki eski D/W/M high/low (C1'in kendisi, DRH/DRL sayılmaz) veya HTF FVG.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
 - **Anchor aileleri**: yalnız gerçek ANCHORS (1M→1D/1W→4H/1D→1H/4H→15m). 1H→5m 2026-10-10'da silindi. Deneysel FVG-origin / Active CRT aileleri 2026-10-02'de silindi. CRT kuralı: **dip sweep'i otomatik long yapmaz**,
@@ -234,6 +234,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-11-14 — Denetim B2-B4 düzeltildi (motor kuralı değişti): (1) ChoCH artık True MSS — kırılan referans sweep ÖNCESİ son iç swing (short için swing low); sweep sonrası mikro pivot (`postSweepShiftReference`) silindi. Referans sweep mumuna bağlı olduğundan taramalar arasında kaymıyor: dolmuş/açık işlemin girişi değişmiyor, sinyal READY/open'dan WATCH/pending'e ya da "tüketildi"ye düşmüyor (B3). (2) Dolum yalnız GİRİŞ seviyesine dokunuşla: FVG bölgesine dokunmak yetmez (B2) — giriş fiyatı hiç işlem görmeden READY/alarm çıkmıyor. Sinyal sayısı azalır (gerçek veride ÖLÇÜLMEDİ; demo ChoCH üretmiyor). Gemini: `crtKnowledge` mss-choch + confirmation-models, CRT sistem talimatı, mentor SOP'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-true-mss`. Test senaryosu (`crtAuditScenario.ts`) gerçek bir True MSS üretecek şekilde yeniden kuruldu; `crtChoch.test.ts` post-sweep testleri tersine çevrildi. Açık kalan: B5 (ChoCH C2 içinde olabilir), B6 (üç CRT tanımı), B7 (D/W/M kapısı oluşan C3'e bakmıyor), B8-B9. 274 test.
 
 - 2026-11-14 — Gerçek veri ölçümü: `.github/workflows/crt-funnel.yml` (secret yok, hiçbir yere mesaj göndermez) huni scriptini Yahoo/Binance verisiyle güncel motorda ve AYNI mumlarda True MSS öncesi motorda (`611b6dc`) çalıştırır; sonuçlar job özetinde + artifact. `workflow_dispatch` yalnız dosya main'deyken çalıştığı için geliştirme branch'inde `.github/funnel-trigger` dosyasını değiştirip push etmek de tetikler. Script: Yahoo 4'lü sıralı batch, READY kırılımına grade + anchor, ChoCH'ta takılanlar için yaklaşık teşhis (`chochFailureReason`: referans yok / kırılmadı / 12 mum dışı / zayıf / eski). 275 test.
+
+- 2026-11-14 — Denetim B7 (ilk yarı) düzeltildi: üst D/W/M CRT okuması (`htfCrt.ts` `readHtfCrt`) artık oluşan C3'e de bakıyor; C3 C1'in karşı ucuna ulaştıysa (`spent: "target"`) ya da C2'nin süpürdüğü ucu aştıysa (`spent: "invalidated"`) o zaman dilimi yön vermez, özet nedeni söyler ("hedefi aldı" / "C2 ucu aşıldı"). 1W'ye haftalık yön kaynağı EKLENMEDİ (sahibinin varsayılan kararı). Gemini: crtKnowledge htf-bias-required, CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-htf-spent`. 276 test.
 
 ## graphify
 

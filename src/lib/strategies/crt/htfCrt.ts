@@ -11,6 +11,10 @@ export type HtfCrtTimeframe = "1d" | "1w" | "1M";
 export type HtfCrtRead = {
   timeframe: HtfCrtTimeframe;
   direction?: TradeDirection;
+  // The CRT formed but its Candle 3 (still forming) already finished it: "target" = C3 reached
+  // C1's opposite extreme (the draw is delivered), "invalidated" = C3 traded beyond the extreme C2
+  // swept. Either way this timeframe gives NO direction (audit B7, 2026-11-14).
+  spent?: "target" | "invalidated";
   // Candle 1 of the active CRT (when there is one).
   c1?: { high: number; low: number; time: number };
 };
@@ -31,6 +35,11 @@ export function closedHtfCandles(candles: Candle[]): Candle[] {
   return hasExplicitState ? candles.filter((candle) => candle.closed !== false) : candles.slice(0, -1);
 }
 
+function formingHtfCandle(candles: Candle[]): Candle | undefined {
+  const hasExplicitState = candles.some((candle) => typeof candle.closed === "boolean");
+  return hasExplicitState ? candles.filter((candle) => candle.closed === false).at(-1) : candles.at(-1);
+}
+
 export function readHtfCrt(candles: Candle[], timeframe: HtfCrtTimeframe): HtfCrtRead {
   const closed = closedHtfCandles(candles).filter((candle) => candle.high > candle.low);
   const c1 = closed.at(-2);
@@ -40,6 +49,13 @@ export function readHtfCrt(candles: Candle[], timeframe: HtfCrtTimeframe): HtfCr
   const sweptLow = c2.low < c1.low;
   const closedInside = c2.close <= c1.high && c2.close >= c1.low;
   if (sweptHigh === sweptLow || !closedInside) return { timeframe };
+  const c3 = formingHtfCandle(candles);
+  if (c3 && c3.time > c2.time) {
+    const targetHit = sweptHigh ? c3.low <= c1.low : c3.high >= c1.high;
+    const beyondSweep = sweptHigh ? c3.high > c2.high : c3.low < c2.low;
+    if (beyondSweep) return { timeframe, spent: "invalidated", c1: { high: c1.high, low: c1.low, time: c1.time } };
+    if (targetHit) return { timeframe, spent: "target", c1: { high: c1.high, low: c1.low, time: c1.time } };
+  }
   return {
     timeframe,
     direction: sweptHigh ? "short" : "long",

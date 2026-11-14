@@ -138,12 +138,26 @@ describe("CRT denetimi — şüphe 6: D/W/M yön kapısı", () => {
     k(3, 99, formingHigh, formingLow, (formingHigh + formingLow) / 2, false) // C3 (oluşuyor)
   ];
 
-  it("DOĞRULANDI: üst CRT'nin C3'ü hedefi (C1 low) çoktan aldıysa yön hâlâ short", () => {
-    expect(readHtfCrt(dwm(99.5, 94), "1d").direction).toBe("short");
+  it("DÜZELTİLDİ (B7): üst CRT'nin C3'ü hedefi (C1 low) çoktan aldıysa o zaman dilimi yön vermez", () => {
+    const read = readHtfCrt(dwm(99.5, 94), "1d");
+    expect(read.direction).toBeUndefined();
+    expect(read.spent).toBe("target");
+    expect(readHtfCrt(dwm(99.5, 96), "1d").direction).toBe("short"); // hedefe varmadı → hâlâ yön
   });
 
-  it("DOĞRULANDI: C3, C2'nin ucunu (geçersizlik) aşmışsa da yön hâlâ short", () => {
-    expect(readHtfCrt(dwm(102.5, 98), "1d").direction).toBe("short");
+  it("DÜZELTİLDİ (B7): C3, C2'nin süpürdüğü ucu (101.4) aşmışsa o zaman dilimi yön vermez", () => {
+    const read = readHtfCrt(dwm(102.5, 98), "1d");
+    expect(read.direction).toBeUndefined();
+    expect(read.spent).toBe("invalidated");
+  });
+
+  it("DÜZELTİLDİ (B7): tükenmiş üst CRT kapıyı geçirmez ve özet nedeni söyler", () => {
+    const base = withHtfCrts(createStructureContext(), { daily: "short" });
+    const daily = base.timeframes.daily;
+    const spent = { ...base, timeframes: { ...base.timeframes, daily: daily.map((candle, index) => index === daily.length - 1 ? { ...candle, low: 93 } : candle) } };
+    const read = evaluateCrtHtfAlignment(spent, "4h", "short");
+    expect(read.aligned).toBe(false);
+    expect(read.summary).toContain("hedefi aldı");
   });
 
   it("DOĞRULANDI: 1W setup'ın yönü yalnız aylık CRT'den gelir", () => {

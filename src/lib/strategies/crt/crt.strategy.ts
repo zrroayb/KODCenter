@@ -131,6 +131,8 @@ export type CrtHtfAlignment = {
 const HTF_LABEL: Record<CrtHtfAlignmentTimeframe, string> = { "1d": "Günlük", "1w": "Haftalık", "1M": "Aylık" };
 
 function htfReadText(read: HtfCrtRead): string {
+  if (read.spent === "target") return `${HTF_LABEL[read.timeframe]} CRT hedefi aldı (yön yok)`;
+  if (read.spent === "invalidated") return `${HTF_LABEL[read.timeframe]} CRT C2 ucu aşıldı (yön yok)`;
   if (!read.direction) return `${HTF_LABEL[read.timeframe]} CRT yok`;
   return `${HTF_LABEL[read.timeframe]} CRT ${read.direction === "short" ? "high süpürüldü → short" : "low süpürüldü → long"}`;
 }
