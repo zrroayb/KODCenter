@@ -2,7 +2,7 @@ name: CRT funnel measurement
 
 # Measurement only (audit 2026-11): runs scripts/crt-funnel.ts on real Yahoo/Binance data for
 # the CURRENT engine and, on the very same candles, for the engine before the True MSS change
-# (611b6dc). Sends nothing anywhere, uses no secrets.
+# (611b6dc) and before the B7/B8 fixes (82235ab). Sends nothing anywhere, uses no secrets.
 # workflow_dispatch only works once this file is on the default branch; until then, push a new
 # line to .github/funnel-trigger on the development branch to run it.
 on:
@@ -47,10 +47,17 @@ jobs:
           cd ../kod-old
           npx tsx scripts/crt-funnel.ts --input "$GITHUB_WORKSPACE/markets.json" --days 55 --out "$GITHUB_WORKSPACE/funnel-old.md" --json "$GITHUB_WORKSPACE/funnel-old.json"
 
+      - name: Funnel — True MSS before B7/B8 (82235ab), same candles
+        run: |
+          git worktree add ../kod-mss 82235ab
+          ln -s "$GITHUB_WORKSPACE/node_modules" ../kod-mss/node_modules
+          cd ../kod-mss
+          npx tsx scripts/crt-funnel.ts --input "$GITHUB_WORKSPACE/markets.json" --days 55 --out "$GITHUB_WORKSPACE/funnel-mss.md" --json "$GITHUB_WORKSPACE/funnel-mss.json"
+
       - name: Summary
         if: always()
         run: |
-          for file in funnel-new.md funnel-old.md; do
+          for file in funnel-new.md funnel-mss.md funnel-old.md; do
             if [ -f "$file" ]; then
               echo "===== $file ====="
               cat "$file"
@@ -69,4 +76,6 @@ jobs:
             funnel-new.json
             funnel-old.md
             funnel-old.json
+            funnel-mss.md
+            funnel-mss.json
           if-no-files-found: warn
