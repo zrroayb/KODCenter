@@ -498,8 +498,8 @@ function internalShiftReference(
 }
 
 // Which structure the ChoCH must break (strategy setting `chochReference`, not in the UI):
-// - "pre-sweep": True MSS — the last internal swing that stood BEFORE the sweep (default).
-// - "post-sweep-first-break": the first post-sweep event decides. Walking forward from the sweep,
+// - "pre-sweep": True MSS — the last internal swing that stood BEFORE the sweep.
+// - "post-sweep-first-break" (DEFAULT, conscious deviation from the source): the first post-sweep event decides. Walking forward from the sweep,
 //   the FIRST closed candle that body-closes through either a post-sweep 1-wing internal pivot
 //   or the pre-sweep swing fixes the reference (the newest post-sweep pivot it broke, else the
 //   pre-sweep swing). Later candles can never change it — unlike the removed "latest broken
@@ -511,7 +511,9 @@ export type CrtChochWindow = "standard" | "wide";
 export function crtChochOptions(settings: Record<string, unknown>): { reference: CrtChochReferenceMode; maxDelay: number; freshness: number } {
   const wide = settings.chochWindow === "wide";
   return {
-    reference: settings.chochReference === "post-sweep-first-break" ? "post-sweep-first-break" : "pre-sweep",
+    // Default = post-sweep-first-break since 2026-11-14 (pre-registered rule on real data: V1 ≥ 5
+    // READY and ≥ 0R; True MSS gave 1 READY in 45.5 days). "pre-sweep" stays selectable.
+    reference: settings.chochReference === "pre-sweep" ? "pre-sweep" : "post-sweep-first-break",
     maxDelay: wide ? 24 : CHOCH_MAX_DELAY_CANDLES,
     freshness: wide ? 32 : CHOCH_FRESHNESS_CANDLES
   };

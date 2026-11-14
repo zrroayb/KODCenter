@@ -18,9 +18,14 @@ const k = (index: number, open: number, high: number, low: number, close: number
   ({ time: T0 + index * H4, open, high, low, close, volume: 1, closed });
 const SPEC_4H = { rangeTf: "4h", confirmTf: "15m" } as const;
 
+// The audit scenario is built around a TRUE MSS (pre-sweep swing low 99.3), so these tests pin the
+// "pre-sweep" ChoCH mode explicitly. Since 2026-11-14 the engine DEFAULT is
+// "post-sweep-first-break" (pre-registered rule on real data); its behaviour — fixed reference, fill
+// at the entry level, no drift — is pinned in crtChochVariants.test.ts.
+const TRUE_MSS = { chochReference: "pre-sweep" };
 function scanShort(options: AuditScenarioOptions = {}) {
   const scenario = auditShortScenario(options);
-  const signal = crtStrategy.scan({ context: scenario.context, settings: { ...crtStrategy.defaultSettings, useExecutionCosts: false } })
+  const signal = crtStrategy.scan({ context: scenario.context, settings: { ...crtStrategy.defaultSettings, useExecutionCosts: false, ...TRUE_MSS } })
     .signals.find((item) => item.crtAnchor?.rangeTf === "4h" && item.direction === "short") as TradingSignal;
   return { ...scenario, signal };
 }
@@ -72,7 +77,7 @@ describe("CRT denetimi — şüphe 2: C2 dışarıda kapanırsa", () => {
   });
 });
 
-describe("CRT denetimi — şüphe 3/4: ChoCH = True MSS (düzeltildi)", () => {
+describe("CRT denetimi — şüphe 3/4: ChoCH = True MSS modu (chochReference pre-sweep)", () => {
   it("DÜZELTİLDİ: onay sweep ÖNCESİ swing low'un (99.3) kırılmasıdır", () => {
     const { signal } = scanShort();
     expect(signal.stage).toBe("ready");

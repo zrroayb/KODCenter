@@ -3,7 +3,7 @@ name: CRT funnel measurement
 # Measurement only (audit 2026-11). Fetches Yahoo/Binance data ONCE, then runs scripts/crt-funnel.ts
 # on the same candles for four ChoCH variants, each at scan-grid shifts 0..3:
 #   V0 = engine before True MSS (611b6dc, baseline)
-#   V1 = HEAD, chochReference post-sweep-first-break
+#   V1 = HEAD, chochReference post-sweep-first-break (engine default since 2026-11-14, so V1 == V3)
 #   V2 = HEAD, chochReference pre-sweep + chochWindow wide
 #   V3 = HEAD default
 # and applies the pre-registered decision rule (scripts/crt-funnel-summary.ts). READY records of

@@ -75,6 +75,8 @@ Kanıt dosyaları:
 ### B4 — "ChoCH" True MSS değil, kendi kendini onaylıyor
 
 > **DÜZELTİLDİ 2026-11-14:** `postSweepShiftReference` silindi; onay yalnız sweep öncesi iç swing'in kapanışla kırılmasıdır (True MSS). Eşikler (gövde ≥ 0.5, range ≥ 0.8 × ortalama, FVG ile terfi) ve sweep→kırılım ≤ 12 mum kuralı aynen duruyor. Sinyal sayısına etkisi gerçek veride ÖLÇÜLMEDİ (demo ChoCH üretmiyor); beklenen: azalır. Testler: "şüphe 3/4".
+>
+> **GÜNCELLEME 2026-11-14 (aynı gün, ölçüm sonrası) — kaynaktan bilinçli sapma: sweep sonrası ilk kırılım, sabit referans.** Gerçek veride (45.5 gün, 12 sembol) katı True MSS ortalama 1 READY verdi. Önceden yazılmış karar kuralı V1'i seçti: varsayılan `chochReference: "post-sweep-first-break"` — sweep'ten sonraki İLK yönlü gövde kapanışının kırdığı koruyucu iç swing referanstır (sweep sonrası 1 kanatlı pivot ya da sweep öncesi swing, hangisi önce kırılırsa); sonraki mumlar referansı değiştiremez, B3 geri gelmez; dolum yine yalnız giriş seviyesine dokunuşla (B2). Eski "en son kırılmış mikro pivot" yolu geri GELMEDİ. Katı True MSS `chochReference: "pre-sweep"` ile seçilebilir; audit testleri onu sabitler. Sayılar: `docs/CRT_HUNI_2026-11-14b.md`.
 - **Kaynak:** True MSS = Low → High → Lower Low → **High'ın** kırılması (short için tersi). Yani sweep **öncesindeki** swing kırılmalı.
 - **Kod:**
   - Önce sweep **sonrası** 1 mumluk pivot aranıyor (`:559-561`). Bu pivot yalnızca "sonradan kapanışla kırılmışsa" kabul ediliyor (`:524-526`), yani kırılım tanım gereği zaten var.

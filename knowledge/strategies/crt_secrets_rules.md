@@ -58,7 +58,7 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 | 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
 | Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
-| Alt TF onayı = True MSS (sweep ÖNCESİ iç swing'in kırılması; referans sabit) | ✅ 2026-11-14 (`detectCrtChoch`); sweep sonrası mikro pivot artık referans değil |
+| Alt TF onayı | ⚠️ **Kaynaktan bilinçli sapma (2026-11-14):** motor katı True MSS (yalnız sweep öncesi swing) yerine sweep sonrası İLK kırılımı kullanıyor — sweep sonrası iç pivot ya da sweep öncesi swing, hangisi önce gövde kapanışıyla kırılırsa; referans sabit, sonradan değişmez. Gerekçe: aynı 45.5 günlük gerçek veride katı True MSS 12 sembolde 1 READY verdi (−1R), ilk-kırılım 8.5 READY (+2.38R, kayma 0..3 ortalaması) — önceden yazılmış karar kuralı. Katı kural `chochReference: "pre-sweep"` ile seçilebilir. Örnek < 30: avantaj kanıtı değil (`docs/CRT_HUNI_2026-11-14b.md`). |
 | Giriş dolumu = fiyat giriş seviyesine ulaşmalı (FVG bölgesine dokunuş yetmez) | ✅ 2026-11-14 |
 | Hedefe giderken ters SMT + ters MSS → hedef iptal | ✅ uyarı (`targetInvalidation.ts`, Telegram ÇIKIŞ UYARISI; otomatik kapatma yok) |
 | Power of 3: C3 girişi erken olmalı | ✅ kalite uyarısı (C3'ün ikinci yarısında giriş), ayrıntı `power_of_3.md` |

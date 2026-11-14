@@ -64,15 +64,17 @@ describe("ChoCH reference variant: post-sweep-first-break (V1)", () => {
   });
 
   it("settings map to options; anything else falls back to the default", () => {
-    expect(crtChochOptions({})).toEqual({ reference: "pre-sweep", maxDelay: 12, freshness: 16 });
-    expect(crtChochOptions({ chochReference: "post-sweep-first-break", chochWindow: "wide" })).toEqual({ reference: "post-sweep-first-break", maxDelay: 24, freshness: 32 });
-    expect(crtChochOptions({ chochReference: "bogus" }).reference).toBe("pre-sweep");
+    // Default = post-sweep-first-break since 2026-11-14 (pre-registered rule on real data).
+    expect(crtChochOptions({})).toEqual({ reference: "post-sweep-first-break", maxDelay: 12, freshness: 16 });
+    expect(crtChochOptions({ chochReference: "pre-sweep", chochWindow: "wide" })).toEqual({ reference: "pre-sweep", maxDelay: 24, freshness: 32 });
+    expect(crtChochOptions({ chochReference: "bogus" }).reference).toBe("post-sweep-first-break");
   });
 });
 
 // Full engine on the audit scenario (4H short, real spacing). The post-sweep micro pivot is
 // 100.3; the pre-sweep swing low is 99.3.
 const V1 = { chochReference: "post-sweep-first-break" };
+const TRUE_MSS = { chochReference: "pre-sweep" };
 function scan(options: AuditScenarioOptions, settings: Record<string, string> = {}) {
   const { context } = auditShortScenario(options);
   return crtStrategy.scan({ context, settings: { ...crtStrategy.defaultSettings, useExecutionCosts: false, ...settings } })
@@ -85,7 +87,9 @@ const RUN_TO_DOL: Array<[number, number, number, number]> = [
 describe("V1 on the full engine", () => {
   it("a displacement that breaks only the post-sweep pivot confirms under V1, not under True MSS", () => {
     expect(scan({ breakSwing: false }, V1).evidence.find((item) => item.id === "choch")?.status).toBe("pass");
-    expect(scan({ breakSwing: false }).evidence.find((item) => item.id === "choch")?.status).toBe("fail");
+    expect(scan({ breakSwing: false }, TRUE_MSS).evidence.find((item) => item.id === "choch")?.status).toBe("fail");
+    // and V1 is now the engine default
+    expect(scan({ breakSwing: false }).evidence.find((item) => item.id === "choch")?.status).toBe("pass");
   });
 
   it("the fill still needs price to trade the entry (the MSS level 100.3), not just the FVG zone", () => {
@@ -112,7 +116,7 @@ describe("V1 on the full engine", () => {
     expect(done.governance.blockers.join(" ")).not.toContain("tüketildi");
   });
 
-  it("wide window is accepted by the engine and leaves the default scenario READY", () => {
-    expect(scan({}, { chochWindow: "wide" }).stage).toBe("ready");
+  it("wide window is accepted by the engine and leaves the True MSS scenario READY", () => {
+    expect(scan({}, { ...TRUE_MSS, chochWindow: "wide" }).stage).toBe("ready");
   });
 });
