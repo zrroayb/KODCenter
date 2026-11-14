@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 255 test). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 272 test). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -224,6 +224,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-10-10 — `server/app.ts` (1240 satır) dörde bölündü: `http.ts` (ortak tip/yardımcı), `gemini.ts` (prompt'lar, fallback'ler, /api/gemini/* handler'ları), `telegram.ts` (READY/exit mesajı, gönderim, foto, dedupe, geçmiş), `app.ts` (route tablosu, Yahoo proxy, takvim, koruma; 123 satır). İçerik aynen taşındı; lokal duman testi aynı sonuçları verdi.
 
 - 2026-11-14 — HTF yönü ve key level artık günlük/haftalık/aylık CRT'den (sahibi: "weekly daily monthly CRT bakacaksın"). Denetim bulguları 1-2 kapandı: (1) key level C1'in kendi high/low'uyla kendini doğruluyordu (1D C1'in high'ı = PDH) ve DRH/DRL sayılıyordu; (2) "HTF zorunlu" aslında "ters değilse geç"ti, nötr HTF'de dip sweep'i otomatik long oluyordu. Yeni `src/lib/strategies/crt/htfCrt.ts`: her D/W/M için son iki kapanmış mum (C2 tek tarafı süpürüp içeride kapandı → C3, yön); `evaluateCrtHtfAlignment` artık eski trend bias'ı değil üstteki D/W/M CRT'leri okuyor — en az biri aynı yönde + hiçbiri ters değil; hiç aktif CRT yoksa blocker. Key level = C1'i içeren üst mumdan önceki 3 kapanmış D/W/M mumunun high/low'u (1M anchor: C1'den önceki 10 ay) veya HTF FVG. Kaynakta olup motorda olmayan "mum açılış fiyatı" Gemini metninden çıkarıldı. Gemini: crtKnowledge (key-level-required, htf-bias-required), CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-dwm-crt`. Test fikstürüne gerçek D/W/M CRT serisi (`withHtfCrts`); 255 test. Beklenen etki: daha az READY.
+
+- 2026-11-14 — CRT denetimi (ölçüm + kanıt; motor davranışı DEĞİŞMEDİ): `docs/CRT_DENETIM_2026-11.md`. Bulgular: replay dolmuş READY için gelecekte ikinci dokunuş bekliyor → canlıyı ölçmüyor (B1); FVG bölgesine dokunuş "dolum" ama giriş ChoCH seviyesi → fiyat girişe ulaşmadan READY (B2); ChoCH referansı en son post-sweep pivot → onay True MSS değil ve taramadan taramaya kayıp dolmuş/kazanan işlemi "missed" yapıyor (B3-B4); ChoCH C2 içinde olabiliyor (B5); motor/grafik/D/W/M üç ayrı CRT tanımı (B6); D/W/M yön kapısı oluşan C3'e bakmıyor (B7). Karşı-örnek testleri `src/test/crtAudit.test.ts` + gerçek zaman aralıklı senaryo `src/test/crtAuditScenario.ts` (bugünkü davranışı sabitler). Huni scripti `scripts/crt-funnel.ts` (`npm run report:funnel -- --demo|--yahoo|--input`), kapılar `scripts/crtFunnelGates.ts`; demo veride 3710 setup → 0 ChoCH, avantaj gerçek veriyle ölçülmedi. Sahibine 10 karar sorusu raporda. 272 test.
 
 ## graphify
 
