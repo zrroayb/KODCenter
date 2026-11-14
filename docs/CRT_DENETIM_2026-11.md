@@ -112,6 +112,8 @@ Kanıt dosyaları:
 - **Sinyal sayısına etkisi:** Azalır; ölçülmedi.
 
 ### B8 — C2 range dışında kapanınca setup yaşıyor (kısmen doğrulandı)
+
+> **DÜZELTİLDİ 2026-11-14:** kapanmış C2 range dışında kapandıysa o C1'den raid yok (`detectAnchorRaid`); sonra içeri dönüş bunu değiştirmez. Oluşan C2 yolu ve "Candle 2 henüz kapanmadı" mesajı yalnız gerçekten oluşan C2 için.
 - **Ne:** C2 range dışında kapanıp sonraki mum içeri dönerse `raidStillActive` (`:248`) raid'i canlı tutuyor (`closed: false`).
   - READY **olamıyor** (C2 kapanış blocker'ı).
   - Ama ekranda "Candle 2 henüz range içinde kapanmadı" (`:1096`) yazıyor; aslında dışarıda kapandı ve kaynağa göre CRT geçersiz.

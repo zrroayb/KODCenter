@@ -50,7 +50,7 @@ describe("CRT denetimi — şüphe 1: üç ayrı CRT tanımı", () => {
 });
 
 describe("CRT denetimi — şüphe 2: C2 dışarıda kapanırsa", () => {
-  it("KISMEN: C2 range dışında kapanıp sonraki mum içeri dönünce setup yaşar (READY olamaz, mesaj yanıltıcı)", () => {
+  it("DÜZELTİLDİ (B8): C2 range dışında kapanınca sonraki mum içeri dönse de o C1'den raid yok (acceptance)", () => {
     const candles = [
       k(0, 98, 99, 97, 98),
       k(1, 96, 101, 95, 100), // C1
@@ -59,10 +59,8 @@ describe("CRT denetimi — şüphe 2: C2 dışarıda kapanırsa", () => {
       k(4, 99, 99.2, 98.8, 99, false)
     ];
     const read = detectAnchorRaid(candles, SPEC_4H);
-    // Kaynak: dışarıda kapanış = CRT geçersiz. Motor: raid canlı, yalnız "kapanmadı" işaretli.
-    expect(read.raid?.direction).toBe("short");
-    expect(read.raid?.closed).toBe(false);
-    expect(read.range.high).toBe(101);
+    // Kaynak: dışarıda kapanış = CRT geçersiz. Artık C1 (101/95) için raid yok.
+    expect(read.raid?.direction === "short" && read.range.high === 101).toBeFalsy();
   });
 });
 

@@ -237,6 +237,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 
 - 2026-11-14 — Denetim B7 (ilk yarı) düzeltildi: üst D/W/M CRT okuması (`htfCrt.ts` `readHtfCrt`) artık oluşan C3'e de bakıyor; C3 C1'in karşı ucuna ulaştıysa (`spent: "target"`) ya da C2'nin süpürdüğü ucu aştıysa (`spent: "invalidated"`) o zaman dilimi yön vermez, özet nedeni söyler ("hedefi aldı" / "C2 ucu aşıldı"). 1W'ye haftalık yön kaynağı EKLENMEDİ (sahibinin varsayılan kararı). Gemini: crtKnowledge htf-bias-required, CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-htf-spent`. 276 test.
 
+- 2026-11-14 — Denetim B8 düzeltildi: KAPANMIŞ C2 range dışında kapandıysa (acceptance) o C1'den raid yok (`detectAnchorRaid`), sonraki mum içeri dönse de. Önce "mitigation raid" diye canlı tutuluyor, ekranda yanlışlıkla "C2 henüz range içinde kapanmadı" yazıyordu (READY olamıyordu). Oluşan C2 yolu değişmedi. `crtRaidPersistence.test.ts`'teki eski "mitigation" testleri yeni kurala çevrildi. Gemini: crtKnowledge, CRT sistem talimatı, mentor prompt'u. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-c2-acceptance`. 276 test.
+
 ## graphify
 
 Kod bilgi grafiği (Graphify-Labs/graphify, PyPI `graphifyy`). `graphify-out/` üretilir ve git'e

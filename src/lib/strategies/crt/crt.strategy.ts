@@ -296,6 +296,10 @@ export function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { ra
     const raidIndex = firstSweepIndex(closed, rangeIndex, range);
     if (raidIndex === -1) continue;
     const raid = raidFromPair(range, closed[raidIndex], true);
+    // A CLOSED C2 that closed beyond the range is acceptance, not a CRT (CRT Secrets: a close
+    // outside invalidates). It used to stay alive as "C2 not closed inside yet" once a later
+    // candle came back in (audit B8, 2026-11-14). The forming-C2 path below is unchanged.
+    if (raid && !raid.closed) continue;
     if (raid && raidStillActive(closed, raidIndex, range, raid.direction)) {
       // The manipulation extreme is the raid LEG's running extreme, not the first raid
       // candle's wick: raidStillActive deliberately tolerates later wick pokes (distribution
