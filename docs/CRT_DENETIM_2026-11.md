@@ -52,7 +52,7 @@ Kanıt dosyaları:
 - **Ne:** `postSweepShiftReference` (`:500`) sweep'ten sonraki, sonradan kapanışla kırılmış **en son** mikro pivotu seçiyor ve bu seçim post-sweep pivota öncelik veriyor (`:561`).
   - Fiyat hedefe giderken her yeni kırılan pivot "ChoCH" oluyor; giriş seviyesi o pivota kayıyor, retest kayboluyor.
   - EQ bu yeni girişten önce görülmüş sayılıyor ve setup "EQ tüketildi, missed" oluyor.
-- **Kanıt:** `crtAudit.test.ts` › "geçmiş yeniden yazılıyor". Giriş 1.003'te doldu ve DOL görüldü, ama sonraki taramada giriş 0.994 / pending, blocker "tüketildi", sonuç tp2 değil.
+- **Kanıt:** `crtAudit.test.ts` › "geçmiş yeniden yazılıyor" (2 test). Giriş 1.003'te doldu ve DOL görüldü, ama sonraki taramada giriş 0.994 / pending, blocker "tüketildi", sonuç tp2 değil. İkinci test (bağımsız kontrol, 2026-11-14): işlem hâlâ AÇIKKEN (EQ görülmeden, stop olmadan) fiyat yavaşça düşerken üçüncü mumda sinyal READY/open'dan WATCH/pending/not-triggered'a dönüyor, giriş 0.999'a kayıyor.
 - **Etkisi:**
   - Açık işlem ekrandan düşüyor; `signalIsOpenTrade` çalışmıyor.
   - Çıkış uyarısı (`targetInvalidation`) açık işlemi göremiyor.
@@ -67,7 +67,7 @@ Kanıt dosyaları:
   - Önce sweep **sonrası** 1 mumluk pivot aranıyor (`:559-561`). Bu pivot yalnızca "sonradan kapanışla kırılmışsa" kabul ediliyor (`:524-526`), yani kırılım tanım gereği zaten var.
   - Eşikler: kapanış ortalama range'in %3'ü kadar geçmeli (`:566`); gövde ≥ 0.5 ve range ≥ 0.8 × ortalama (`:597`). Zayıf kırılım bağlı FVG ile terfi ediyor (`:978`).
   - Ters yöndeki her düzeltme bacağı bir mikro pivot bırakıp onu kırdığında "ChoCH" oluşuyor.
-- **Kanıt:** `crtAudit.test.ts` › "ChoCH = True MSS mi?". Kırılan seviye 1.003 (sweep sonrası pivot). Sweep öncesi swing low 0.995'in altında hiç kapanış yok, buna rağmen READY.
+- **Kanıt:** `crtAudit.test.ts` › "ChoCH = True MSS mi?". Kırılan seviye 1.003 (sweep sonrası pivot). Sweep öncesi son 15m swing low 0.993; hiçbir kapanış 0.995'in bile altına inmedi, buna rağmen READY.
 - **Etkisi:** Onay ayırt edici değil. Asıl filtre işlevini sweep + C2 kapanışı + key level + yön görüyor.
 - **En basit düzeltme:** Yalnız sweep öncesi swing (pre-sweep `confirmedSwing` / `internalShiftReference`) referans olsun; post-sweep yolu kaldırılsın.
 - **Sinyal sayısına etkisi:** Belirgin azalır. Not: 2026-07-29'da post-sweep yolu "huni 19→0" sorununu açmak için eklenmişti; sahibinin kararı.
@@ -132,7 +132,7 @@ Kanıt dosyaları:
 ### Küçük notlar
 - **Yanlış kanıt metni:** Kanıt satırı "Kapalı ChoCH mumundan … entry aktif; retest şart değil" diyor (`:1451`). Kural tersini söylüyor (retest zorunlu).
 - **Replay sinyal kaybı:** Replay her tarama ve sembol için yalnız ilk sinyale bakıyor (`runtimeReplay.ts:1652`). Aynı anda iki anchor READY olursa biri ölçülmüyor.
-- **Retest kontrolü açık işlemi de etkiliyor:** `retestFar` (1.5R) açık işlemde de READY'yi düşürüyor; fiyat lehe gidince stage `watch`'a dönebiliyor.
+- **Retest kontrolü (doğrulanmadı):** `retestFar` (1.5R) kod okumasına göre açık işlemde de READY'yi düşürebilir; testle gösterilmedi.
 
 ## Kaynak ↔ kod eşleme tablosu
 

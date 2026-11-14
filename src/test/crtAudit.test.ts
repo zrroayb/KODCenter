@@ -73,7 +73,7 @@ describe("CRT denetimi — şüphe 3: ChoCH = True MSS mi?", () => {
     const choch = signal.evidence.find((item) => item.id === "choch");
     // Kırılan seviye 1.003 = sweep'ten SONRA oluşan 1 mumluk pivot low.
     expect(choch?.price).toBeCloseTo(1.003, 6);
-    // Sweep öncesi son swing low (yükseliş bacağının dibi) 0.995; hiçbir kapanış onun altına inmedi.
+    // Sweep öncesi son 15m swing low 0.993 (C1'in son mumu); hiçbir kapanış 0.995'in bile altına inmedi.
     const closes = context.timeframes.m15.filter((candle) => candle.time >= Date.UTC(2026, 5, 10, 17)).map((candle) => candle.close);
     expect(Math.min(...closes)).toBeGreaterThanOrEqual(0.995);
   });
@@ -195,6 +195,22 @@ describe("CRT denetimi — yeni bulgu: geçmiş yeniden yazılıyor", () => {
     expect(later.plan.entryStatus).toBe("pending");
     expect(later.governance.blockers.join(" ")).toContain("tüketildi");
     expect(later.outcome.status).not.toBe("tp2");
+  });
+});
+
+describe("CRT denetimi — yeni bulgu: açık işlem de kayboluyor", () => {
+  it("DOĞRULANDI: işlem açıkken (EQ görülmeden, stop olmadan) ChoCH yeni pivota kayınca sinyal READY/open'dan WATCH/pending'e döner", () => {
+    const grind: Array<[number, number, number, number]> = [
+      [99.8, 99.85, 99.3, 99.4], [99.4, 99.6, 99.35, 99.5], [99.5, 99.55, 99.0, 99.1]
+    ];
+    const open = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: grind.slice(0, 2) }).signal;
+    expect(open.stage).toBe("ready");
+    expect(open.outcome.status).toBe("open");
+    const later = scanShort({ retestHigh: 100.35, retestClose: 99.8, after: grind }).signal;
+    expect(later.stage).toBe("watch");
+    expect(later.plan.entryStatus).toBe("pending");
+    expect(later.plan.entry).toBeCloseTo(0.999, 6); // giriş 1.003'ten kaydı
+    expect(later.outcome.status).toBe("not-triggered"); // açık işlem artık izlenmiyor
   });
 });
 
