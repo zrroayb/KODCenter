@@ -25,7 +25,7 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - [x] 11. Son doğrulama: typecheck + test + build + lokal sunucu duman testi; CLAUDE.md; push
 
 ## Bana sorular
-- **Hepsi `claude/eur-usd-trading-hpxmxn` branch'inde, `main`'e merge edilmedi** (merge = Render deploy = yayın). Onaylarsan PR açıp merge ederim. Deploy sonrası kontrol: `<site>/api/calendar` olay listesi dönüyor mu (bu ortamdan kaynak engelliydi).
+- ~~Merge onayı~~ → onaylandı, PR #43 ile `main`'e merge edildi (2026-10-11). **Senin kontrolün:** Render deploy bitince `https://kodcenter.onrender.com/api/calendar` olay listesi dönüyor mu? (Bu ortamdan siteye de takvim kaynağına da erişim yok.)
 - (İsteğe bağlı) `runtimeReplay.ts` (≈1800 satır) ve `crt.strategy.ts` (≈1600 satır) de bölünebilir; davranış riski yüksek olduğu için kendiliğimden yapmadım.
 - (Adım 8) Ekonomik takvim kaynağı olarak ForexFactory'nin herkese açık haftalık JSON'unu
   (`nfs.faireconomy.media`) kullanıyorum. Bu ortamdan erişim yok, o yüzden canlıda çalıştığını
@@ -48,3 +48,4 @@ Durum: `[ ]` açık · `[x]` bitti · `[!]` takıldı · `[?]` kararını bekliy
 - Adım 9 bitti: sunucu mantığı `server/app.ts`'e (config 1279 → 44 satır). Typecheck, 254 test, build yeşil; lokal duman testinde tüm uç noktalar önceki gibi. Adım 10 tanımı `server/app.ts`'i bölmek olarak güncellendi.
 - Adım 10 bitti: server/ = app.ts 123 + gemini.ts 883 + telegram.ts 186 + http.ts 68 satır (içerik aynen, tip import'ları `type`). Typecheck, 254 test, build yeşil; duman testi: sayfa/health 200, Gemini site → disabled(anahtar yok)/dış 403, alert 503, live-alerts ok, takvim empty, Yahoo yanlış yol 404.
 - Adım 11 bitti: typecheck 0 hata, 57 dosya / 254 test, build yeşil; cloud-scan duman testi bu ortamda Yahoo engelinde duruyor (beklenen), state dosyası yazılıyor, takvim hatası tolere ediliyor. Branch pushlandı. **Tüm adımlar bitti; kalanlar kullanıcı kararı (aşağıda).**
+- PR #43 merge edildi (main = 5c89203). Canlı site bu ortamdan erişilemiyor (egress engeli) → deploy sonrası `/api/calendar` kontrolü kullanıcıda.

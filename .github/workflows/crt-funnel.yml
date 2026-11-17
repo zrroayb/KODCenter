@@ -1,0 +1,108 @@
+name: CRT funnel measurement
+
+# Measurement only (audit 2026-11). Fetches Yahoo/Binance data ONCE, then runs scripts/crt-funnel.ts
+# on the same candles for four ChoCH variants, each at scan-grid shifts 0..3:
+#   V0 = engine before True MSS (611b6dc, baseline)
+#   V1 = HEAD, chochReference post-sweep-first-break (engine default since 2026-11-14, so V1 == V3)
+#   V2 = HEAD, chochReference pre-sweep + chochWindow wide
+#   V3 = HEAD default
+# and applies the pre-registered decision rule (scripts/crt-funnel-summary.ts). READY records of
+# V0 and V3 accumulate across runs in .funnel-archive (actions/cache). No secrets, sends nothing.
+# Triggers: the weekly schedule and workflow_dispatch only work once this file is on the default
+# branch; until then, push a new line to .github/funnel-trigger on the development branch.
+on:
+  schedule:
+    - cron: "23 7 * * 6" # Saturday 07:23 UTC, markets closed
+  workflow_dispatch:
+  push:
+    branches: [claude/eur-usd-trading-hpxmxn]
+    paths: [.github/funnel-trigger]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crt-funnel
+  cancel-in-progress: false
+
+jobs:
+  funnel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Restore READY archive
+        uses: actions/cache/restore@v4
+        with:
+          path: .funnel-archive
+          key: funnel-archive-${{ github.run_id }}
+          restore-keys: funnel-archive-
+
+      - name: Fetch data + V3 (HEAD default), shift 0
+        run: |
+          mkdir -p out
+          npx tsx scripts/crt-funnel.ts --yahoo --days 55 --save markets.json --variant V3 --shift 0 \
+            --out out/V3-0.md --summary out/V3-0.summary.json --archive-dir .funnel-archive
+
+      - name: V1 / V2 / V3 on the same candles, shifts 0..3
+        run: |
+          run() { npx tsx scripts/crt-funnel.ts --input markets.json --days 55 --variant "$1" --shift "$2" --out "out/$1-$2.md" --summary "out/$1-$2.summary.json" "${@:3}"; }
+          for s in 1 2 3; do run V3 "$s"; done
+          for s in 0 1 2 3; do run V1 "$s" --choch-reference post-sweep-first-break; done
+          for s in 0 1 2 3; do run V2 "$s" --choch-reference pre-sweep --choch-window wide; done
+
+      - name: V0 baseline (611b6dc engine, current script), shifts 0..3
+        run: |
+          git worktree add ../kod-old 611b6dc
+          ln -s "$GITHUB_WORKSPACE/node_modules" ../kod-old/node_modules
+          cp scripts/crt-funnel.ts scripts/crtFunnelGates.ts ../kod-old/scripts/
+          cd ../kod-old
+          for s in 0 1 2 3; do
+            extra=""
+            if [ "$s" = "0" ]; then extra="--archive-dir $GITHUB_WORKSPACE/.funnel-archive"; fi
+            npx tsx scripts/crt-funnel.ts --input "$GITHUB_WORKSPACE/markets.json" --days 55 --variant V0 --shift "$s" \
+              --out "$GITHUB_WORKSPACE/out/V0-$s.md" --summary "$GITHUB_WORKSPACE/out/V0-$s.summary.json" $extra
+          done
+
+      - name: Summary and decision rule
+        if: always()
+        run: |
+          npx tsx scripts/crt-funnel-summary.ts out --out out/summary.md || true
+          {
+            [ -f out/summary.md ] && cat out/summary.md && echo
+            for f in out/V0-0.md out/V1-0.md out/V2-0.md out/V3-0.md; do
+              [ -f "$f" ] && { echo; echo "---"; echo; cat "$f"; echo; }
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Save READY archive
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .funnel-archive
+          key: funnel-archive-${{ github.run_id }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crt-funnel
+          path: |
+            markets.json
+            out/
+            .funnel-archive/
+          include-hidden-files: true
+          if-no-files-found: warn

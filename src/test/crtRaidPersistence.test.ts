@@ -289,10 +289,10 @@ describe("CRT raid persistence", () => {
     expect(signal.crtAnchor?.raidActive).toBe(true);
   });
 
-  it("accepts a CRT mitigation raid even when the raid candle did not close back inside", () => {
-    // h4[21] sweeps the range low but closes below it. Price later trades back inside and
-    // the reclaim is still holding, so this is a valid live CRT mitigation read; the close
-    // back inside is a quality bonus, not the gate.
+  it("a raid candle that CLOSED beyond the range is acceptance even if price later trades back inside (audit B8)", () => {
+    // h4[21] sweeps the range low and closes below it. CRT Secrets: a close outside the range
+    // invalidates the CRT. The old engine kept this alive as a "mitigation raid" waiting for C2
+    // to close inside, although C2 had already closed — outside.
     const signal = scanWithH4({
       20: { open: 100, high: 101, low: 95, close: 99 },
       21: { open: 98, high: 98.4, low: 94.6, close: 94.8 },
@@ -300,9 +300,8 @@ describe("CRT raid persistence", () => {
       23: { open: 96, high: 98.3, low: 95.8, close: 98 }
     }, 96);
 
-    expect(signal.direction).toBe("long");
-    expect(signal.crtAnchor?.raidActive).toBe(true);
-    expect(signal.crtAnchor?.raidClosed).toBe(false);
+    expect(signal?.crtAnchor?.raidActive && signal.direction === "long" && signal.crtAnchor?.rangeLow === 95).toBeFalsy();
+    expect(signal?.stage).not.toBe("ready");
   });
 
   it("releases the long and accepts the newer short once the long's target side is touched", () => {
@@ -339,9 +338,11 @@ describe("CRT raid persistence", () => {
       { time: 2, open: 106, high: 114, low: 103, close: 113, volume: 1, closed: true }
     ];
     expect(detectAnchorRaid(candles, { rangeTf: "4h", confirmTf: "15m" }).raid).toBeUndefined();
-    // Same sweep, but the next candle closes back inside: that is the reclaim — a live raid.
+    // Even when the next candle closes back inside, C2 already closed OUTSIDE: acceptance stays
+    // acceptance (audit B8, 2026-11-14) — no CRT from that range candle.
     const reclaimed = [...candles, { time: 3, open: 112, high: 113, low: 106, close: 107, volume: 1, closed: true }];
-    expect(detectAnchorRaid(reclaimed, { rangeTf: "4h", confirmTf: "15m" }).raid?.direction).toBe("short");
+    const read = detectAnchorRaid(reclaimed, { rangeTf: "4h", confirmTf: "15m" });
+    expect(read.raid?.direction === "short" && read.range.high === 100).toBeFalsy();
   });
 });
 

@@ -124,10 +124,10 @@ describe("CRT ChoCH truth model", () => {
     expect(read.confirmation?.candleIndex).toBe(10);
   });
 
-  it("uses the POST-sweep reclaim pivot (CISD/MSS) as the shift, not a distant pre-sweep swing", () => {
-    // ICT 2022 model: after the sweep, the reclaim leg prints a pivot high (idx10), pulls back,
-    // then a strong close breaks above it (idx12) = CISD up. No pre-sweep swing is supplied, so
-    // only the post-sweep reference can confirm — this is what unlocked the manipulation->ChoCH wall.
+  it("ignores a post-sweep micro pivot: without a pre-sweep reference there is no ChoCH (True MSS)", () => {
+    // After the sweep the reclaim leg prints a pivot high (idx10), pulls back, then a strong close
+    // breaks above it (idx12). The old engine called that a ChoCH; the source's True MSS breaks the
+    // structure that stood BEFORE the sweep, and none is supplied here.
     const data = candles();
     data[10] = { ...data[10], open: 100.1, high: 100.7, low: 100.0, close: 100.5 };
     data[11] = { ...data[11], open: 100.4, high: 100.5, low: 100.1, close: 100.2 };
@@ -143,21 +143,23 @@ describe("CRT ChoCH truth model", () => {
       averageRange: 1
     });
 
-    expect(read.reference?.candleIndex).toBe(10);   // reclaim pivot, post-sweep
-    expect(read.confirmation?.candleIndex).toBe(12); // strong close through it
+    expect(read.reference).toBeUndefined();
+    expect(read.confirmation).toBeUndefined();
   });
 
-  it("falls back to the pre-sweep swing when the post-sweep pivot is never broken", () => {
-    // Reclaim makes a pivot high (idx10) but price never closes above it → no post-sweep CISD.
-    // Detection must fall back to the supplied pre-sweep swing + its later break (idx12).
+  it("keeps the pre-sweep swing as the reference even when a later micro pivot appears (no drift)", () => {
+    // The reference is fixed by the sweep: a newer post-sweep pivot (idx10) must not replace it.
     const data = candles();
-    data[10] = { ...data[10], open: 100.1, high: 101.9, low: 100.0, close: 101.2 }; // pivot never exceeded
+    data[10] = { ...data[10], open: 100.1, high: 101.9, low: 100.0, close: 101.2 };
     data[11] = { ...data[11], open: 101.0, high: 101.3, low: 100.6, close: 100.7 };
-    data[12] = { ...data[12], open: 100.5, high: 101.1, low: 100.4, close: 101.05 }; // breaks pre-sweep 101, not idx10
+    data[12] = { ...data[12], open: 100.5, high: 101.1, low: 100.4, close: 101.05 }; // breaks pre-sweep 101
     const swings: SwingPoint[] = [{ side: "high", level: 101, candleIndex: 4, strength: "minor" }];
 
     const read = detectCrtChoch({ candles: data, swings, range, direction: "long", manipulationIndex: 8, buffer: 0.2, averageRange: 1 });
-    expect(read.reference?.candleIndex).toBe(4); // pre-sweep fallback
+    expect(read.reference?.candleIndex).toBe(4);
+    // More candles later: still the same reference.
+    const longer = [...data, ...candles(3).map((candle, i) => ({ ...candle, time: data[13].time + (i + 1) * 15 * 60 * 1000, high: 102.5 }))];
+    expect(detectCrtChoch({ candles: longer, swings, range, direction: "long", manipulationIndex: 8, buffer: 0.2, averageRange: 1 }).reference).toEqual(read.reference);
   });
 
   it("recognizes the mirrored bearish shift after a buy-side manipulation", () => {

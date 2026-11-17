@@ -15,6 +15,7 @@ import { detectFairValueGaps, detectOrderBlocks, detectSwingPoints } from "../..
 import type { BacktestInput, StrategyInput, StrategyModule, StrategyResult } from "../types";
 import { detectLatestTurtleSoup, type TurtleSoupPattern } from "./turtleSoup";
 import { evaluateReferenceCandle, type ReferenceCandleScore } from "./referenceCandle";
+import { crtKeyLevels, readHigherCrts, type HtfCrtRead, type HtfCrtTimeframe } from "./htfCrt";
 
 const CRT_STRATEGY_ID = "crt";
 // Exit model is DOL-target with break-even at EQ: the whole position runs to DOL/TP2, and when
@@ -47,7 +48,7 @@ const RAID_PERSISTENCE_LOOKBACK = 6;
 // The 4H candles are read off New York-close charts (opens 17/21/01/05/09/13 NY). No candle hour
 // is privileged: the CRT source rejects mechanical 1/5/9 timing (2026-10-02). London raids Asia's
 // candle, New York raids London's.
-type AnchorSpec = { rangeTf: Extract<Timeframe, "1h" | "4h" | "1d" | "1w" | "1M">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d"> };
+type AnchorSpec = { rangeTf: Extract<Timeframe, "4h" | "1d" | "1w" | "1M">; confirmTf: Extract<Timeframe, "5m" | "15m" | "1h" | "4h" | "1d"> };
 const ANCHORS: AnchorSpec[] = [
   { rangeTf: "4h", confirmTf: "15m" },
   { rangeTf: "1d", confirmTf: "1h" },
@@ -115,7 +116,7 @@ type CrtSetup = {
   readyEligible: boolean;
 };
 
-type CrtHtfAlignmentTimeframe = Extract<Timeframe, "1M" | "1w" | "1d" | "4h">;
+type CrtHtfAlignmentTimeframe = HtfCrtTimeframe;
 
 export type CrtHtfAlignment = {
   aligned: boolean;
@@ -127,41 +128,43 @@ export type CrtHtfAlignment = {
   summary: string;
 };
 
-const HTF_ALIGNMENT_CHAIN: Record<AnchorSpec["rangeTf"], CrtHtfAlignmentTimeframe[]> = {
-  "1h": ["4h", "1d"],
-  "4h": ["1d", "1w"],
-  "1d": ["1w"],
-  "1w": ["1M"],
-  // Nothing above monthly: the monthly trend itself must agree.
-  "1M": ["1M"]
-};
+const HTF_LABEL: Record<CrtHtfAlignmentTimeframe, string> = { "1d": "Günlük", "1w": "Haftalık", "1M": "Aylık" };
 
-function contextBiasForTimeframe(context: MarketContext, timeframe: CrtHtfAlignmentTimeframe) {
-  if (timeframe === "1M") return context.bias.monthly;
-  if (timeframe === "1w") return context.bias.weekly;
-  if (timeframe === "4h") return context.bias.h4;
-  return context.bias.daily;
+function htfReadText(read: HtfCrtRead): string {
+  if (read.spent === "target") return `${HTF_LABEL[read.timeframe]} CRT hedefi aldı (yön yok)`;
+  if (read.spent === "invalidated") return `${HTF_LABEL[read.timeframe]} CRT C2 ucu aşıldı (yön yok)`;
+  if (!read.direction) return `${HTF_LABEL[read.timeframe]} CRT yok`;
+  return `${HTF_LABEL[read.timeframe]} CRT ${read.direction === "short" ? "high süpürüldü → short" : "low süpürüldü → long"}`;
 }
 
+// HTF direction = the Daily / Weekly / Monthly CRT above the anchor (htfCrt.ts). READY needs at
+// least one of them in Candle 3 pointing the trade's way and none pointing against it; no active
+// CRT above (all neutral) is NOT enough — a sweep alone never makes the direction. The monthly
+// anchor is the top of the chain: its own monthly CRT is the direction.
 export function evaluateCrtHtfAlignment(
   context: MarketContext,
   rangeTf: AnchorSpec["rangeTf"],
   direction: TradeDirection
 ): CrtHtfAlignment {
-  const required = HTF_ALIGNMENT_CHAIN[rangeTf];
-  const expected = direction === "long" ? "bullish" : "bearish";
-  const opposite = direction === "long" ? "bearish" : "bullish";
-  const matching = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === expected);
-  const opposing = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === opposite);
-  const neutral = required.filter((timeframe) => contextBiasForTimeframe(context, timeframe) === "neutral");
-  // Loose gate: only an actively OPPOSING higher timeframe vetoes READY (never trade against
-  // the HTF narrative). A neutral/unclear higher TF is tolerated — it costs score via the
-  // fullyAligned bonus, not eligibility.
-  const aligned = opposing.length === 0;
-  const fullyAligned = matching.length === required.length;
-  const reads = required
-    .map((timeframe) => `${timeframe} ${contextBiasForTimeframe(context, timeframe)}`)
-    .join(" + ");
+  const reads = readHigherCrts(context, rangeTf);
+  const required = reads.map((read) => read.timeframe);
+  if (reads.length === 0) {
+    return {
+      aligned: true,
+      fullyAligned: true,
+      required,
+      matching: [],
+      opposing: [],
+      neutral: [],
+      summary: "Aylık CRT en üst zaman dilimi; yön aylık CRT'nin kendisi."
+    };
+  }
+  const matching = reads.filter((read) => read.direction === direction).map((read) => read.timeframe);
+  const opposing = reads.filter((read) => read.direction && read.direction !== direction).map((read) => read.timeframe);
+  const neutral = reads.filter((read) => !read.direction).map((read) => read.timeframe);
+  const aligned = matching.length > 0 && opposing.length === 0;
+  const fullyAligned = aligned && matching.length === required.length;
+  const text = reads.map(htfReadText).join(" · ");
   return {
     aligned,
     fullyAligned,
@@ -169,11 +172,13 @@ export function evaluateCrtHtfAlignment(
     matching,
     opposing,
     neutral,
-    summary: fullyAligned
-      ? `${reads}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} yönüyle tam uyumlu.`
-      : aligned
-      ? `${reads}; üst yön ${expected} değil ama karşı da değil — nötr tolere edildi, skor düşük.`
-      : `${reads}; üst timeframe ${direction.toUpperCase()} yönüne karşı — READY vetosu.`
+    summary: opposing.length > 0
+      ? `${text}; üst CRT ${direction.toUpperCase()} yönüne ters — READY yok.`
+      : matching.length === 0
+      ? `${text}; üstte ${direction.toUpperCase()} yönünü veren aktif D/W/M CRT yok — yön yok, READY yok.`
+      : fullyAligned
+      ? `${text}; ${rangeTf.toUpperCase()} ${direction.toUpperCase()} tüm üst CRT'lerle uyumlu.`
+      : `${text}; ${direction.toUpperCase()} yönünü ${matching.map((timeframe) => HTF_LABEL[timeframe]).join("/")} CRT veriyor.`
   };
 }
 
@@ -186,7 +191,6 @@ function expectedSweepSide(direction: TradeDirection) {
 }
 
 function rangeCandlesFor(context: MarketContext, spec: AnchorSpec): Candle[] {
-  if (spec.rangeTf === "1h") return context.timeframes.h1;
   if (spec.rangeTf === "4h") return context.timeframes.h4;
   if (spec.rangeTf === "1d") return context.timeframes.daily;
   if (spec.rangeTf === "1M") return context.timeframes.monthly;
@@ -291,6 +295,10 @@ export function detectAnchorRaid(rangeCandles: Candle[], spec: AnchorSpec): { ra
     const raidIndex = firstSweepIndex(closed, rangeIndex, range);
     if (raidIndex === -1) continue;
     const raid = raidFromPair(range, closed[raidIndex], true);
+    // A CLOSED C2 that closed beyond the range is acceptance, not a CRT (CRT Secrets: a close
+    // outside invalidates). It used to stay alive as "C2 not closed inside yet" once a later
+    // candle came back in (audit B8, 2026-11-14). The forming-C2 path below is unchanged.
+    if (raid && !raid.closed) continue;
     if (raid && raidStillActive(closed, raidIndex, range, raid.direction)) {
       // The manipulation extreme is the raid LEG's running extreme, not the first raid
       // candle's wick: raidStillActive deliberately tolerates later wick pokes (distribution
@@ -378,7 +386,7 @@ function confirmSweepIndex(anchor: AnchorCtx, direction: TradeDirection): number
 }
 
 function anchorBias(anchor: AnchorCtx) {
-  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "1h" ? "1h" : anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
+  return buildCrtBias(completedCandles(anchor.rangeCandles), anchor.spec.rangeTf === "4h" ? "4h" : anchor.spec.rangeTf === "1d" ? "1d" : anchor.spec.rangeTf === "1M" ? "1M" : "1w");
 }
 
 // Direction comes ONLY from the pair's own structure: its anchor-candle bias or raid.
@@ -489,40 +497,71 @@ function internalShiftReference(
   return undefined;
 }
 
-// Post-sweep CISD/MSS referansı (ICT 2022 modeli, doktrinel doğru): "sweep → reclaim → shift"te
-// kırılan yapı sweep'ten SONRA, reclaim bacağında oluşur — pre-sweep swing değil. Bullish reclaim
-// (range low sweep) için: sweep sonrası reclaim bacağının EN GÜNCEL karşı-yön mikro pivotu (lower-high);
-// onu kapanışla kırmak = yukarı karakter değişimi. Owner 2026-07-29: manipulation→ChoCH huni duvarını
-// (19→0) açmak için, çünkü kod ChoCH'u yanlış (pre-sweep) çapalıyordu.
-function postSweepShiftReference(
+// Which structure the ChoCH must break (strategy setting `chochReference`, not in the UI):
+// - "pre-sweep": True MSS — the last internal swing that stood BEFORE the sweep.
+// - "post-sweep-first-break" (DEFAULT, conscious deviation from the source): the first post-sweep event decides. Walking forward from the sweep,
+//   the FIRST closed candle that body-closes through either a post-sweep 1-wing internal pivot
+//   or the pre-sweep swing fixes the reference (the newest post-sweep pivot it broke, else the
+//   pre-sweep swing). Later candles can never change it — unlike the removed "latest broken
+//   pivot" rule, which re-wrote filled trades (audit B3). No break yet → pre-sweep swing.
+export type CrtChochReferenceMode = "pre-sweep" | "post-sweep-first-break";
+// Sweep→break window and freshness (strategy setting `chochWindow`): standard 12/16, wide 24/32.
+export type CrtChochWindow = "standard" | "wide";
+
+export function crtChochOptions(settings: Record<string, unknown>): { reference: CrtChochReferenceMode; maxDelay: number; freshness: number } {
+  const wide = settings.chochWindow === "wide";
+  return {
+    // Default = post-sweep-first-break since 2026-11-14 (pre-registered rule on real data: V1 ≥ 5
+    // READY and ≥ 0R; True MSS gave 1 READY in 45.5 days). "pre-sweep" stays selectable.
+    reference: settings.chochReference === "pre-sweep" ? "pre-sweep" : "post-sweep-first-break",
+    maxDelay: wide ? 24 : CHOCH_MAX_DELAY_CANDLES,
+    freshness: wide ? 32 : CHOCH_FRESHNESS_CANDLES
+  };
+}
+
+function directionalCloseThrough(candle: Candle, direction: TradeDirection, level: number, minimumCloseThrough: number): boolean {
+  if (candle.closed === false) return false;
+  const directionalBody = direction === "short" ? candle.close < candle.open : candle.close > candle.open;
+  const closeThrough = direction === "short" ? level - candle.close : candle.close - level;
+  return directionalBody && closeThrough >= minimumCloseThrough;
+}
+
+// V1 reference: the first post-sweep break event (see CrtChochReferenceMode).
+function firstBreakReference(
   candles: Candle[],
   manipulationIndex: number,
-  side: SwingPoint["side"],
+  direction: TradeDirection,
+  preSweep: SwingPoint | undefined,
+  preSweepWing: number,
   range: DealingRange,
-  internalMargin: number
+  internalMargin: number,
+  minimumCloseThrough: number
 ): SwingPoint | undefined {
-  let latest: SwingPoint | undefined;
-  for (let index = manipulationIndex + 1; index <= candles.length - 2; index += 1) {
-    const previous = candles[index - 1];
+  const side: SwingPoint["side"] = direction === "short" ? "low" : "high";
+  for (let index = manipulationIndex + 1; index < candles.length; index += 1) {
     const candle = candles[index];
-    const next = candles[index + 1];
-    if (!previous || !candle || !next || next.closed === false) continue;
-    const isPivot = side === "high"
-      ? candle.high > previous.high && candle.high >= next.high
-      : candle.low < previous.low && candle.low <= next.low;
-    const level = side === "high" ? candle.high : candle.low;
-    const isInternal = side === "high"
-      ? level < range.high - internalMargin
-      : level > range.low + internalMargin;
-    if (!isPivot || !isInternal) continue;
-    // Bir CISD referansı ancak SONRAKİ kapalı bir mum onu kapanışla kırdıysa geçerlidir — yoksa bu,
-    // reclaim'in en güncel tepesi/displacement mumunun kendisidir ve "kırılacak yapı" değildir.
-    // Bu guard, displacement mumunu kendi referansı yapıp pre-sweep fallback'ini engelleme bug'ını önler.
-    const brokenLater = candles.slice(index + 1).some((later) =>
-      later.closed !== false && (side === "high" ? later.close > level : later.close < level));
-    if (brokenLater) latest = { side, level, candleIndex: index, strength: "minor" };
+    if (candle.closed === false) break;
+    // Post-sweep pivots fully printed before this candle (pivot + its right wing).
+    let newest: SwingPoint | undefined;
+    for (let pivot = manipulationIndex + 1; pivot <= index - 2; pivot += 1) {
+      const previous = candles[pivot - 1];
+      const here = candles[pivot];
+      const next = candles[pivot + 1];
+      const isPivot = side === "high"
+        ? here.high > previous.high && here.high >= next.high
+        : here.low < previous.low && here.low <= next.low;
+      const level = side === "high" ? here.high : here.low;
+      const isInternal = side === "high" ? level < range.high - internalMargin : level > range.low + internalMargin;
+      if (isPivot && isInternal && directionalCloseThrough(candle, direction, level, minimumCloseThrough)) {
+        newest = { side, level, candleIndex: pivot, strength: "minor" };
+      }
+    }
+    if (newest) return newest;
+    if (preSweep && index >= preSweep.candleIndex + preSweepWing + 1 && directionalCloseThrough(candle, direction, preSweep.level, minimumCloseThrough)) {
+      return preSweep;
+    }
   }
-  return latest;
+  return preSweep;
 }
 
 export function detectCrtChoch(input: {
@@ -533,8 +572,13 @@ export function detectCrtChoch(input: {
   manipulationIndex: number;
   buffer: number;
   averageRange: number;
+  reference?: CrtChochReferenceMode;
+  maxDelay?: number;
+  freshness?: number;
 }): CrtChochRead {
   const { candles, swings, range, direction, manipulationIndex, buffer, averageRange } = input;
+  const maxDelay = input.maxDelay ?? CHOCH_MAX_DELAY_CANDLES;
+  const freshness = input.freshness ?? CHOCH_FRESHNESS_CANDLES;
   const swingSide = direction === "short" ? "low" : "high";
   const internalMargin = Math.max(buffer * 2, (range.high - range.low) * 0.04);
   const confirmedSwing = [...swings]
@@ -550,24 +594,25 @@ export function detectCrtChoch(input: {
       ? point.level > range.low + internalMargin
       : point.level < range.high - internalMargin)
     .sort((a, b) => b.candleIndex - a.candleIndex)[0];
-  // CRT shift is an internal structure break. ICT 2022 model: the confirming shift is the CISD/MSS
-  // the reclaim leg leaves AFTER the sweep — so the POST-sweep opposing micro-pivot is preferred.
-  // Pre-sweep swings (three-wing, then one-candle internal) remain as a higher-conviction fallback.
-  const postSweepSwing = postSweepShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
-  const preSweepSwing = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
-  const swing = postSweepSwing ?? preSweepSwing;
-  const isPostSweep = Boolean(postSweepSwing);
+  // True MSS (CRT Secrets): the confirmation breaks the structure that stood BEFORE the sweep —
+  // the last internal swing on the far side (a swing LOW for a short; mirror for a long). Because
+  // the reference is fixed by the sweep candle, it cannot move on later scans: a post-sweep
+  // micro-pivot used to take its place every time price made a new one, which re-wrote the entry
+  // of filled trades and turned open trades into WATCH (audit B3/B4, 2026-11-14).
+  const preSweep = confirmedSwing ?? internalShiftReference(candles, manipulationIndex, swingSide, range, internalMargin);
+  const preSweepWing = confirmedSwing ? CHOCH_SWING_WING : 1;
+  const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
+  const swing = input.reference === "post-sweep-first-break"
+    ? firstBreakReference(candles, manipulationIndex, direction, preSweep, preSweepWing, range, internalMargin, minimumCloseThrough)
+    : preSweep;
   if (!swing) return {};
 
   const reference = { level: swing.level, candleIndex: swing.candleIndex };
-  const minimumCloseThrough = Math.max(buffer * 0.1, averageRange * 0.03);
-  const referenceWing = isPostSweep ? 1 : confirmedSwing ? CHOCH_SWING_WING : 1;
+  const referenceWing = swing === preSweep ? preSweepWing : 1;
   const firstBreakIndex = Math.max(manipulationIndex + 1, swing.candleIndex + referenceWing + 1);
   // Sweep -> shift must be one delivery sequence: the break search ends CHOCH_MAX_DELAY_CANDLES
-  // after the sequence anchor. Pre-sweep refs anchor to the manipulation; post-sweep CISD refs
-  // anchor to the shift pivot itself (the reclaim's break naturally lands right after the pivot).
-  const windowFrom = isPostSweep ? swing.candleIndex : manipulationIndex;
-  const lastBreakIndex = Math.min(candles.length - 1, windowFrom + CHOCH_MAX_DELAY_CANDLES);
+  // after the manipulation candle.
+  const lastBreakIndex = Math.min(candles.length - 1, manipulationIndex + maxDelay);
   let structuralBreak: CrtChochRead["structuralBreak"];
   for (let index = firstBreakIndex; index <= lastBreakIndex; index += 1) {
     const candle = candles[index];
@@ -581,7 +626,7 @@ export function detectCrtChoch(input: {
     // Only the FIRST close through the protecting swing can be the character change. If that
     // first break is already stale, the character changed long ago — a fresher re-close of the
     // same level is the new trend's continuation, never this raid's ChoCH. Stop, don't skip.
-    if (index < candles.length - CHOCH_FRESHNESS_CANDLES) break;
+    if (index < candles.length - freshness) break;
     structuralBreak ??= {
       level: swing.level,
       candleIndex: index,
@@ -607,9 +652,12 @@ export function detectCrtChoch(input: {
   return { reference, structuralBreak };
 }
 
-function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], buffer: number): CrtChochRead {
-  const manipulationIndex = manipulation?.candleIndex ?? Math.max(0, anchor.confirmCandles.length - CHOCH_FRESHNESS_CANDLES);
+function chochForAnchor(anchor: AnchorCtx, direction: TradeDirection, manipulation: CrtSetup["manipulation"], buffer: number, options: ReturnType<typeof crtChochOptions>): CrtChochRead {
+  const manipulationIndex = manipulation?.candleIndex ?? Math.max(0, anchor.confirmCandles.length - options.freshness);
   return detectCrtChoch({
+    reference: options.reference,
+    maxDelay: options.maxDelay,
+    freshness: options.freshness,
     candles: anchor.confirmCandles,
     swings: anchor.swings,
     range: anchor.range,
@@ -720,17 +768,12 @@ export function inCandle3(window: Candle3Window, candleTime: number): "before" |
 }
 
 function targetDol(anchor: AnchorCtx, direction: TradeDirection, entry: number): number | undefined {
-  // CRT distribution target: the opposite side of the range candle. Never fabricate a
-  // synthetic entry±2R target — a setup without a real draw has no trade.
+  // CRT distribution target = the opposite side of Candle 1 (CRT Secrets T2). No fallback: a
+  // setup whose entry is already past it has no real draw and no trade. (The old fallback to the
+  // anchor bias draw level never applied to READY — the entry is always inside the range once a
+  // ChoCH exists — and is not in the source; removed 2026-11-14, audit B10.)
   const rangeTarget = direction === "short" ? anchor.range.low : anchor.range.high;
-  const rangeIsUseful = direction === "short" ? rangeTarget < entry : rangeTarget > entry;
-  if (rangeIsUseful) return rangeTarget;
-  const bias = anchorBias(anchor);
-  if (bias.direction !== "neutral") {
-    const dolIsUseful = direction === "short" ? bias.drawLevel < entry : bias.drawLevel > entry;
-    if (dolIsUseful) return bias.drawLevel;
-  }
-  return undefined;
+  return (direction === "short" ? rangeTarget < entry : rangeTarget > entry) ? rangeTarget : undefined;
 }
 
 function executionCostStress(settings: StrategyInput["settings"]): ExecutionCostStress {
@@ -914,9 +957,9 @@ function displacementSince(anchor: AnchorCtx, direction: TradeDirection, fromInd
 // Score communicates quality; it never redefines the CRT model. It feeds ONLY the grade
 // (readyEligible has no score threshold). Split so the grade actually varies (2026-09-26):
 //   base 12 + CORE 58 (manipulation 20, ChoCH 18, exit/DOL net RR 20) = 70 → B
-//   QUALITY up to 38 (HTF alignment, SMT, killzone raid, session, location tier, reference
-//   candle, displacement, linked shift FVG/retest, range respect, key open) → A / A+ only with
-//   evidence. Before this split the core alone summed to 100 and every READY setup printed A+.
+//   QUALITY up to 31 (HTF alignment 6, SMT 5, location tier 5, reference candle 6,
+//   displacement 4, linked shift FVG/retest 3, range respect 2) → A / A+ only with evidence.
+//   (Killzone/session/key-open items were removed 2026-10-02: the source rejects clock rules.) Before this split the core alone summed to 100 and every READY setup printed A+.
 export function scoreCrtSetup(input: {
   manipulation: boolean;
   choch: boolean;
@@ -963,7 +1006,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // Live == replay (2026-09-26): every STATE change (sweep, retest, EQ consumed) is read from
   // CLOSED confirm candles. The forming candle only tells where price is now; it used to let
   // live READY appear mid-candle, which replay (closed candles only) could never reproduce.
-  const chochRead = chochForAnchor(anchor, direction, manipulation, buffer);
+  const chochRead = chochForAnchor(anchor, direction, manipulation, buffer, crtChochOptions(settings));
   const structuralShift = chochRead.structuralBreak ?? chochRead.confirmation;
   const poi = poiForAnchor(anchor, direction, manipulation, structuralShift);
   const linkedShiftFvg = isShiftFvg(poi, structuralShift);
@@ -979,12 +1022,9 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
     ? Math.max(choch.candleIndex, poi?.candleIndex ?? choch.candleIndex, c3 && c3FirstIndex >= 0 ? c3FirstIndex - 1 : -1)
     : undefined;
   const retestFound = typeof retestKnownIndex === "number" && (!c3 || c3FirstIndex >= 0)
-    ? findCrtEntryRetestIndex(
-        anchor.confirmCandles,
-        plannedEntry,
-        retestKnownIndex,
-        poi && isGapPoi(poi) ? { low: poi.low, high: poi.high } : undefined
-      )
+    // The fill needs price to reach the ENTRY itself. Touching the FVG's far edge used to count
+    // although the entry (the ChoCH level) was never traded (audit B2, 2026-11-14).
+    ? findCrtEntryRetestIndex(anchor.confirmCandles, plannedEntry, retestKnownIndex)
     : undefined;
   const retestIndex = typeof retestFound === "number" && c3 && inCandle3(c3, anchor.confirmCandles[retestFound].time) === "after"
     ? undefined
@@ -1040,10 +1080,22 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   const pullback = validCrtPullback(anchor.rangeCandles, direction);
   const raidClosed = Boolean(anchor.raid && anchor.raid.direction === direction && anchor.raid.closed);
   const sweptExtreme = turtleSoup?.sweepLevel ?? (direction === "short" ? anchor.range.high : anchor.range.low);
-  // STEP 3+6: liquidity/location ranking — weekly/monthly beats daily beats HTF-FVG.
+  // Candle 1 of this CRT among the range candles (latest exact high/low match).
+  let referenceIndex = -1;
+  for (let index = anchor.rangeCandles.length - 1; index >= 0; index -= 1) {
+    if (Math.abs(anchor.rangeCandles[index].high - anchor.range.high) < 1e-9 && Math.abs(anchor.rangeCandles[index].low - anchor.range.low) < 1e-9) {
+      referenceIndex = index;
+      break;
+    }
+  }
+  const c1Time = anchor.rangeCandles[referenceIndex]?.time ?? anchor.rangeCandles.at(-1)?.time ?? 0;
+  // STEP 3+6: key level = an OLD Daily/Weekly/Monthly high/low above the anchor timeframe
+  // (htfCrt.ts: never C1's own high/low, never a computed dealing-range edge) or an HTF FVG.
+  // Weekly/monthly beats daily beats HTF-FVG.
   const nearSwept = (level: number) => Math.abs(level - sweptExtreme) <= buffer * 3;
-  const weeklyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PWH" || objective.kind === "PWL" || objective.kind === "PMH" || objective.kind === "PML") && nearSwept(objective.level));
-  const dailyLocation = context.liquidityObjectives.some((objective) => (objective.kind === "PDH" || objective.kind === "PDL" || objective.kind === "DRH" || objective.kind === "DRL") && nearSwept(objective.level));
+  const keyLevels = crtKeyLevels(context, anchor.spec.rangeTf, c1Time).filter((item) => nearSwept(item.level));
+  const weeklyLocation = keyLevels.some((item) => item.timeframe === "1w" || item.timeframe === "1M");
+  const dailyLocation = keyLevels.some((item) => item.timeframe === "1d");
   const fvgConfluence = anchor.htfFvgs.some((gap) => sweptExtreme >= gap.low - buffer && sweptExtreme <= gap.high + buffer);
   const locationTier: CrtSetup["locationTier"] = weeklyLocation ? "weekly" : dailyLocation ? "daily" : fvgConfluence ? "fvg" : "none";
   const anchorAtKeyLevel = weeklyLocation || dailyLocation;
@@ -1060,13 +1112,6 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   // narrative (Asia raided by London, London raided by NY) — applied to every anchor.
   // Master §5: grade the CRT reference candle so an arbitrary doji cannot pose as a real range.
   // Hybrid, not a hard filter: every closed candle is a candidate, but a weak candle scores low.
-  let referenceIndex = -1;
-  for (let index = anchor.rangeCandles.length - 1; index >= 0; index -= 1) {
-    if (Math.abs(anchor.rangeCandles[index].high - anchor.range.high) < 1e-9 && Math.abs(anchor.rangeCandles[index].low - anchor.range.low) < 1e-9) {
-      referenceIndex = index;
-      break;
-    }
-  }
   const referenceCandle = referenceIndex >= 0
     ? evaluateReferenceCandle({
         candle: anchor.rangeCandles[referenceIndex],
@@ -1095,9 +1140,10 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
           : `${anchor.spec.confirmTf} ChoCH/shift mum kapanışı yok.`)
       : undefined,
     // CRT Secrets: HTF yönüne ters CRT kesinlikle işlenmez (istisna yok, 2026-10-02).
-    !htfAlignment.aligned ? `HTF yönü ters: ${htfAlignment.summary} — trend tersine CRT işlenmez.` : undefined,
-    // CRT Secrets: key level'a (eski HTF high/low, HTF FVG) denk gelmeyen CRT işlenmez.
-    !anchorAtKeyLevel && !fvgConfluence ? "Key level yok: sweep eski HTF high/low (PDH/PDL/PWH/PWL/PMH/PML) veya HTF FVG'ye denk gelmiyor — key level'sız CRT işlenmez." : undefined,
+    // HTF yönü = üstteki D/W/M CRT (en az biri bu yönde, hiçbiri ters). Nötr yetmez.
+    !htfAlignment.aligned ? `HTF yönü yok/ters: ${htfAlignment.summary}` : undefined,
+    // CRT Secrets: key level'a (eski D/W/M high/low, HTF FVG) denk gelmeyen CRT işlenmez.
+    !anchorAtKeyLevel && !fvgConfluence ? "Key level yok: sweep üst zaman dilimindeki eski günlük/haftalık/aylık high/low'a (C1'in kendisi sayılmaz) veya HTF FVG'ye denk gelmiyor — key level'sız CRT işlenmez." : undefined,
     !hasRealTarget ? "Gerçek distribution/DOL hedefi yok; entry range'in ötesine taşmış." : undefined,
     !stopValid ? "Stop entry'nin yanlış tarafında; plan geometrisi bozuk, trade edilemez." : undefined,
     !pdAligned ? "CRT range P/D yanlış: long discounttan, short premiumdan gelmeli." : undefined,
@@ -1117,7 +1163,7 @@ function buildAnchorSetup(context: MarketContext, settings: StrategyInput["setti
   ].filter((item): item is string => Boolean(item));
   const warnings = [
     turtleSoup ? turtleSoup.summary : undefined,
-    htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üst yön nötr (${htfAlignment.neutral.join(", ")}); karşı değil ama tam onay yok, boyutu küçük tut.` : undefined,
+    htfAlignment.aligned && !htfAlignment.fullyAligned ? `Üstte aktif CRT'si olmayan zaman dilimi var (${htfAlignment.neutral.join(", ")}); yön tek kaynaktan, boyutu küçük tut.` : undefined,
     choch && !poi ? "FVG/OB yok; plan doğrudan kapalı ChoCH mumundan giriş kullanıyor." : undefined,
     choch && poi && !linkedShiftFvg ? "POI var ama shift bacağına bağlı değil; yalnızca kalite notu." : undefined,
     choch && linkedShiftFvg && typeof retestIndex !== "number" ? "Shift FVG var ama retest gelmedi; retest zorunlu, ChoCH kapanışı tek başına giriş onaylamaz — WATCH." : undefined,
@@ -1439,7 +1485,7 @@ function evidenceFor(context: MarketContext, anchor: AnchorCtx, setup: CrtSetup)
         rangeAtr: setup.choch?.rangeAtr
       }
     },
-    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `Kapalı ChoCH mumundan ${formatPrice(setup.plan.entry)} entry aktif; retest şart değil.` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
+    { id: "entry", label: "Entry", status: setup.plan.entryStatus === "confirmed" ? "pass" : "fail", detail: typeof setup.retestIndex === "number" ? `ChoCH sonrası ${formatPrice(setup.plan.entry)} retest entry görüldü.` : setup.choch ? `ChoCH kapandı; ${formatPrice(setup.plan.entry)} giriş seviyesine retest teması bekleniyor (retest zorunlu, kapanış kovalanmaz).` : "ChoCH kapanışı gelmeden entry yok.", timeframe: anchor.spec.confirmTf, candleIndex: setup.retestIndex ?? setup.choch?.candleIndex, time: anchor.liveConfirmCandles[setup.retestIndex ?? setup.choch?.candleIndex ?? -1]?.time, price: setup.plan.entry },
     { id: "eq-management", label: "EQ / BE", status: "neutral", detail: `EQ ${formatPrice(setup.plan.targets[0])} ara adımı: fiyat buraya gelince stop break-even'a çekilir (EQ ara RR ${formatR(setup.plan.extensionRR ?? 0)}).`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[0] },
     { id: "dol-target", label: "DOL / TP (çıkış)", status: setup.plan.rr >= (setup.plan.minimumRR ?? DEFAULT_EXIT_MINIMUM_RR) ? "pass" : "warning", detail: `Tam çıkış hedefi DOL ${formatPrice(setup.plan.targets[1])}, net RR ${formatR(setup.plan.rr)}; EQ'ya gelince stop BE'ye çekilir.`, timeframe: anchor.spec.rangeTf, price: setup.plan.targets[1] }
   ];
@@ -1568,7 +1614,7 @@ function signalPriority(signal: TradingSignal): number {
   return 1;
 }
 
-const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3, "1h": 4 };
+const RANGE_TF_RANK: Record<string, number> = { "4h": 0, "1d": 1, "1w": 2, "1M": 3 };
 
 function signalsFromContext(context: MarketContext, settings: StrategyInput["settings"]): TradingSignal[] {
   const signals = ANCHORS.map((spec) => anchorSignal(context, settings, spec))

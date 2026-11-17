@@ -35,8 +35,8 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 - Range dışında kapanış (acceptance) veya sweep ucunu kırıp o yönde genişleme → geçersiz.
 - Hedefe giderken ters SMT + Model #1 / True MSS → hedef iptal.
 - EQ'ya ulaşıp karşı uca gidemeyip ters yapı → setup tamamlandı sayılır.
-- **HTF trend: ZORUNLU** (trend tersine CRT yasak).
-- **Key level: ZORUNLU** (HTF eski high/low, FVG, mum açılış fiyatı).
+- **HTF yönü: ZORUNLU** — günlük/haftalık/aylık CRT'den okunur (2026-11-14): setup'ın üstündeki D/W/M'den en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok; C3'ü hedefi almış veya C2 ucunu aşmış üst CRT yön vermez (2026-11-14).
+- **Key level: ZORUNLU** (setup'ın üstündeki eski D/W/M high/low veya HTF FVG; C1'in kendisi ve hesaplanmış dealing-range uçları sayılmaz).
 - Killzone / haber için kodlanabilir mekanik kural kaynakta yok.
 
 ## 5. Yaygın hatalar
@@ -51,13 +51,15 @@ hizalanır. Kaynakla çelişen eski kural varsa **bu dosya kazanır**.
 |---|---|
 | Grafikte Candle 1 H/EQ/L, 3 mum fazı, HTF→LTF taşıma | ✅ `src/lib/charts/crtRange.ts` |
 | Günlük/4H mum NY 17:00 kapanışına hizalı (FX/altın/NAS) | ✅ `candleAggregation.ts`, `nyCloseDaily` (2026-10-02) |
-| Key level zorunlu | ✅ blocker (2026-10-02) |
-| HTF trend zorunlu, istisnasız | ✅ blocker (2026-10-02) |
+| Key level zorunlu | ✅ blocker (2026-10-02); 2026-11-14'ten beri yalnız üst TF eski D/W/M seviyeleri |
+| HTF yönü zorunlu, istisnasız | ✅ blocker (2026-10-02); 2026-11-14'ten beri D/W/M CRT'den, nötr = blocker |
 | Sadece Candle 3 (C2 HTF kapanışını bekle) | ✅ C2 range içinde kapanmadan READY yok (blocker, 2026-10-02); giriş C3'ün zaman penceresinde dolmalı, C2 içindeki retest sayılmaz, C3 girişsiz kapanırsa setup biter (2026-10-03, `candle3Window`) |
 | 1/5/9 bonusu kaldır | ✅ skor ve referans mum kalitesinden çıkarıldı |
 | 1M → 1D anchor | ✅ eklendi (grafik + motor + replay) |
 | T1'de kâr al (EQ) | ⏳ Replay çıkış karşılaştırması (30 işlem) karar verecek |
 | Model #1 doğrudan giriş | ➖ bilinçli olarak eklenmedi: motor kaynağın Giriş B'sini (True MSS + FVG/OTE retest) kullanıyor; tek giriş yolu sade ve ölçülebilir |
+| Alt TF onayı | ⚠️ **Kaynaktan bilinçli sapma (2026-11-14):** motor katı True MSS (yalnız sweep öncesi swing) yerine sweep sonrası İLK kırılımı kullanıyor — sweep sonrası iç pivot ya da sweep öncesi swing, hangisi önce gövde kapanışıyla kırılırsa; referans sabit, sonradan değişmez. Gerekçe: aynı 45.5 günlük gerçek veride katı True MSS 12 sembolde 1 READY verdi (−1R), ilk-kırılım 8.5 READY (+2.38R, kayma 0..3 ortalaması) — önceden yazılmış karar kuralı. Katı kural `chochReference: "pre-sweep"` ile seçilebilir. Örnek < 30: avantaj kanıtı değil (`docs/CRT_HUNI_2026-11-14b.md`). |
+| Giriş dolumu = fiyat giriş seviyesine ulaşmalı (FVG bölgesine dokunuş yetmez) | ✅ 2026-11-14 |
 | Hedefe giderken ters SMT + ters MSS → hedef iptal | ✅ uyarı (`targetInvalidation.ts`, Telegram ÇIKIŞ UYARISI; otomatik kapatma yok) |
 | Power of 3: C3 girişi erken olmalı | ✅ kalite uyarısı (C3'ün ikinci yarısında giriş), ayrıntı `power_of_3.md` |
 | Gemini bilgi tabanı + talimatlar | ✅ `src/lib/gemini/crtKnowledge.ts`, `systemInstructions.ts`, trade mentoru prompt'u |

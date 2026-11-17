@@ -27,6 +27,12 @@ describe("chart CRT range follows the 3-candle cycle (C1 range, C2 sweep, C3 tra
     expect(range).toMatchObject({ high: 22, low: 8, phase: "c2" });
   });
 
+  it("a spent CRT (forming C3 already took the target) is over: the last closed candle starts a new C1", () => {
+    // C1 10-20, C2 swept the low and closed inside (long, target 20); forming C3 already hit 21.
+    const range = activeCrtRange([bar(1, 12, 20, 10, 18), bar(2, 18, 19, 8, 15), bar(3, 15, 21, 14, 20.5, false)]);
+    expect(range).toMatchObject({ high: 19, low: 8, phase: "c2" });
+  });
+
   it("returns nothing for empty data", () => {
     expect(activeCrtRange([])).toBeUndefined();
   });
