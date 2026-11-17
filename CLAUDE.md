@@ -43,7 +43,7 @@ npm run typecheck # tip kontrolü: app + node + scripts (cloud-scan) (kök `npx 
 ```
 
 **Kalite kapısı:** Push'tan önce `npm run typecheck` **ve** `npm test` yeşil olmalı
-(şu an 291 test + 1 atlanan). Grafik/AI değişikliklerinde bunları atlama.
+(şu an 292 test + 1 atlanan). Grafik/AI değişikliklerinde bunları atlama.
 
 ## 4. Deploy — ÖNEMLİ
 
@@ -103,7 +103,7 @@ docs/                CRT_CHANGELOG (yalnız tarihçe; güncel kurallar §6 + kno
 - **Kaynak kuralları (CRT Secrets, `knowledge/strategies/crt_secrets_rules.md`)**: key level
   ve HTF yönü **zorunlu blocker**; karşı-HTF istisnası yok. **HTF yönü = D/W/M CRT**
   (`htfCrt.ts`): setup'ın üstündeki günlük/haftalık/aylık'tan (4H → D/W/M, 1D → W/M, 1W → M, 1M en
-  üst) en az biri C3'te aynı yönde, hiçbiri ters değil; üstte aktif CRT yoksa yön yok (READY yok); oluşan C3'ü hedefi almış ya da C2 ucunu aşmış üst CRT yön vermez.
+  üst) en az biri C3'te aynı yönde, hiçbiri ters değil (C1 tam önceki mum olmak zorunda değil: son kapanmış mum C2, ondan en fazla 6 mum önceki ve aradaki mumların içinde kaldığı mum C1 olabilir — motorla aynı arama); üstte aktif CRT yoksa yön yok (READY yok); oluşan C3'ü hedefi almış ya da C2 ucunu aşmış üst CRT yön vermez.
   **Key level** = üst TF'deki eski D/W/M high/low (C1'in kendisi, DRH/DRL sayılmaz) veya HTF FVG.
   Kaynakla çelişen eski kural varsa kaynak kazanır.
 - **ChoCH (alt TF onayı)**: varsayılan `chochReference: "post-sweep-first-break"` (2026-11-14, gerçek veride önceden yazılmış kuralla seçildi; kaynağın katı True MSS'inden **bilinçli sapma**): sweep'ten sonraki İLK yönlü gövde kapanışının kırdığı koruyucu iç swing referanstır (sweep sonrası pivot ya da sweep öncesi swing, hangisi önce kırılırsa) ve sonradan DEĞİŞMEZ. Dolum yalnız giriş seviyesine dokunuşla. Katı True MSS = `chochReference: "pre-sweep"`; pencere `chochWindow` (`standard` 12/16, `wide` 24/32). İkisi UI'da yok.
@@ -251,6 +251,8 @@ Günlük, değişikliğin kendi commit'iyle birlikte gönderilir.
 - 2026-11-14 — ChoCH varyantları ölçülebilir (varsayılan davranış DEĞİŞMEDİ): iki strateji ayarı (UI'da yok) — `chochReference`: `"pre-sweep"` (varsayılan, True MSS) | `"post-sweep-first-break"` (V1: sweep sonrası İLK kırılım olayı referansı sabitler — sweep sonrası 1 kanatlı iç pivot ya da sweep öncesi swing, hangisi önce gövde kapanışıyla kırılırsa; sonraki mumlar değiştiremez, B3 geri gelmez) ve `chochWindow`: `"standard"` (12/16 mum) | `"wide"` (24/32). `crtChochOptions` + `detectCrtChoch` (`reference`/`maxDelay`/`freshness`). Testler `crtChochVariants.test.ts` (referans sonraki mumlarla değişmiyor, önce kırılan sweep öncesi swing kalıyor, açık/DOL'a giden işlemde giriş sabit, dolum hâlâ giriş seviyesine dokunuşla). Huni: `--choch-reference/--choch-window/--variant/--shift` (tarama ızgarası fazı)/`--summary`/`--archive-dir`; `scripts/crt-funnel-summary.ts` kayma 0..3 özeti + ÖNCEDEN yazılmış karar kuralı (`decideChochDefault`: V1 ort. ≥ 5 READY ve ≥ 0R → V1; değilse V2 aynı eşik → wide; değilse değişiklik yok). Birikimli READY arşivi (`mergeReadyArchive`, motor sürümü başına dosya, `.funnel-archive` actions/cache). Workflow: veri bir kez, V0 (611b6dc) / V1 / V2 / V3 × kayma 0..3, haftalık cron (Cmt 07:23 UTC — yalnız main'deyken çalışır). 291 test.
 
 - 2026-11-14 — ChoCH varsayılanı değişti (motor kuralı): `chochReference` varsayılanı `"post-sweep-first-break"` (V1). Ölçüm (workflow koşu 43636393232, aynı 45.5 günlük mumlar, 12 sembol, kayma 0..3 ortalaması): V0 eski motor 10.75 READY / +10.17R, V1 8.50 / +2.38R, V2 (True MSS + geniş pencere) 3.50 / −0.41R, V3 (katı True MSS) 1.00 / −0.25R. Önceden yazılmış kural (V1 ort. ≥ 5 READY ve ≥ 0R) → V1. Örnek < 30: bu "sistemi sinyal üretir halde tutma" kararıdır, avantaj kanıtı DEĞİL. Düzeltilmiş hatalar geri alınmadı (B1/B2/B3/B7/B8, tek grafik tanımı); D/W/M, key level, PD, RR, skor değişmedi. Gemini: crtKnowledge mss-choch + confirmation-models, CRT sistem talimatı, mentor SOP'u. `crt_secrets_rules.md`'ye "kaynaktan bilinçli sapma" satırı. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-14-first-break`. Audit testleri katı modu (`pre-sweep`) sabitler. Rapor `docs/CRT_HUNI_2026-11-14b.md`. 291 test + 1 atlanan.
+
+- 2026-11-17 — C1 bitişiklik şartı kalktı (sahibi: "illa tam önceki mum olacak diye bir şey yok"): D/W/M yön okuması ve grafik (`htfCrt.ts` `readCrtCycle`) artık C1'i son kapanmış mumdan (C2) en fazla 6 mum geriye arıyor; aradaki mumlar C1'in içinde kalmalı (C2 onu ilk alan mum), en eski uygun mum seçilir — motorun `detectAnchorRaid` aramasıyla aynı. Grafik ile motor artık iç mum varken de aynı C1'i gösteriyor (B6 tam kapandı). Gemini: crtKnowledge htf-bias-required. `REPLAY_ARCHIVE_VERSION` → `crt-2026-11-17-c1-lookback`. 292 test + 1 atlanan.
 
 ## graphify
 

@@ -47,7 +47,7 @@ describe("CRT denetimi — şüphe 1 (B6): CRT tanımları", () => {
     expect(chart?.low).toBe(htf.c1?.low);
   });
 
-  it("DOĞRULANDI (açık, sahibinin kararı): motor C1'i 6 mum geriye arar; iç mum varken grafikten farklı C1 seçebilir", () => {
+  it("DÜZELTİLDİ 2026-11-17: C1 tam önceki mum olmak zorunda değil — grafik ve D/W/M, motorla aynı C1'i seçer", () => {
     const candles = [
       k(0, 98, 99, 97, 98),
       k(1, 96, 101, 95, 100), // motorun C1'i
@@ -58,7 +58,20 @@ describe("CRT denetimi — şüphe 1 (B6): CRT tanımları", () => {
     const engine = detectAnchorRaid(candles, SPEC_4H);
     expect(engine.raid?.direction).toBe("short");
     expect(engine.range.high).toBe(101);
-    expect(activeCrtRange(candles)?.high).toBe(100);
+    expect(activeCrtRange(candles)?.high).toBe(101);
+    expect(readHtfCrt(candles, "1d").c1?.high).toBe(101);
+  });
+
+  it("arada C1'in dışına çıkan mum varsa o mum C1 değildir (C2 onu ilk alan mum olmalı)", () => {
+    const candles = [
+      k(0, 96, 101, 95, 100),
+      k(1, 100, 101.3, 99, 100.5), // C1'in tepesini zaten aldı
+      k(2, 100.5, 101.6, 100, 100.2), // k1'i süpürüp içeride kapanır
+      k(3, 100, 100.2, 99.8, 100, false)
+    ];
+    const read = readHtfCrt(candles, "1d");
+    expect(read.direction).toBe("short");
+    expect(read.c1?.high).toBe(101.3);
   });
 });
 
