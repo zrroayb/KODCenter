@@ -2,8 +2,9 @@ import type { Candle, MarketContext, TradeDirection } from "../../ict/types";
 
 // HTF direction + key levels come from the Monthly / Weekly / Daily CRT (owner rule 2026-11-14:
 // "weekly daily monthly CRT bakacaksın"). Per timeframe, read the textbook 3-candle cycle on the
-// last two CLOSED candles: C2 (last closed) wick-swept exactly ONE side of C1 (the one before)
-// and closed back inside → that timeframe is in Candle 3 and draws to C1's opposite extreme.
+// last CLOSED candle as C2: it wick-swept exactly ONE side of a C1 up to 6 candles back (not
+// necessarily the one right before — owner rule 2026-11-17; every candle in between stayed inside
+// C1, so C2 is the first to take it) and closed back inside → that timeframe is in Candle 3 and draws to C1's opposite extreme.
 // Swept high → bearish, swept low → bullish. Anything else (no sweep, both sides, close beyond
 // = acceptance) is no active CRT on that timeframe.
 export type HtfCrtTimeframe = "1d" | "1w" | "1M";
@@ -40,21 +41,34 @@ function formingHtfCandle(candles: Candle[]): Candle | undefined {
   return hasExplicitState ? candles.filter((candle) => candle.closed === false).at(-1) : candles.at(-1);
 }
 
+// Same lookback as the engine's RAID_PERSISTENCE_LOOKBACK.
+const C1_LOOKBACK = 6;
+
 export type CrtCycleRead = Omit<HtfCrtRead, "timeframe">;
 
 // THE single 3-candle CRT definition shared by the D/W/M direction read and the chart (audit B6,
-// 2026-11-14): C1 and C2 = the last two CLOSED candles; C2 swept exactly one side of C1 and
-// closed back inside → Candle 3 is live, with the forming candle checked for a spent CRT.
-// (The engine's own anchor raid detection keeps its wider C1 search — owner decision.)
+// 2026-11-14): C2 = the last CLOSED candle; C1 = a closed candle up to C1_LOOKBACK candles before
+// it that C2 is the FIRST to sweep (all candles in between stayed inside C1 — same search as the
+// engine's detectAnchorRaid, oldest C1 first). C2 swept exactly one side and closed back inside
+// → Candle 3 is live, with the forming candle checked for a spent CRT. Owner rule 2026-11-17:
+// C1 does not have to be the candle right before C2.
 export function readCrtCycle(candles: Candle[]): CrtCycleRead {
   const closed = closedHtfCandles(candles).filter((candle) => candle.high > candle.low);
-  const c1 = closed.at(-2);
   const c2 = closed.at(-1);
-  if (!c1 || !c2) return {};
+  if (!c2) return {};
+  const last = closed.length - 1;
+  let c1: Candle | undefined;
+  for (let index = Math.max(0, last - C1_LOOKBACK); index < last && !c1; index += 1) {
+    const candidate = closed[index];
+    const between = closed.slice(index + 1, last);
+    if (!between.every((candle) => candle.high <= candidate.high && candle.low >= candidate.low)) continue;
+    const high = c2.high > candidate.high;
+    const low = c2.low < candidate.low;
+    const inside = c2.close <= candidate.high && c2.close >= candidate.low;
+    if (high !== low && inside) c1 = candidate;
+  }
+  if (!c1) return {};
   const sweptHigh = c2.high > c1.high;
-  const sweptLow = c2.low < c1.low;
-  const closedInside = c2.close <= c1.high && c2.close >= c1.low;
-  if (sweptHigh === sweptLow || !closedInside) return {};
   const range = { high: c1.high, low: c1.low, time: c1.time };
   const c3 = formingHtfCandle(candles);
   if (c3 && c3.time > c2.time) {
